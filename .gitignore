@@ -1,0 +1,11 @@
+node_modules/
+dist/
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+uploads/
+backend/migrations/versions/__pycache__/
+~$*
+*.xlsx

@@ -1,0 +1,56 @@
+
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-panupongdonkrathok16}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Donkrathok16}
+      POSTGRES_DB: ${POSTGRES_DB:-flowquest_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_data2:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_USER=${POSTGRES_USER:-panupongdonkrathok16}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-Donkrathok16}
+      - POSTGRES_DB=${POSTGRES_DB:-flowquest_db}
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - db
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Default for local development
+        - VITE_API_BASE_URL=http://localhost:5001
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  redis_data2:
