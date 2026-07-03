@@ -12,7 +12,7 @@ class Class(db.Model):
     __tablename__ = 'classes'
     class_id = db.Column(db.Integer, primary_key=True)
     class_name = db.Column(db.String(100))
-    grade_level = db.Column(db.Integer)
+    grade_level = db.Column(db.String(20))
     academic_year = db.Column(db.String(20))
 
     users = db.relationship('User', backref='school_class', lazy=True)
@@ -85,6 +85,7 @@ class Mission(db.Model):
     time_limit_seconds = db.Column(db.Integer, nullable=True)
     randomize_questions = db.Column(db.Boolean, default=False)
     randomize_choices = db.Column(db.Boolean, default=True)
+    passing_percentage = db.Column(db.Integer, default=70)
     
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)

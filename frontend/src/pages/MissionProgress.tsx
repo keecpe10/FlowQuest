@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
+import { io } from 'socket.io-client';
 
 interface StudentProgress {
   user_id: number;
@@ -12,10 +13,15 @@ interface StudentProgress {
   status: string;
   last_active: string | null;
   xp_awarded?: number;
+  mcq_progress_text?: string;
+  score_text?: string;
 }
 
 interface MissionDetail {
   title: string;
+  course_id?: number;
+  mission_type?: string;
+  board_id?: number;
 }
 
 const MissionProgress = () => {
@@ -52,7 +58,12 @@ const MissionProgress = () => {
         const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMission({ title: response.data.title });
+        setMission({ 
+          title: response.data.title,
+          course_id: response.data.course_id,
+          mission_type: response.data.mission_type,
+          board_id: response.data.board_id
+        });
       } catch (error) {
         console.error("Failed to fetch mission", error);
       }
@@ -62,9 +73,17 @@ const MissionProgress = () => {
       fetchMissionDetails();
       fetchProgress().finally(() => setIsLoading(false));
       
-      // Poll every 5 seconds
+      const socket = io(import.meta.env.VITE_API_BASE_URL || '', { transports: ['polling'] });
+      socket.on('missions_updated', () => {
+        fetchProgress();
+      });
+      
+      // Poll every 5 seconds as fallback
       const interval = setInterval(fetchProgress, 5000);
-      return () => clearInterval(interval);
+      return () => {
+        clearInterval(interval);
+        socket.disconnect();
+      };
     }
   }, [missionId, token]);
 
@@ -190,7 +209,17 @@ const MissionProgress = () => {
       return {
         label: 'ผ่านแล้ว (Completed)',
         icon: <CheckCircle2 size={18} className="text-emerald-500" />,
-        badgeColor: 'bg-emerald-100 text-emerald-700 border-emerald-200'
+        badgeColor: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        cardColor: 'bg-emerald-50/50 border-emerald-200/80'
+      };
+    }
+
+    if (student.status === 'failed') {
+      return {
+        label: 'ไม่ผ่าน (Failed)',
+        icon: <X size={18} className="text-rose-500" />,
+        badgeColor: 'bg-rose-100 text-rose-700 border-rose-200',
+        cardColor: 'bg-rose-50/50 border-rose-200/80'
       };
     }
     
@@ -207,9 +236,10 @@ const MissionProgress = () => {
     
     if (isOnline) {
       return {
-        label: 'กำลังทำ (Online)',
+        label: student.mcq_progress_text || 'กำลังทำ (Online)',
         icon: <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse ml-1 mr-1"></div>,
-        badgeColor: 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm shadow-blue-100'
+        badgeColor: 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm shadow-blue-100',
+        cardColor: 'bg-blue-50/30 border-blue-200/60'
       };
     }
     
@@ -217,14 +247,16 @@ const MissionProgress = () => {
       return {
         label: 'มีงานค้าง (Offline)',
         icon: <Clock size={18} className="text-amber-500" />,
-        badgeColor: 'bg-amber-50 text-amber-700 border-amber-200'
+        badgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
+        cardColor: 'bg-amber-50/30 border-amber-200/60'
       };
     }
     
     return {
       label: 'ยังไม่ทำ (Not Started)',
       icon: <Clock size={18} className="text-slate-400" />,
-      badgeColor: 'bg-slate-100 text-slate-600 border-slate-200'
+      badgeColor: 'bg-slate-100 text-slate-600 border-slate-200',
+      cardColor: 'bg-white border-slate-200/60'
     };
   };
 
@@ -234,7 +266,13 @@ const MissionProgress = () => {
         <header className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => navigate(-1)}
+              onClick={() => {
+                if (mission?.course_id) {
+                  navigate(`/teacher/courses/${mission.course_id}`);
+                } else {
+                  navigate(-1);
+                }
+              }}
               className="p-2.5 hover:bg-white rounded-full text-slate-400 hover:text-slate-700 transition-colors shadow-sm"
             >
               <ArrowLeft size={24} />
@@ -312,9 +350,17 @@ const MissionProgress = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="bg-white rounded-2xl shadow-sm border border-slate-200/60 hover:shadow-md transition-all hover:border-violet-300 group"
+                    className={`rounded-2xl shadow-sm border hover:shadow-md transition-all hover:border-violet-300 group ${display.cardColor}`}
                   >
-                    <Link to={`/teacher/mission/${missionId}/student/${student.user_id}`} className="block p-4 sm:p-5">
+                    <Link 
+                      to={mission?.mission_type === 'brainstorm' && mission?.board_id
+                        ? `/brainstorm/${mission.board_id}?focus_student=${student.user_id}` 
+                        : mission?.mission_type === 'mcq'
+                        ? `/teacher/mission/${missionId}/mcq-student/${student.user_id}`
+                        : `/teacher/mission/${missionId}/student/${student.user_id}`
+                      }
+                      className="block p-4 sm:p-5"
+                    >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <div className="w-11 h-11 shrink-0 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-lg group-hover:bg-violet-50 group-hover:text-violet-600 transition-colors">
@@ -327,6 +373,11 @@ const MissionProgress = () => {
                                 {display.icon}
                                 {display.label}
                               </div>
+                              {student.score_text && (
+                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 shrink-0">
+                                  คะแนน: {student.score_text}
+                                </div>
+                              )}
                               {student.xp_awarded !== undefined && student.xp_awarded > 0 && (
                                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 shrink-0">
                                   <Zap size={10} className="text-amber-500 fill-amber-500" />

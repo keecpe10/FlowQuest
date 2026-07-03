@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app import db, socketio
-from models import BrainstormBoard, BrainstormCard, BrainstormReaction, BrainstormComment, PointHistory, User, BrainstormQuestion, Mission
+from models import BrainstormBoard, BrainstormCard, BrainstormReaction, BrainstormComment, PointHistory, User, BrainstormQuestion, Mission, UserMission
 from flask_socketio import emit, join_room, leave_room
 import json
 import os
@@ -185,6 +185,7 @@ def update_board_visibility(board_id):
 @brainstorm_bp.route('/boards/<int:board_id>/cards', methods=['POST'])
 def add_card(board_id):
     data = request.json
+    user_id = data.get('user_id')
     try:
         board = BrainstormBoard.query.get_or_404(board_id)
         
@@ -216,6 +217,31 @@ def add_card(board_id):
         )
         db.session.add(new_card)
         db.session.commit()
+        
+        # Update UserMission for brainstorm mission progress
+        if user_id and board.mission_id:
+            um = UserMission.query.filter_by(user_id=user_id, mission_id=board.mission_id).first()
+            if not um:
+                um = UserMission(user_id=user_id, mission_id=board.mission_id)
+                db.session.add(um)
+            
+            um.status = 'completed'
+            from datetime import datetime
+            um.completed_at = datetime.utcnow()
+            
+            if not um.score_awarded or um.score_awarded == 0:
+                mission = Mission.query.get(board.mission_id)
+                if mission and mission.points > 0:
+                    um.score_awarded = mission.points
+                    pt = PointHistory(
+                        user_id=user_id,
+                        source='mission',
+                        source_id=board.mission_id,
+                        points=mission.points,
+                        description=f'Completed Brainstorm: {mission.title}'
+                    )
+                    db.session.add(pt)
+            db.session.commit()
         
         user = User.query.get(user_id)
         if user:
@@ -255,6 +281,7 @@ def add_card(board_id):
             
         # Broadcast to room
         socketio.emit('card_added', card_data, to=f"board_{board_id}")
+        socketio.emit('missions_updated')
         return jsonify(card_data), 201
     except Exception as e:
         db.session.rollback()
@@ -301,10 +328,32 @@ def delete_card(card_id):
                 except Exception as e:
                     print(f"Error deleting file {filepath}: {e}")
 
+        author_id = card.author_id
         db.session.delete(card)
         db.session.commit()
+        
+        # Check if user has any other cards left, if not, revert mission progress and XP
+        if author_id and board.mission_id:
+            remaining = BrainstormCard.query.filter_by(board_id=board_id, author_id=author_id).count()
+            if remaining == 0:
+                from models import UserMission, PointHistory
+                um = UserMission.query.filter_by(user_id=author_id, mission_id=board.mission_id).first()
+                if um:
+                    db.session.delete(um)
+                
+                # Delete mission XP and brainstorm post XP
+                PointHistory.query.filter(
+                    PointHistory.user_id == author_id,
+                    db.or_(
+                        db.and_(PointHistory.source == 'mission', PointHistory.source_id == board.mission_id),
+                        db.and_(PointHistory.source == 'brainstorm_post', PointHistory.source_id == board_id)
+                    )
+                ).delete()
+                
+                db.session.commit()
     
         socketio.emit('card_deleted', {"card_id": card_id}, to=f"board_{board_id}")
+        socketio.emit('missions_updated')
         return jsonify({"message": "Card deleted"})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -438,6 +487,7 @@ def get_board_by_mission(mission_id):
 @socketio.on('join_board')
 def on_join(data):
     board_id = data.get('board_id')
+    user_id = data.get('user_id')
     
     room = f"board_{board_id}"
     join_room(room)

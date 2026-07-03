@@ -62,7 +62,8 @@ interface BrainstormState {
   
   initSocket: (boardId: number, userId: number | null) => void;
   disconnectSocket: () => void;
-  fetchBoard: (missionId: number) => Promise<number | void>;
+  fetchBoard: (boardId: number) => Promise<number | void>;
+  fetchBoardByMission: (missionId: number) => Promise<number | void>;
   
   addCard: (card: Partial<CardData>) => Promise<void>;
   uploadImage: (file: File) => Promise<string | null>;
@@ -193,7 +194,19 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     }
   },
 
-  fetchBoard: async (missionId: number) => {
+  fetchBoard: async (boardId: number) => {
+    try {
+      const res = await fetch(`${API_URL}/brainstorm/boards/${boardId}`);
+      if (!res.ok) throw new Error('Failed to load board');
+      const data = await res.json();
+      set({ board: data, cards: data.cards || [] });
+      return data.board_id;
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  fetchBoardByMission: async (missionId: number) => {
     try {
       const res = await fetch(`${API_URL}/brainstorm/mission/${missionId}`);
       if (!res.ok) throw new Error('Failed to load board');
@@ -210,10 +223,14 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     const currentUserId = useAuthStore.getState().user?.user_id;
     if (!board) return;
     
+    const token = useAuthStore.getState().token;
     try {
       await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/cards`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ ...card, user_id: currentUserId })
       });
     } catch (e) {
@@ -239,10 +256,14 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   },
 
   addCardToQuestion: async (boardId: number, questionId: number, content: string, color: string, media_url?: string) => {
+    const token = useAuthStore.getState().token;
     try {
       await fetch(`${API_URL}/brainstorm/boards/${boardId}/cards`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           user_id: useAuthStore.getState().user?.user_id,
           question_id: questionId,

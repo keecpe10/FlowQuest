@@ -87,6 +87,9 @@ const StudentMCQPlayer = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [results, setResults] = useState<AnswerResult[] | null>(null);
   const [totalXp, setTotalXp] = useState(0);
+  const [isPassed, setIsPassed] = useState(false);
+  const [scoreText, setScoreText] = useState('');
+  const [passingPercentage, setPassingPercentage] = useState(70);
 
   const [matchingState, setMatchingState] = useState<any>({});
   
@@ -118,6 +121,25 @@ const StudentMCQPlayer = () => {
     
     fetchQuestions();
   }, [id, token]);
+  
+  useEffect(() => {
+    if (questions.length === 0 || loading || isSubmitting || results) return;
+    
+    const syncProgress = async () => {
+      try {
+        await axios.put(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${id}/progress`, {
+          current_index: currentQIndex,
+          total_questions: questions.length,
+          answers: answers
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      } catch (e) {
+        // Ignore progress sync errors silently
+      }
+    };
+    
+    const timeout = setTimeout(syncProgress, 1000);
+    return () => clearTimeout(timeout);
+  }, [answers, currentQIndex, questions.length, id, token, loading, isSubmitting, results]);
   
   const handleSelectChoice = (choiceId: number) => {
     const currentQ = questions[currentQIndex];
@@ -213,6 +235,9 @@ const StudentMCQPlayer = () => {
       }, { headers: { Authorization: `Bearer ${token}` } });
       setResults(res.data.results);
       setTotalXp(res.data.total_xp_awarded);
+      setIsPassed(res.data.is_passed);
+      setScoreText(res.data.score_text);
+      setPassingPercentage(res.data.passing_percentage);
     } catch (error) {
       console.error('Failed to submit answers', error);
       Swal.fire({ icon: 'error', text: 'ส่งคำตอบไม่สำเร็จ' });
@@ -243,11 +268,31 @@ const StudentMCQPlayer = () => {
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-8">
             <h1 className="text-3xl font-black text-white mb-2">สรุปผลคะแนน</h1>
-            <div className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500/20 border border-amber-500/30 rounded-2xl">
-              <Zap size={24} className="text-amber-400" />
-              <span className="text-2xl font-black text-amber-400">{totalXp} XP</span>
+            <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
+                <div className={`inline-flex items-center gap-2 px-6 py-3 border rounded-2xl ${isPassed ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-rose-500/20 border-rose-500/30'}`}>
+                  <Target size={24} className={isPassed ? 'text-emerald-400' : 'text-rose-400'} />
+                  <span className={`text-2xl font-black ${isPassed ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {isPassed ? 'ผ่าน' : 'ไม่ผ่าน'} ({scoreText})
+                  </span>
+                </div>
+                {isPassed ? (
+                    <div className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500/20 border border-amber-500/30 rounded-2xl">
+                      <Zap size={24} className="text-amber-400" />
+                      <span className="text-2xl font-black text-amber-400">{totalXp} XP</span>
+                    </div>
+                ) : (
+                    <div className="inline-flex items-center gap-2 px-6 py-3 bg-slate-800 border border-slate-700 rounded-2xl opacity-70">
+                      <Zap size={24} className="text-slate-500" />
+                      <span className="text-2xl font-black text-slate-500">0 XP</span>
+                    </div>
+                )}
             </div>
-            <p className="text-slate-400 mt-4">คุณทำได้ยอดเยี่ยมมาก! ลองทบทวนข้อที่ผิดด้านล่างนี้ได้เลย</p>
+            <p className="text-slate-400 mt-4">
+                {isPassed 
+                    ? 'คุณทำได้ยอดเยี่ยมมาก! ลองทบทวนข้อที่ผิดด้านล่างนี้ได้เลย'
+                    : `คุณทำคะแนนไม่ถึงเกณฑ์ที่กำหนด (${passingPercentage}%) สู้ๆ ลองใหม่อีกครั้งนะ!`
+                }
+            </p>
           </div>
           
           <div className="space-y-6">

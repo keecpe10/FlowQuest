@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import { Link, Navigate } from 'react-router-dom';
-import { Plus, BookOpen, Users, Target, ChevronRight, Search, X } from 'lucide-react';
+import { Plus, BookOpen, Users, Target, ChevronRight, Search, X, Edit, Trash2 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 interface Course {
@@ -21,10 +21,19 @@ const TeacherCourseList = () => {
   const [search, setSearch] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCourseId, setEditingCourseId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     course_name: '',
     description: ''
   });
+
+  const CARD_COLORS = [
+    "from-violet-400 to-indigo-500",
+    "from-emerald-400 to-teal-500",
+    "from-rose-400 to-pink-500",
+    "from-amber-400 to-orange-500",
+    "from-blue-400 to-cyan-500",
+  ];
 
   const fetchCourses = async () => {
     try {
@@ -58,20 +67,74 @@ const TeacherCourseList = () => {
     c.course_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleCreateCourse = async (e: React.FormEvent) => {
+  const handleSubmitCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses`, formData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      if (editingCourseId) {
+        await axios.put(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${editingCourseId}`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        Swal.fire({ icon: 'success', title: 'แก้ไขรายวิชาสำเร็จ', timer: 1500, showConfirmButton: false });
+      } else {
+        await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        Swal.fire({ icon: 'success', title: 'สร้างรายวิชาสำเร็จ', timer: 1500, showConfirmButton: false });
+      }
       setIsModalOpen(false);
       setFormData({ course_name: '', description: '' });
+      setEditingCourseId(null);
       fetchCourses();
-      Swal.fire({ icon: 'success', title: 'สร้างรายวิชาสำเร็จ', timer: 1500, showConfirmButton: false });
     } catch (error) {
-      console.error('Failed to create course', error);
-      Swal.fire({ icon: 'error', text: 'สร้างรายวิชาไม่สำเร็จ' });
+      console.error('Failed to save course', error);
+      Swal.fire({ icon: 'error', text: 'บันทึกข้อมูลไม่สำเร็จ' });
     }
+  };
+
+  const handleDeleteCourse = async (e: React.MouseEvent, courseId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const result = await Swal.fire({
+      title: 'ยืนยันการลบ',
+      text: 'คุณต้องการลบรายวิชานี้ใช่หรือไม่? ข้อมูลทั้งหมดที่เกี่ยวข้องจะถูกลบ',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#94a3b8',
+      confirmButtonText: 'ใช่, ลบเลย',
+      cancelButtonText: 'ยกเลิก'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await axios.delete(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${courseId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        Swal.fire({ icon: 'success', title: 'ลบรายวิชาสำเร็จ', timer: 1500, showConfirmButton: false });
+        fetchCourses();
+      } catch (error) {
+        console.error('Failed to delete course', error);
+        Swal.fire({ icon: 'error', text: 'ลบรายวิชาไม่สำเร็จ' });
+      }
+    }
+  };
+
+  const openCreateModal = () => {
+    setEditingCourseId(null);
+    setFormData({ course_name: '', description: '' });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (e: React.MouseEvent, course: Course) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingCourseId(course.course_id);
+    setFormData({
+      course_name: course.course_name,
+      description: course.description || ''
+    });
+    setIsModalOpen(true);
   };
 
   return (
@@ -87,7 +150,7 @@ const TeacherCourseList = () => {
           </div>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-lg shadow-violet-600/25 transition-all flex items-center gap-2"
         >
           <Plus size={18} /> สร้างรายวิชาใหม่
@@ -109,15 +172,33 @@ const TeacherCourseList = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredCourses.map(course => (
+          {filteredCourses.map((course, index) => (
             <Link 
               key={course.course_id} 
               to={`/teacher/courses/${course.course_id}`}
-              className="bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg transition-all group flex flex-col overflow-hidden"
+              className="bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg transition-all group flex flex-col overflow-hidden relative"
             >
-              <div className="h-2 w-full bg-gradient-to-r from-violet-400 to-indigo-500" />
-              <div className="p-6 flex flex-col flex-1">
-                <h3 className="text-xl font-extrabold text-slate-800 mb-2 leading-tight group-hover:text-violet-600 transition-colors">
+              <div className={`h-2 w-full bg-gradient-to-r ${CARD_COLORS[index % CARD_COLORS.length]}`} />
+              
+              <div className="absolute top-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => openEditModal(e, course)}
+                  className="p-2 bg-white rounded-full text-slate-400 hover:text-blue-500 shadow-sm hover:shadow border border-slate-100 transition-all"
+                  title="แก้ไขรายวิชา"
+                >
+                  <Edit size={16} />
+                </button>
+                <button
+                  onClick={(e) => handleDeleteCourse(e, course.course_id)}
+                  className="p-2 bg-white rounded-full text-slate-400 hover:text-red-500 shadow-sm hover:shadow border border-slate-100 transition-all"
+                  title="ลบรายวิชา"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+
+              <div className="p-6 flex flex-col flex-1 mt-2">
+                <h3 className="text-xl font-extrabold text-slate-800 mb-2 leading-tight group-hover:text-violet-600 transition-colors pr-16">
                   {course.course_name}
                 </h3>
                 <p className="text-slate-500 text-sm leading-relaxed flex-1 mb-5 line-clamp-2">
@@ -153,8 +234,8 @@ const TeacherCourseList = () => {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-blue-600">
               <div>
-                <h3 className="text-xl font-bold text-white">สร้างรายวิชาใหม่</h3>
-                <p className="text-violet-200 text-xs mt-0.5">กรอกรายละเอียดรายวิชา</p>
+                <h3 className="text-xl font-bold text-white">{editingCourseId ? 'แก้ไขรายวิชา' : 'สร้างรายวิชาใหม่'}</h3>
+                <p className="text-violet-200 text-xs mt-0.5">{editingCourseId ? 'แก้ไขรายละเอียดรายวิชา' : 'กรอกรายละเอียดรายวิชา'}</p>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -164,7 +245,7 @@ const TeacherCourseList = () => {
               </button>
             </div>
 
-            <form onSubmit={handleCreateCourse} className="p-6 space-y-4">
+            <form onSubmit={handleSubmitCourse} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">ชื่อรายวิชา</label>
                 <input
@@ -200,7 +281,7 @@ const TeacherCourseList = () => {
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-700 transition-all shadow-lg shadow-violet-600/25 text-sm flex items-center justify-center gap-2"
                 >
-                  สร้างรายวิชา <ChevronRight size={16} />
+                  {editingCourseId ? 'บันทึกการแก้ไข' : 'สร้างรายวิชา'} <ChevronRight size={16} />
                 </button>
               </div>
             </form>

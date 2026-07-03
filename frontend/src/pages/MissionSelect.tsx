@@ -13,6 +13,8 @@ interface Mission {
   points: number;
   difficulty_level: number;
   is_completed: boolean;
+  status?: string;
+  score_text?: string;
 }
 
 const missionTypeLabel: Record<string, string> = {
@@ -137,7 +139,7 @@ const MissionSelect = () => {
             return (
               <div
                 key={mission.mission_id}
-                onClick={() => isUnlocked && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
+                onClick={() => isUnlocked && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
                 className={`relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
                   isUnlocked
                     ? 'cursor-pointer hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/40 group'
@@ -179,11 +181,17 @@ const MissionSelect = () => {
                         </div>
                       </div>
 
-                      {/* Completed overlay badge */}
+                      {/* Completed/Failed overlay badge */}
                       {mission.is_completed && (
                         <div className="mt-3 inline-flex items-center gap-1.5 bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full">
                           <CheckCircle size={12} />
-                          ผ่านแล้ว!
+                          ผ่านแล้ว! {mission.score_text ? `(${mission.score_text})` : ''}
+                        </div>
+                      )}
+                      {mission.status === 'failed' && (
+                        <div className="mt-3 inline-flex items-center gap-1.5 bg-rose-500/30 border border-rose-400/50 text-rose-300 text-xs font-bold px-3 py-1 rounded-full">
+                          <Target size={12} />
+                          ไม่ผ่าน {mission.score_text ? `(${mission.score_text})` : ''}
                         </div>
                       )}
                     </div>
@@ -208,9 +216,9 @@ const MissionSelect = () => {
 
                         {isUnlocked && (
                           <span className={`text-sm font-bold transition-transform group-hover:translate-x-1 ${
-                            mission.is_completed ? 'text-emerald-400' : 'text-violet-400'
+                            mission.is_completed ? 'text-emerald-400' : mission.status === 'failed' ? 'text-rose-400' : 'text-violet-400'
                           }`}>
-                            {mission.is_completed ? 'เล่นอีกครั้ง →' : 'เริ่มเลย →'}
+                            {mission.is_completed || mission.status === 'failed' ? 'เล่นอีกครั้ง →' : 'เริ่มเลย →'}
                           </span>
                         )}
                       </div>

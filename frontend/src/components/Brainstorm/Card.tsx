@@ -8,11 +8,13 @@ import { LinkPreview } from './LinkPreview';
 
 interface CardProps {
   card: CardData;
+  isFocused?: boolean;
+  isDimmed?: boolean;
 }
 
 const emojis = ['❤️', '🔥', '💡', '👍', '🤔'];
 
-export const Card: React.FC<CardProps> = ({ card }) => {
+export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
   const { board, toggleReaction, deleteCard, setSelectedCard } = useBrainstormStore();
   const user = useAuthStore(state => state.user);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -55,9 +57,15 @@ export const Card: React.FC<CardProps> = ({ card }) => {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
+      animate={{ 
+        opacity: isDimmed ? 0.4 : 1, 
+        scale: isFocused ? 1.05 : 1,
+        boxShadow: isFocused ? '0 25px 50px -12px rgba(139, 92, 246, 0.5)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+      }}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-      className="relative w-full max-w-[320px] p-5 rounded-2xl shadow-xl border-2 border-white/20 backdrop-blur-md shrink-0"
+      className={`relative w-full max-w-[320px] p-5 rounded-2xl border-2 backdrop-blur-md shrink-0 transition-colors ${
+        isFocused ? 'border-violet-500 z-10' : 'border-white/20'
+      }`}
       style={{ 
         backgroundColor: card.color || '#fff'
       }}

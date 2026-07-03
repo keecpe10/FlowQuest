@@ -13,7 +13,7 @@ interface MyBoard {
 }
 
 export const BrainstormStation: React.FC = () => {
-  const { boardId } = useParams();
+  const { boardId, missionId } = useParams();
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState('');
   const user = useAuthStore(state => state.user);
@@ -25,10 +25,10 @@ export const BrainstormStation: React.FC = () => {
   const [myBoards, setMyBoards] = useState<MyBoard[]>([]);
 
   useEffect(() => {
-    if (user?.role === 'teacher' && user?.user_id && !boardId) {
+    if (user?.role === 'teacher' && user?.user_id && !boardId && !missionId) {
       fetchMyBoards();
     }
-  }, [user, boardId]);
+  }, [user, boardId, missionId]);
 
   const fetchMyBoards = async () => {
     try {
@@ -67,7 +67,7 @@ export const BrainstormStation: React.FC = () => {
   };
 
   // If no boardId is provided, show the join/create screen
-  if (!boardId) {
+  if (!boardId && !missionId) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-800 to-pink-900 flex items-center justify-center p-4">
         <div className={`bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl ${user?.role === 'teacher' ? 'max-w-4xl' : 'max-w-md'} w-full flex flex-col md:flex-row gap-8`}>
@@ -267,5 +267,5 @@ export const BrainstormStation: React.FC = () => {
     );
   }
 
-  return <BrainstormBoard boardId={parseInt(boardId, 10)} />;
+  return <BrainstormBoard boardId={boardId ? parseInt(boardId, 10) : undefined} missionId={missionId ? parseInt(missionId, 10) : undefined} />;
 };

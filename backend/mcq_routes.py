@@ -101,15 +101,15 @@ def get_mcq_questions(mission_id):
 @mcq_bp.route('/<int:mission_id>/questions', methods=['PUT'])
 def update_mcq_questions(mission_id):
     user_id = get_current_user_id()
-    if not user_id or not is_course_teacher(user_id, mission.course_id):
-        return jsonify({'message': 'Unauthorized. Teacher access required.'}), 403
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
     if not mission or mission.mission_type != 'mcq':
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'message': 'Forbidden. Teacher access required.'}), 403
         
     data = request.get_json()
     questions_data = data.get('questions', [])
@@ -261,8 +261,25 @@ def submit_mcq(mission_id):
             'explanation': question.explanation
         })
         
+    # Calculate pass/fail
+    total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
+    correct_answers = sum(1 for r in results if r['is_correct'])
+    percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+    
+    passing_percentage = mission.passing_percentage or 70
+    is_passed = percentage >= passing_percentage
+    
     # Update UserMission
-    user_mission.status = 'completed'
+    user_mission.status = 'completed' if is_passed else 'failed'
+    
+    # Zero out XP if failed, else calculate proportional XP
+    if not is_passed:
+        total_xp = 0
+        for r in results:
+            r['xp_awarded'] = 0
+    else:
+        total_xp = int((correct_answers / total_questions) * mission.points) if total_questions > 0 else 0
+            
     user_mission.score_awarded = total_xp
     
     # Give Points
@@ -283,5 +300,93 @@ def submit_mcq(mission_id):
     return jsonify({
         'message': 'Submission successful',
         'total_xp_awarded': total_xp,
-        'results': results
+        'results': results,
+        'is_passed': is_passed,
+        'score_text': f"{correct_answers}/{total_questions}",
+        'passing_percentage': passing_percentage
+    }), 200
+
+@mcq_bp.route('/<int:mission_id>/progress', methods=['PUT'])
+def update_mcq_progress(mission_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
+        
+    data = request.get_json()
+    
+    um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
+    if not um:
+        um = UserMission(user_id=user_id, mission_id=mission_id, status='pending')
+        db.session.add(um)
+        db.session.flush()
+        
+    # Do not update if already completed
+    if um.status != 'completed':
+        um.current_nodes = data
+        db.session.commit()
+        socketio.emit('missions_updated')
+        
+    return jsonify({'message': 'Progress updated'}), 200
+
+@mcq_bp.route('/<int:mission_id>/student/<int:student_id>', methods=['GET'])
+def get_mcq_student_progress(mission_id, student_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
+        
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'message': 'Forbidden. Teacher access required.'}), 403
+        
+    um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).first()
+    
+    questions = MCQQuestion.query.filter_by(mission_id=mission_id).all()
+    q_data = []
+    for q in questions:
+        choices = MCQChoice.query.filter_by(question_id=q.question_id).all()
+        q_data.append({
+            'question_id': q.question_id,
+            'question_text': q.question_text,
+            'question_type': q.question_type,
+            'question_metadata': q.question_metadata,
+            'image_url': q.image_url,
+            'xp_points': q.xp_points,
+            'choices': [{'choice_id': c.choice_id, 'choice_text': c.choice_text, 'is_correct': c.is_correct, 'image_url': c.image_url} for c in choices]
+        })
+        
+    # Get answers based on status
+    answers = []
+    status = 'not_started'
+    score_text = None
+    if um:
+        status = um.status
+        if um.status in ['completed', 'failed']:
+            mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+            correct_count = 0
+            for a in mcq_answers:
+                answers.append({
+                    'question_id': a.question_id,
+                    'choice_id': a.selected_choice_id,
+                    'answer_data': a.answer_data,
+                    'is_correct': a.is_correct,
+                    'xp_awarded': a.xp_awarded
+                })
+                if a.is_correct:
+                    correct_count += 1
+            score_text = f"{correct_count}/{len(questions)}"
+            # Pending status, get from current_nodes
+            progress_data = um.current_nodes or {}
+            answers = progress_data.get('answers', [])
+            
+    student = User.query.get(student_id)
+    student_name = f"{student.first_name or ''} {student.last_name or ''}".strip() or student.username
+    
+    return jsonify({
+        'student_name': student_name,
+        'status': status,
+        'questions': q_data,
+        'answers': answers,
+        'score_awarded': um.score_awarded if um else 0,
+        'score_text': score_text,
+        'passing_percentage': mission.passing_percentage
     }), 200

@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useBrainstormStore } from '../../store/useBrainstormStore';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -8,16 +8,20 @@ import { Card } from './Card';
 import { MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search } from 'lucide-react';
 
 interface BrainstormBoardProps {
-  boardId: number;
+  boardId?: number;
+  missionId?: number;
 }
 
 const colors = ['#ffffff', '#fdf2f8', '#eff6ff', '#f0fdf4', '#fefce8', '#fff7ed'];
 
-export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId }) => {
+export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missionId }) => {
   const { 
     board, cards, cursors, summary, selectedCard, isSummarizing,
-    fetchBoard, initSocket, disconnectSocket, emitCursorMove, addCard, fetchSummary, setSelectedCard
+    fetchBoard, fetchBoardByMission, initSocket, disconnectSocket, emitCursorMove, addCard, fetchSummary, setSelectedCard
   } = useBrainstormStore();
+  
+  const [searchParams] = useSearchParams();
+  const focusStudentId = searchParams.get('focus_student') ? parseInt(searchParams.get('focus_student') as string) : null;
   
   const [newText, setNewText] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -56,16 +60,24 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId }) => 
   });
 
   useEffect(() => {
-    fetchBoard(boardId).then((realBoardId) => {
-      if (realBoardId) {
-        initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
-      }
-    });
+    if (boardId) {
+      fetchBoard(boardId).then((realBoardId) => {
+        if (realBoardId) {
+          initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
+        }
+      });
+    } else if (missionId) {
+      fetchBoardByMission(missionId).then((realBoardId) => {
+        if (realBoardId) {
+          initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
+        }
+      });
+    }
     
     return () => {
       disconnectSocket();
     };
-  }, [boardId, fetchBoard, initSocket, disconnectSocket, user?.user_id]);
+  }, [boardId, missionId, fetchBoard, fetchBoardByMission, initSocket, disconnectSocket, user?.user_id]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -390,7 +402,12 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId }) => 
           style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
         >
           {visibleCards.map(card => (
-            <Card key={card.card_id} card={card} />
+            <Card 
+              key={card.card_id} 
+              card={card} 
+              isFocused={focusStudentId !== null ? card.author_id === focusStudentId : false}
+              isDimmed={focusStudentId !== null ? card.author_id !== focusStudentId : false}
+            />
           ))}
         </div>
       </div>

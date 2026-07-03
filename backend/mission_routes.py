@@ -2,7 +2,7 @@ import jwt
 import os
 from flask import Blueprint, request, jsonify
 from app import db, socketio
-from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, CourseEnrollment
+from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, CourseEnrollment, MCQQuestion, MCQUserAnswer
 from auth_utils import has_course_access, is_course_teacher
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
@@ -31,12 +31,23 @@ def get_missions(course_id):
         
     missions = Mission.query.filter_by(course_id=course_id, is_active=True).order_by(Mission.difficulty_level).all()
     
-    # Get user's completed missions
-    user_missions = UserMission.query.filter_by(user_id=user_id, status='completed').all()
-    completed_mission_ids = [um.mission_id for um in user_missions]
+    # Get user's missions
+    user_missions = UserMission.query.filter_by(user_id=user_id).all()
+    user_mission_dict = {um.mission_id: um for um in user_missions}
     
     results = []
     for m in missions:
+        um = user_mission_dict.get(m.mission_id)
+        status = um.status if um else 'not_started'
+        is_completed = status == 'completed'
+        
+        score_text = None
+        if m.mission_type == 'mcq' and status in ['completed', 'failed'] and um:
+            total_questions = MCQQuestion.query.filter_by(mission_id=m.mission_id).count()
+            mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+            correct_answers = sum(1 for a in mcq_answers if a.is_correct)
+            score_text = f"{correct_answers}/{total_questions}"
+
         mission_data = {
             'mission_id': m.mission_id,
             'title': m.title,
@@ -44,7 +55,10 @@ def get_missions(course_id):
             'mission_type': m.mission_type,
             'points': m.points,
             'difficulty_level': m.difficulty_level,
-            'is_completed': m.mission_id in completed_mission_ids
+            'is_completed': is_completed,
+            'status': status,
+            'score_text': score_text,
+            'passing_percentage': m.passing_percentage
         }
         if m.mission_type == 'brainstorm':
             board = BrainstormBoard.query.filter_by(mission_id=m.mission_id).first()
@@ -70,20 +84,22 @@ def get_mission(mission_id):
         
     response_data = {
         'mission_id': mission.mission_id,
+        'course_id': mission.course_id,
         'title': mission.title,
         'description': mission.description,
         'mission_type': mission.mission_type,
         'points': mission.points,
         'difficulty_level': mission.difficulty_level,
-        
         'time_limit_seconds': mission.time_limit_seconds,
         'randomize_questions': mission.randomize_questions,
-        'randomize_choices': mission.randomize_choices
+        'randomize_choices': mission.randomize_choices,
+        'passing_percentage': mission.passing_percentage
     }
     
     if mission.mission_type == 'brainstorm':
         board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
         if board:
+            response_data['board_id'] = board.board_id
             questions = BrainstormQuestion.query.filter_by(board_id=board.board_id).order_by(BrainstormQuestion.order_index).all()
             response_data['questions'] = [q.content for q in questions] if questions else ['']
     
@@ -135,12 +151,29 @@ def get_students_progress(mission_id):
         # Include points earned for this mission (including bonuses)
         xp_awarded = points_dict.get(student.user_id, 0)
         
+        mcq_progress_text = None
+        score_text = None
+        if mission.mission_type == 'mcq':
+            if status == 'pending' and um and um.current_nodes:
+                current_q = um.current_nodes.get('current_index', 0) + 1
+                total_q = um.current_nodes.get('total_questions', 0)
+                if total_q > 0:
+                    mcq_progress_text = f"กำลังทำข้อ {current_q} จาก {total_q} ข้อ"
+            elif status in ['completed', 'failed'] and um:
+                # Calculate correct answers
+                total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
+                mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+                correct_answers = sum(1 for a in mcq_answers if a.is_correct)
+                score_text = f"{correct_answers}/{total_questions}"
+
         results.append({
             'user_id': student.user_id,
             'name': f"{student.first_name} {student.last_name}".strip() or student.username,
             'status': status,
             'last_active': updated_at,
-            'xp_awarded': xp_awarded
+            'xp_awarded': xp_awarded,
+            'mcq_progress_text': mcq_progress_text,
+            'score_text': score_text
         })
         
     return jsonify(results), 200
@@ -187,7 +220,8 @@ def create_mission(course_id):
         difficulty_level=data.get('difficulty_level', 1),
         time_limit_seconds=data.get('time_limit_seconds'),
         randomize_questions=data.get('randomize_questions', False),
-        randomize_choices=data.get('randomize_choices', True)
+        randomize_choices=data.get('randomize_choices', True),
+        passing_percentage=data.get('passing_percentage', 70)
     )
     
     db.session.add(new_mission)
@@ -241,6 +275,8 @@ def update_mission(mission_id):
         mission.randomize_questions = data.get('randomize_questions')
     if 'randomize_choices' in data:
         mission.randomize_choices = data.get('randomize_choices')
+    if 'passing_percentage' in data:
+        mission.passing_percentage = data.get('passing_percentage')
     
     if mission.mission_type == 'brainstorm':
         board = BrainstormBoard.query.filter_by(mission_id=mission.mission_id).first()
@@ -320,12 +356,15 @@ def reset_mission_progress(mission_id):
     if not has_course_access(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
-    # Reset progress for all students
-    UserMission.query.filter_by(mission_id=mission_id).update({
-        'status': 'not_started',
-        'current_nodes': [],
-        'current_edges': []
-    })
+    if mission.mission_type == 'brainstorm':
+        from models import BrainstormBoard, BrainstormCard
+        board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
+        if board:
+            BrainstormCard.query.filter_by(board_id=board.board_id).delete()
+            PointHistory.query.filter_by(source='brainstorm_post', source_id=board.board_id).delete()
+            
+    # Reset progress for all students by deleting UserMission
+    UserMission.query.filter_by(mission_id=mission_id).delete()
     
     # Delete XP for all students in this mission
     PointHistory.query.filter(
@@ -386,12 +425,15 @@ def reset_student_progress(mission_id, student_id):
     if not has_course_access(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
-    # Reset progress for the specific student
-    UserMission.query.filter_by(mission_id=mission_id, user_id=student_id).update({
-        'status': 'not_started',
-        'current_nodes': [],
-        'current_edges': []
-    })
+    if mission.mission_type == 'brainstorm':
+        from models import BrainstormBoard, BrainstormCard
+        board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
+        if board:
+            BrainstormCard.query.filter_by(board_id=board.board_id, author_id=student_id).delete()
+            PointHistory.query.filter_by(source='brainstorm_post', source_id=board.board_id, user_id=student_id).delete()
+            
+    # Reset progress for the specific student by deleting UserMission
+    UserMission.query.filter_by(mission_id=mission_id, user_id=student_id).delete()
     
     # Delete XP points for this mission
     PointHistory.query.filter(

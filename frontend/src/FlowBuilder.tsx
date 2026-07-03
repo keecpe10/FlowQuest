@@ -208,12 +208,7 @@ const FlowBuilderCore: React.FC = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data.status === 'success') {
-        // Clear saved progress in DB on success
-        if (user && missionId) {
-          await axios.delete(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/game/save-progress?mission_id=${missionId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }).catch(console.error);
-        }
+        // Do not clear progress on success so teacher can view the final result
         
         setFeedback({
           status: 'success',

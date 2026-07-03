@@ -17,6 +17,7 @@ import StudentFlowchartView from './pages/StudentFlowchartView';
 import { BrainstormStation } from './pages/BrainstormStation';
 import TeacherMCQBuilder from './pages/TeacherMCQBuilder';
 import StudentMCQPlayer from './pages/StudentMCQPlayer';
+import StudentMCQView from './pages/StudentMCQView';
 import CharacterCreator from './pages/CharacterCreator';
 import Shop from './pages/Shop';
 import Inventory from './pages/Inventory';
@@ -274,6 +275,7 @@ function App() {
           <Route path="/market" element={<PageWithTitle title="ตลาดแลกเปลี่ยน"><DashboardLayout><TradeMarket /></DashboardLayout></PageWithTitle>} />
           <Route path="/brainstorm" element={<PageWithTitle title="ระดมความคิด"><BrainstormStation /></PageWithTitle>} />
           <Route path="/brainstorm/:boardId" element={<PageWithTitle title="กระดานระดมความคิด"><BrainstormStation /></PageWithTitle>} />
+          <Route path="/brainstorm/mission/:missionId" element={<PageWithTitle title="กระดานระดมความคิด"><BrainstormStation /></PageWithTitle>} />
           <Route path="/teacher" element={<Navigate to="/teacher/courses" replace />} />
           <Route path="/teacher/courses" element={<PageWithTitle title="จัดการรายวิชา"><DashboardLayout><TeacherCourseList /></DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/courses/:courseId" element={<PageWithTitle title="จัดการด่าน"><DashboardLayout><TeacherDashboard /></DashboardLayout></PageWithTitle>} />
@@ -282,6 +284,7 @@ function App() {
           <Route path="/mcq/:id" element={<PageWithTitle title="ทำแบบทดสอบ"><StudentMCQPlayer /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/progress" element={<PageWithTitle title="ติดตามผลนักเรียน"><MissionProgress /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/student/:studentId" element={<PageWithTitle title="ผลงานนักเรียน"><StudentFlowchartView /></PageWithTitle>} />
+          <Route path="/teacher/mission/:id/mcq-student/:studentId" element={<PageWithTitle title="ผลทดสอบนักเรียน"><StudentMCQView /></PageWithTitle>} />
         </Route>
       </Routes>
     </BrowserRouter>
