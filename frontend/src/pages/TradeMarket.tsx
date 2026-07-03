@@ -6,7 +6,7 @@ import Swal from 'sweetalert2';
 import { ArrowRightLeft, Search, Coins, ArrowUpRight } from 'lucide-react';
 import CharacterCanvas from '../components/Character/CharacterCanvas';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 const TradeMarket: React.FC = () => {
   const { token, user } = useAuthStore();

@@ -9,7 +9,7 @@ RUN npm install
 COPY . .
 
 # Pass API URL during build time
-ARG VITE_API_BASE_URL=http://localhost:5001
+ARG VITE_API_BASE_URL=""
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build
