@@ -340,6 +340,32 @@ const TeacherDashboard = () => {
     }
   };
 
+  const handleDeleteStudent = async (studentId: number) => {
+    const result = await Swal.fire({
+      text: 'คุณแน่ใจหรือไม่ว่าต้องการลบนักเรียนคนนี้ออกจากรายวิชา?',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      confirmButtonText: 'ใช่, ลบเลย',
+      cancelButtonText: 'ยกเลิก'
+    });
+    
+    if (result.isConfirmed) {
+      try {
+        await axios.delete(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${courseId}/students/remove_multiple`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { student_ids: [studentId] }
+        });
+        Swal.fire({ icon: 'success', title: 'ลบนักเรียนสำเร็จ', timer: 1500, showConfirmButton: false });
+        setSelectedCourseStudents(prev => prev.filter(id => id !== studentId));
+        fetchData();
+      } catch (error) {
+        console.error('Failed to remove student', error);
+        Swal.fire({ icon: 'error', text: 'ลบนักเรียนไม่สำเร็จ' });
+      }
+    }
+  };
+
   const handleEditStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
