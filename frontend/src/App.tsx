@@ -1,7 +1,9 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useParams } from 'react-router-dom';
+import axios from 'axios';
 import FlowBuilder from './FlowBuilder';
 import Leaderboard from './Leaderboard';
+import LiveTimer from './components/LiveTimer';
 import Toolbox from './components/Toolbox';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
@@ -22,7 +24,8 @@ import CharacterCreator from './pages/CharacterCreator';
 import Shop from './pages/Shop';
 import Inventory from './pages/Inventory';
 import TradeMarket from './pages/TradeMarket';
-import { LayoutGrid, UserCircle, Zap, LogOut, BarChart3, ArrowLeft, BrainCircuit, Play, ShoppingBag, Archive, ArrowRightLeft, BookOpen } from 'lucide-react';
+import Leaderboard3D from './pages/Leaderboard3D';
+import { LayoutGrid, UserCircle, Zap, LogOut, BarChart3, ArrowLeft, BrainCircuit, Play, ShoppingBag, Archive, ArrowRightLeft, BookOpen, Trophy } from 'lucide-react';
 import { useAuthStore } from './store/useAuthStore';
 
 const HomeRoute = () => {
@@ -45,7 +48,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const currentCourseId = courseMatch ? courseMatch[1] : null;
 
   return (
-    <div className="min-h-screen flex overflow-hidden font-sans">
+    <div className="h-screen flex overflow-hidden font-sans">
       {/* Left Sidebar */}
       <div className={`w-20 flex flex-col items-center py-6 gap-6 z-10 flex-shrink-0 ${
         isTeacher
@@ -101,6 +104,19 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                     >
                       <Play size={22} />
                       <span className="text-[9px] font-bold">ทดลองเล่น</span>
+                    </button>
+                  </Link>
+                  <Link to={`/leaderboard?course_id=${currentCourseId}`}>
+                    <button
+                      className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+                        location.pathname === '/leaderboard' || location.search.includes(`course_id=${currentCourseId}`)
+                          ? 'bg-violet-50 text-violet-600'
+                          : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                      }`}
+                      title="ผู้นำ 3D"
+                    >
+                      <Trophy size={22} />
+                      <span className="text-[9px] font-bold">ผู้นำ 3D</span>
                     </button>
                   </Link>
                 </>
@@ -192,6 +208,17 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                   <span className="text-[9px] font-bold">ตลาด</span>
                 </button>
               </Link>
+              {currentCourseId && (
+                <Link to={`/leaderboard?course_id=${currentCourseId}`}>
+                  <button
+                    className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all text-slate-500 hover:bg-white/5 hover:text-slate-300`}
+                    title="ผู้นำ 3D"
+                  >
+                    <Trophy size={22} />
+                    <span className="text-[9px] font-bold">ผู้นำ 3D</span>
+                  </button>
+                </Link>
+              )}
             </>
           )}
         </div>
@@ -209,16 +236,91 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         </button>
       </div>
 
-      {children}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-900">
+        {!isTeacher && <GlobalStudentProfile />}
+        <div className="flex-1 overflow-y-auto relative flex flex-col">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const GlobalStudentProfile = () => {
+  const user = useAuthStore(state => state.user);
+  const token = useAuthStore(state => state.token);
+  const [points, setPoints] = React.useState(0);
+  const isTeacher = user?.role === 'teacher';
+
+  React.useEffect(() => {
+    if (user && !isTeacher && token) {
+      axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/game/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => setPoints(res.data.points))
+      .catch(err => console.error('Failed to fetch profile', err));
+    }
+  }, [user, isTeacher, token]);
+
+  if (!user || isTeacher) return null;
+
+  return (
+    <div className="h-16 bg-slate-900 border-b border-white/10 flex-shrink-0 flex items-center justify-between px-6 z-40 w-full">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/30">
+          <Zap size={20} className="text-white" />
+        </div>
+        <div>
+          <h1 className="text-lg font-extrabold text-white leading-none">FlowQuest</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Learn by Playing</p>
+        </div>
+      </div>
+
+      <Link to="/profile" className="flex items-center gap-4 bg-slate-800/50 hover:bg-slate-800 border border-white/10 rounded-2xl px-4 py-2 transition-colors cursor-pointer">
+        <div className="flex flex-col items-end">
+          <span className="text-white font-bold text-sm leading-tight">{user.name}</span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <Zap size={12} className="text-amber-400" />
+            <span className="text-amber-400 font-bold text-xs">{points} XP</span>
+          </div>
+        </div>
+        <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-700 border border-white/20 flex-shrink-0">
+          {user.avatar_url ? (
+            <img src={user.avatar_url} alt="" className="w-full h-full object-cover scale-150" style={{ objectPosition: 'center 20%' }} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-400">
+              <UserCircle size={24} />
+            </div>
+          )}
+        </div>
+      </Link>
     </div>
   );
 };
 
 const GameView = () => {
   const user = useAuthStore(state => state.user);
+  const token = useAuthStore(state => state.token);
+  const { id } = useParams<{ id: string }>();
+  const [startedAt, setStartedAt] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (id && user && token) {
+      axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => {
+        if (res.data.started_at) {
+          setStartedAt(res.data.started_at);
+        }
+      })
+      .catch(console.error);
+    }
+  }, [id, user, token]);
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-900">
+      <GlobalStudentProfile />
       <header className="h-16 bg-slate-900/95 border-b border-white/10 px-6 flex items-center justify-between z-10 flex-shrink-0">
         <div className="flex items-center gap-3">
           <button 
@@ -232,9 +334,12 @@ const GameView = () => {
             <p className="text-xs text-slate-500 mt-0.5">สร้างผังงานให้ถูกต้อง</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs font-semibold text-emerald-400">Online</span>
+        <div className="flex items-center gap-4">
+          {startedAt && <LiveTimer startedAt={startedAt} className="hidden sm:flex" />}
+          <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-semibold text-emerald-400">Online</span>
+          </div>
         </div>
       </header>
 
@@ -276,6 +381,7 @@ function App() {
           <Route path="/brainstorm" element={<PageWithTitle title="ระดมความคิด"><BrainstormStation /></PageWithTitle>} />
           <Route path="/brainstorm/:boardId" element={<PageWithTitle title="กระดานระดมความคิด"><BrainstormStation /></PageWithTitle>} />
           <Route path="/brainstorm/mission/:missionId" element={<PageWithTitle title="กระดานระดมความคิด"><BrainstormStation /></PageWithTitle>} />
+          <Route path="/leaderboard" element={<PageWithTitle title="หอเกียรติยศ 3D"><Leaderboard3D /></PageWithTitle>} />
           <Route path="/teacher" element={<Navigate to="/teacher/courses" replace />} />
           <Route path="/teacher/courses" element={<PageWithTitle title="จัดการรายวิชา"><DashboardLayout><TeacherCourseList /></DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/courses/:courseId" element={<PageWithTitle title="จัดการด่าน"><DashboardLayout><TeacherDashboard /></DashboardLayout></PageWithTitle>} />

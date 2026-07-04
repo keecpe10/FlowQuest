@@ -184,8 +184,9 @@ def get_course_students(course_id):
     for e in enrollments:
         user = User.query.get(e.user_id)
         if user:
-            course_points = sum([p.points for p in user.points_history if p.source in ('mission', 'teacher_bonus') and p.source_id in course_mission_ids])
+            course_points = sum([p.points for p in user.points_history if p.source in ('mission', 'teacher_bonus', 'mcq_mission') and p.source_id in course_mission_ids])
             course_missions_completed = len([m for m in user.missions if m.mission_id in course_mission_ids and m.status == 'completed'])
+            total_time = sum([m.time_spent_seconds or 0 for m in user.missions if m.mission_id in course_mission_ids and m.status == 'completed'])
             
             class_info = f"{user.school_class.class_name}" if user.school_class else "-"
             grade_info = f"{user.school_class.grade_level}" if user.school_class and user.school_class.grade_level else "-"
@@ -204,6 +205,7 @@ def get_course_students(course_id):
                 'enrolled_at': e.created_at.isoformat(),
                 'avatar_url': user.avatar_url,
                 'points': course_points,
+                'total_time': total_time,
                 'badges_count': len(user.badges),
                 'missions_completed': course_missions_completed
             })

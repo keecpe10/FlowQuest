@@ -23,6 +23,7 @@ export interface CardData {
   is_pinned: boolean;
   author_id?: number | null;
   author_name?: string;
+  author_avatar?: string | null;
   question_id?: number | null;
   reactions: Record<string, number>;
 }
@@ -41,6 +42,8 @@ export interface BoardData {
   status: string;
   show_student_posts: boolean;
   questions?: QuestionData[];
+  started_at?: string;
+  is_completed?: boolean;
 }
 
 export interface CursorData {
@@ -195,8 +198,11 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   },
 
   fetchBoard: async (boardId: number) => {
+    const token = useAuthStore.getState().token;
     try {
-      const res = await fetch(`${API_URL}/brainstorm/boards/${boardId}`);
+      const res = await fetch(`${API_URL}/brainstorm/boards/${boardId}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
       if (!res.ok) throw new Error('Failed to load board');
       const data = await res.json();
       set({ board: data, cards: data.cards || [] });
@@ -207,8 +213,11 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   },
 
   fetchBoardByMission: async (missionId: number) => {
+    const token = useAuthStore.getState().token;
     try {
-      const res = await fetch(`${API_URL}/brainstorm/mission/${missionId}`);
+      const res = await fetch(`${API_URL}/brainstorm/mission/${missionId}`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
       if (!res.ok) throw new Error('Failed to load board');
       const data = await res.json();
       set({ board: data, cards: data.cards || [] });

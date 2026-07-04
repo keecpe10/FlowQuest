@@ -6,6 +6,7 @@ import { useBrainstormStore } from '../../store/useBrainstormStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Card } from './Card';
 import { MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search } from 'lucide-react';
+import LiveTimer from '../LiveTimer';
 
 interface BrainstormBoardProps {
   boardId?: number;
@@ -211,6 +212,7 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
           >
             ID: <span className="text-pink-300 text-sm md:text-lg">{board.board_id}</span>
           </div>
+          {board.started_at && <LiveTimer startedAt={board.started_at} className="hidden md:flex" />}
           <div className="bg-white/20 backdrop-blur-md px-3 md:px-4 py-1.5 rounded-full text-white text-xs md:text-sm font-medium border border-white/30 flex items-center">
             {cards.length} Ideas
           </div>
@@ -279,25 +281,38 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
       {selectedCard && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setSelectedCard(null)}>
           <div 
-            className="rounded-3xl p-8 max-w-3xl w-full mx-4 shadow-2xl relative" 
+            className="rounded-3xl p-8 max-w-4xl w-full mx-4 shadow-2xl relative flex flex-col md:flex-row gap-8 items-start min-h-[300px]" 
             style={{ backgroundColor: selectedCard.color || '#fff' }}
             onClick={e => e.stopPropagation()}
           >
-            <button onClick={() => setSelectedCard(null)} className="absolute top-4 right-6 text-gray-700 hover:text-black font-bold text-3xl">&times;</button>
+            <button onClick={() => setSelectedCard(null)} className="absolute top-4 right-6 text-gray-700 hover:text-black font-bold text-3xl z-10">&times;</button>
             
-            <div className="flex items-center gap-3 mb-6">
-              <span className="text-sm font-bold bg-white/50 px-3 py-1 rounded-full text-gray-800">
+            {/* Left Column: Author Info */}
+            <div className="flex flex-col items-center shrink-0 w-full md:w-48 text-center pt-2">
+              {selectedCard.author_avatar ? (
+                <img src={selectedCard.author_avatar} alt="Avatar" className="w-32 h-32 rounded-full object-cover border-4 border-white/50 shadow-lg mb-4 shrink-0" />
+              ) : (
+                <div className="w-32 h-32 rounded-full bg-indigo-100 border-4 border-indigo-200 flex items-center justify-center shadow-lg mb-4 shrink-0">
+                  <span className="text-5xl font-bold text-indigo-700">
+                    {(selectedCard.author_name || 'A')[0]}
+                  </span>
+                </div>
+              )}
+              <span className="text-xl font-bold text-gray-800 break-words w-full" title={selectedCard.author_name || 'Anonymous'}>
                 {selectedCard.author_name || (selectedCard.author_id ? `User ${selectedCard.author_id}` : 'Anonymous')}
               </span>
             </div>
 
-            <div className="text-gray-900 font-medium whitespace-pre-wrap break-words text-3xl leading-relaxed">
-              {selectedCard.content}
-            </div>
+            {/* Right Column: Card Content */}
+            <div className="flex-1 w-full border-t md:border-t-0 md:border-l border-black/10 pt-6 md:pt-0 md:pl-8">
+              <div className="text-gray-900 font-medium whitespace-pre-wrap break-words text-3xl leading-relaxed mt-2">
+                {selectedCard.content}
+              </div>
 
-            {selectedCard.media_url && (
-              <img src={selectedCard.media_url} alt="card media" className="w-full rounded-xl mt-6 pointer-events-none" />
-            )}
+              {selectedCard.media_url && (
+                <img src={selectedCard.media_url} alt="card media" className="w-full rounded-2xl mt-6 pointer-events-none shadow-md" />
+              )}
+            </div>
           </div>
         </div>
       )}

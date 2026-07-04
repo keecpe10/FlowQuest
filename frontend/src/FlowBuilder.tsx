@@ -21,6 +21,7 @@ import WaypointEdge from './components/WaypointEdge';
 import { useParams } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import { useHistory } from './hooks/useHistory';
+import LiveTimer from './components/LiveTimer';
 
 
 
@@ -43,6 +44,7 @@ const FlowBuilderCore: React.FC = () => {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ status: 'success' | 'failed', message: string, points: number } | null>(null);
+  const [startedAt, setStartedAt] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingNode, setPendingNode] = useState<any>(null);
@@ -57,6 +59,9 @@ const FlowBuilderCore: React.FC = () => {
         const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        if (response.data.started_at) {
+          setStartedAt(response.data.started_at);
+        }
         
         if (response.data.saved_progress) {
           setNodes(response.data.saved_progress.nodes);

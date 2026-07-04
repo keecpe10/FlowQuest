@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { UserPlus, User } from 'lucide-react';
@@ -8,8 +8,25 @@ const Register = () => {
     username: '',
     password: '',
     first_name: '',
-    last_name: ''
+    last_name: '',
+    role: 'student',
+    academic_year: '',
+    grade_level: '',
+    class_name: ''
   });
+  const [classOptions, setClassOptions] = useState<any>({ academic_years: [], grade_levels: [], classes: [] });
+
+  useEffect(() => {
+    const fetchClasses = async () => {
+      try {
+        const res = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/auth/classes`);
+        setClassOptions(res.data);
+      } catch (err) {
+        console.error("Failed to fetch classes", err);
+      }
+    };
+    fetchClasses();
+  }, []);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
@@ -58,6 +75,20 @@ const Register = () => {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="mb-2">
+            <label className="block text-sm font-semibold text-slate-700 mb-2">I am a...</label>
+            <div className="flex gap-4">
+              <label className={`flex-1 cursor-pointer border-2 rounded-xl p-3 flex flex-col items-center justify-center transition-all ${formData.role === 'student' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 hover:border-emerald-300 text-slate-500'}`}>
+                <input type="radio" name="role" value="student" checked={formData.role === 'student'} onChange={handleChange} className="hidden" />
+                <span className="font-bold">Student</span>
+              </label>
+              <label className={`flex-1 cursor-pointer border-2 rounded-xl p-3 flex flex-col items-center justify-center transition-all ${formData.role === 'teacher' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 hover:border-emerald-300 text-slate-500'}`}>
+                <input type="radio" name="role" value="teacher" checked={formData.role === 'teacher'} onChange={handleChange} className="hidden" />
+                <span className="font-bold">Teacher</span>
+              </label>
+            </div>
+          </div>
+          
           <div className="flex gap-4">
             <div className="flex-1">
               <label className="block text-sm font-semibold text-slate-700 mb-1">First Name</label>
@@ -84,6 +115,67 @@ const Register = () => {
               />
             </div>
           </div>
+
+          {formData.role === 'student' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Academic Year</label>
+                  <input
+                    type="text"
+                    name="academic_year"
+                    value={formData.academic_year}
+                    onChange={handleChange}
+                    list="academic-years"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
+                    placeholder="e.g. 2566"
+                    required={formData.role === 'student'}
+                  />
+                  <datalist id="academic-years">
+                    {classOptions.academic_years.map((year: string) => <option key={year} value={year} />)}
+                  </datalist>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Grade Level</label>
+                  <input
+                    type="text"
+                    name="grade_level"
+                    value={formData.grade_level}
+                    onChange={handleChange}
+                    list="grade-levels"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
+                    placeholder="e.g. 1"
+                    required={formData.role === 'student'}
+                  />
+                  <datalist id="grade-levels">
+                    {classOptions.grade_levels.map((grade: string) => <option key={grade} value={grade} />)}
+                  </datalist>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Room / Class</label>
+                <input
+                  type="text"
+                  name="class_name"
+                  value={formData.class_name}
+                  onChange={handleChange}
+                  list="class-names"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
+                  placeholder="e.g. 1/1"
+                  required={formData.role === 'student'}
+                />
+                <datalist id="class-names">
+                  {classOptions.classes
+                    .filter((c: any) => 
+                      (!formData.academic_year || c.academic_year === formData.academic_year) && 
+                      (!formData.grade_level || c.grade_level === formData.grade_level)
+                    )
+                    .map((c: any) => <option key={c.class_id} value={c.class_name} />)
+                  }
+                </datalist>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">Username</label>

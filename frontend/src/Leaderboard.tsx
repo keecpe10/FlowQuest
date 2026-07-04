@@ -7,9 +7,22 @@ interface LeaderboardEntry {
   user_id: number;
   name: string;
   points: number;
+  total_time: number;
   rank: number;
   avatar_url: string | null;
 }
+
+const formatTime = (seconds: number): string => {
+  if (!seconds || seconds === 0) return '-';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins >= 60) {
+    const hrs = Math.floor(mins / 60);
+    const remainMins = mins % 60;
+    return `${hrs} ชม. ${remainMins} น.`;
+  }
+  return `${mins} น. ${secs} วิ.`;
+};
 
 const Leaderboard: React.FC = () => {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
@@ -83,6 +96,9 @@ const Leaderboard: React.FC = () => {
             <div className="flex flex-col items-end">
               <span className="font-bold text-primary-600">{entry.points}</span>
               <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">PTS</span>
+              {entry.total_time > 0 && (
+                <span className="text-[10px] text-slate-400 mt-0.5">⏱ {formatTime(entry.total_time)}</span>
+              )}
             </div>
           </div>
         ))}

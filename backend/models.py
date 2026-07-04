@@ -106,6 +106,8 @@ class UserMission(db.Model):
     score_awarded = db.Column(db.Integer, default=0)
     current_nodes = db.Column(db.JSON, nullable=True)
     current_edges = db.Column(db.JSON, nullable=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    time_spent_seconds = db.Column(db.Integer, default=0)
     completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

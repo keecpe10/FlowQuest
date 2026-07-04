@@ -3,7 +3,7 @@ import axios from 'axios';
 import {
   Users, GraduationCap, Award, Search, LayoutDashboard,
   Edit2, Trash2, Plus, X, Target, Star, BarChart2,
-  BookOpen, ChevronRight, Zap, TrendingUp
+  BookOpen, ChevronRight, Zap, TrendingUp, Trophy
 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { io } from 'socket.io-client';
@@ -23,6 +23,7 @@ interface Student {
   name: string;
   username: string;
   points: number;
+  total_time: number;
   badges_count: number;
 }
 
@@ -152,6 +153,9 @@ const TeacherDashboard = () => {
     const matchesGrade = !courseStudentFilters.grade_level || String(s.grade_info) === courseStudentFilters.grade_level;
     const matchesClass = !courseStudentFilters.class_id || String(s.class_id) === courseStudentFilters.class_id;
     return matchesSearch && matchesYear && matchesGrade && matchesClass;
+  }).sort((a: any, b: any) => {
+    if (b.points !== a.points) return b.points - a.points;
+    return (a.total_time || 0) - (b.total_time || 0);
   });
 
   const openCreateModal = () => {
@@ -564,6 +568,14 @@ const TeacherDashboard = () => {
                     <span className="bg-violet-50 text-violet-700 font-extrabold px-4 py-1.5 rounded-full text-sm whitespace-nowrap">
                       {(student.points || 0).toLocaleString()} XP
                     </span>
+                    {student.total_time > 0 && (
+                      <span className="bg-sky-50 text-sky-600 font-semibold px-3 py-1.5 rounded-full text-xs whitespace-nowrap ml-2">
+                        ⏱ {student.total_time >= 3600
+                          ? `${Math.floor(student.total_time / 3600)} ชม. ${Math.floor((student.total_time % 3600) / 60)} น.`
+                          : `${Math.floor(student.total_time / 60)} น. ${student.total_time % 60} วิ.`
+                        }
+                      </span>
+                    )}
                   </div>
                 )) : (
                   <div className="py-16 text-center text-slate-400">
@@ -811,6 +823,16 @@ const TeacherDashboard = () => {
                           <LayoutDashboard size={14} /> ออกแบบด่าน
                         </button>
                       </Link>
+                      {mission.mission_type === 'mcq' && (
+                        <Link to={`/leaderboard?mission_id=${mission.mission_id}`}>
+                          <button
+                            className="p-2 rounded-xl text-amber-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            title="ดูผู้นำ 3D"
+                          >
+                            <Trophy size={16} />
+                          </button>
+                        </Link>
+                      )}
                       <button
                         onClick={() => openEditModal(mission)}
                         className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"

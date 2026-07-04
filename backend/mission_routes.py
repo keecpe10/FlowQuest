@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, CourseEnrollment, MCQQuestion, MCQUserAnswer
 from auth_utils import has_course_access, is_course_teacher
+from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
 
@@ -31,15 +32,30 @@ def get_missions(course_id):
         
     missions = Mission.query.filter_by(course_id=course_id, is_active=True).order_by(Mission.difficulty_level).all()
     
-    # Get user's missions
-    user_missions = UserMission.query.filter_by(user_id=user_id).all()
-    user_mission_dict = {um.mission_id: um for um in user_missions}
+    # Get user's missions, ordered by updated_at ascending so we process oldest to newest
+    user_missions = UserMission.query.filter_by(user_id=user_id).order_by(UserMission.updated_at.asc()).all()
+    user_mission_dict = {}
+    for um in user_missions:
+        # If we already have a 'completed' status for this mission, don't overwrite it with a 'pending' or 'failed' duplicate
+        if um.mission_id in user_mission_dict and user_mission_dict[um.mission_id].status == 'completed':
+            continue
+        user_mission_dict[um.mission_id] = um
+    
+    # Get earned XP for missions
+    points_data = db.session.query(
+        PointHistory.source_id, db.func.sum(PointHistory.points)
+    ).filter(
+        PointHistory.user_id == user_id,
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
+    ).group_by(PointHistory.source_id).all()
+    points_dict = {p[0]: p[1] for p in points_data}
     
     results = []
     for m in missions:
         um = user_mission_dict.get(m.mission_id)
         status = um.status if um else 'not_started'
         is_completed = status == 'completed'
+        earned_xp = points_dict.get(m.mission_id, 0)
         
         score_text = None
         if m.mission_type == 'mcq' and status in ['completed', 'failed'] and um:
@@ -54,6 +70,7 @@ def get_missions(course_id):
             'description': m.description,
             'mission_type': m.mission_type,
             'points': m.points,
+            'earned_xp': earned_xp,
             'difficulty_level': m.difficulty_level,
             'is_completed': is_completed,
             'status': status,
@@ -103,12 +120,48 @@ def get_mission(mission_id):
             questions = BrainstormQuestion.query.filter_by(board_id=board.board_id).order_by(BrainstormQuestion.order_index).all()
             response_data['questions'] = [q.content for q in questions] if questions else ['']
     
-    um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
+    um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
+    if not is_course_teacher(user_id, mission.course_id):
+        if not um:
+            um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
+            db.session.add(um)
+            db.session.commit()
+        elif um.status == 'failed':
+            um.status = 'pending'
+            um.started_at = datetime.utcnow()
+            um.score_awarded = 0
+            um.current_nodes = {}
+            if mission.mission_type == 'mcq':
+                from models import MCQUserAnswer
+                MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).delete()
+            db.session.commit()
+        elif um.status == 'pending' and not um.started_at:
+            um.started_at = datetime.utcnow()
+            db.session.commit()
+
     if um and um.current_nodes is not None:
         response_data['saved_progress'] = {
             'nodes': um.current_nodes,
             'edges': um.current_edges or []
         }
+    
+    if um:
+        response_data['started_at'] = um.started_at.isoformat() + 'Z' if um.started_at else None
+        response_data['mission_status'] = um.status
+        
+        if mission.mission_type == 'mcq':
+            from models import MCQUserAnswer
+            answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+            ans_data = []
+            for a in answers:
+                ans_data.append({
+                    'question_id': a.question_id,
+                    'choice_id': a.selected_choice_id,
+                    'answer_data': a.answer_data,
+                    'is_correct': a.is_correct,
+                    'xp_awarded': a.xp_awarded
+                })
+            response_data['mcq_answers'] = ans_data
     
     if is_course_teacher(user_id, mission.course_id):
         response_data['solution_edges'] = mission.solution_edges
@@ -138,13 +191,13 @@ def get_students_progress(mission_id):
         PointHistory.user_id, db.func.sum(PointHistory.points)
     ).filter(
         PointHistory.source_id == mission_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
     ).group_by(PointHistory.user_id).all()
     points_dict = {p[0]: p[1] for p in points_data}
     
     results = []
     for student in students:
-        um = UserMission.query.filter_by(user_id=student.user_id, mission_id=mission_id).first()
+        um = UserMission.query.filter_by(user_id=student.user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
         status = um.status if um else 'not_started'
         updated_at = um.updated_at.isoformat() + 'Z' if um and um.updated_at else None
         
@@ -184,7 +237,7 @@ def get_student_flowchart(mission_id, student_id):
     if not user_id:
         return jsonify({'message': 'Unauthorized'}), 401
         
-    um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).first()
+    um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     
     student = User.query.get(student_id)
     student_name = f"{student.first_name} {student.last_name}".strip() if student else "Unknown Student"
@@ -369,10 +422,11 @@ def reset_mission_progress(mission_id):
     # Delete XP for all students in this mission
     PointHistory.query.filter(
         PointHistory.source_id == mission_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
     ).delete()
     
     db.session.commit()
+    socketio.emit('missions_updated')
     return jsonify({'message': 'All student progress has been reset successfully'}), 200
 
 @mission_bp.route('/<int:mission_id>/give-xp-all', methods=['POST'])
@@ -439,10 +493,11 @@ def reset_student_progress(mission_id, student_id):
     PointHistory.query.filter(
         PointHistory.user_id == student_id,
         PointHistory.source_id == mission_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
     ).delete()
     
     db.session.commit()
+    socketio.emit('missions_updated')
     return jsonify({'message': 'Student progress and XP has been reset successfully'}), 200
 
 @mission_bp.route('/<int:mission_id>/students/<int:student_id>/give-xp', methods=['POST'])

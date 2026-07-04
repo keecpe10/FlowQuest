@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { BrainstormBoard } from '../components/Brainstorm/BrainstormBoard';
+import { GlobalStudentProfile } from '../App';
 import { useAuthStore } from '../store/useAuthStore';
 import { Plus, Trash2, LayoutGrid, CalendarDays } from 'lucide-react';
 
@@ -69,8 +70,10 @@ export const BrainstormStation: React.FC = () => {
   // If no boardId is provided, show the join/create screen
   if (!boardId && !missionId) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-800 to-pink-900 flex items-center justify-center p-4">
-        <div className={`bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl ${user?.role === 'teacher' ? 'max-w-4xl' : 'max-w-md'} w-full flex flex-col md:flex-row gap-8`}>
+      <div className="min-h-screen bg-slate-900 flex flex-col">
+        <GlobalStudentProfile />
+        <div className="flex-1 bg-gradient-to-br from-indigo-900 via-purple-800 to-pink-900 flex items-center justify-center p-4">
+          <div className={`bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl ${user?.role === 'teacher' ? 'max-w-4xl' : 'max-w-md'} w-full flex flex-col md:flex-row gap-8`}>
           
           {/* Left Side: Join / Create */}
           <div className="flex-1 flex flex-col items-center text-center">
@@ -263,9 +266,17 @@ export const BrainstormStation: React.FC = () => {
             </div>
           </div>
         )}
+        </div>
       </div>
     );
   }
 
-  return <BrainstormBoard boardId={boardId ? parseInt(boardId, 10) : undefined} missionId={missionId ? parseInt(missionId, 10) : undefined} />;
+  return (
+    <div className="min-h-screen bg-slate-900 flex flex-col">
+      <GlobalStudentProfile />
+      <div className="flex-1 flex flex-col h-[calc(100vh-64px)] overflow-hidden">
+        <BrainstormBoard boardId={boardId ? parseInt(boardId, 10) : undefined} missionId={missionId ? parseInt(missionId, 10) : undefined} />
+      </div>
+    </div>
+  );
 };

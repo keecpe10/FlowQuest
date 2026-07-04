@@ -111,11 +111,13 @@ def get_board(board_id):
         for r in reactions:
             reaction_counts[r.emoji] = reaction_counts.get(r.emoji, 0) + 1
             
-        author = User.query.get(card.author_id) if card.author_id else None
-        if author:
-            author_name = f"{author.first_name or ''} {author.last_name or ''}".strip()
-            if not author_name:
-                author_name = author.username
+        author_name = 'Student'
+        author_avatar = None
+        if not board.is_anonymous and card.author_id:
+            author = User.query.get(card.author_id)
+            if author:
+                author_name = f"{author.first_name} {author.last_name}".strip() or author.username
+                author_avatar = author.avatar_url
         else:
             author_name = 'Anonymous'
             
@@ -130,6 +132,7 @@ def get_board(board_id):
             "is_pinned": card.is_pinned,
             "author_id": card.author_id,
             "author_name": author_name,
+            "author_avatar": author_avatar,
             "question_id": card.question_id,
             "reactions": reaction_counts
         })
@@ -144,7 +147,7 @@ def get_board(board_id):
         "show_student_posts": board.show_student_posts
     }, room=f'board_{board_id}')
     
-    return jsonify({
+    response_data = {
         "board_id": board.board_id,
         "title": board.title,
         "layout_type": board.layout_type,
@@ -153,7 +156,19 @@ def get_board(board_id):
         "show_student_posts": board.show_student_posts,
         "questions": questions_data,
         "cards": cards_data
-    })
+    }
+    
+    if board.mission_id:
+        user_id = get_current_user_id()
+        if user_id:
+            um = UserMission.query.filter_by(user_id=user_id, mission_id=board.mission_id).first()
+            if um:
+                if um.started_at:
+                    response_data["started_at"] = um.started_at.isoformat() + 'Z'
+                if um.status == 'completed':
+                    response_data["is_completed"] = True
+    
+    return jsonify(response_data)
 
 @brainstorm_bp.route('/boards/<int:board_id>/status', methods=['PATCH'])
 def update_board_status(board_id):
@@ -228,6 +243,8 @@ def add_card(board_id):
             um.status = 'completed'
             from datetime import datetime
             um.completed_at = datetime.utcnow()
+            if um.started_at and not um.time_spent_seconds:
+                um.time_spent_seconds = int((datetime.utcnow() - um.started_at).total_seconds())
             
             if not um.score_awarded or um.score_awarded == 0:
                 mission = Mission.query.get(board.mission_id)
@@ -248,8 +265,10 @@ def add_card(board_id):
             author_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
             if not author_name:
                 author_name = user.username
+            author_avatar = user.avatar_url
         else:
             author_name = 'Anonymous'
+            author_avatar = None
         
         card_data = {
             "card_id": new_card.card_id,
@@ -262,6 +281,7 @@ def add_card(board_id):
             "color": new_card.color,
             "author_id": new_card.author_id,
             "author_name": author_name,
+            "author_avatar": author_avatar,
             "question_id": new_card.question_id,
             "reactions": {}
         }
@@ -478,6 +498,21 @@ def get_board_by_mission(mission_id):
         )
         db.session.add(board)
         db.session.commit()
+        
+    user_id = get_current_user_id()
+    if user_id:
+        from auth_utils import is_course_teacher
+        is_teacher = is_course_teacher(user_id, mission.course_id)
+        if not is_teacher:
+            from datetime import datetime
+            um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
+            if not um:
+                um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
+                db.session.add(um)
+                db.session.commit()
+            elif um.status == 'pending' and not um.started_at:
+                um.started_at = datetime.utcnow()
+                db.session.commit()
         
     # Return same format as get_board
     return get_board(board.board_id)

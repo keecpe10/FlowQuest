@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Play, Lock, CheckCircle, Star, Zap, Target, ArrowLeft } from 'lucide-react';
+import { Play, Lock, CheckCircle, Star, Zap, Target, ArrowLeft, Trophy } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { io } from 'socket.io-client';
 
@@ -15,6 +15,7 @@ interface Mission {
   is_completed: boolean;
   status?: string;
   score_text?: string;
+  earned_xp?: number;
 }
 
 const missionTypeLabel: Record<string, string> = {
@@ -101,8 +102,26 @@ const MissionSelect = () => {
               <p className="text-slate-400 mt-2">เลือกด่านที่ต้องการฝึกทักษะการคิดเชิงคำนวณ</p>
             </div>
 
-            {/* Progress summary */}
+            {/* Progress summary & Avatar */}
             <div className="hidden md:flex items-center gap-4">
+              {user && (
+                <div className="flex items-center gap-3 mr-4 bg-white/5 border border-white/10 backdrop-blur-sm rounded-full py-1.5 pl-1.5 pr-5 shadow-lg">
+                  <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-800 border-2 border-violet-500 shadow-inner shrink-0">
+                    {user.avatar_url ? (
+                      <img src={user.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-violet-300 text-xl font-bold bg-slate-800">
+                        {user.name?.[0] || 'U'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col justify-center">
+                    <p className="text-white font-bold text-sm leading-tight line-clamp-1">{user.name}</p>
+                    <p className="text-violet-300 text-[10px] font-semibold uppercase tracking-wider mt-0.5">{user.role === 'student' ? 'นักเรียน' : user.role}</p>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-white/5 border border-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-center">
                 <p className="text-3xl font-black text-white">{completedCount}</p>
                 <p className="text-slate-400 text-xs font-semibold mt-0.5">ด่านที่ผ่าน</p>
@@ -134,16 +153,19 @@ const MissionSelect = () => {
           {missions.map((mission, idx) => {
             const isTeacher = user?.role === 'teacher';
             const isUnlocked = isTeacher || idx === 0 || missions[idx - 1]?.is_completed || mission.mission_type === 'brainstorm';
+            const canPlay = isUnlocked && (!mission.is_completed || isTeacher || mission.mission_type === 'brainstorm');
             const gradient = missionGradients[idx % missionGradients.length];
 
             return (
               <div
                 key={mission.mission_id}
-                onClick={() => isUnlocked && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
+                onClick={() => canPlay && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
                 className={`relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
-                  isUnlocked
+                  !isUnlocked
+                    ? 'cursor-not-allowed opacity-50'
+                    : canPlay
                     ? 'cursor-pointer hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/40 group'
-                    : 'cursor-not-allowed opacity-50'
+                    : 'cursor-default group'
                 }`}
               >
                 {/* Card background */}
@@ -206,7 +228,7 @@ const MissionSelect = () => {
                         <div className="flex items-center gap-3">
                           <span className="flex items-center gap-1.5 text-amber-400 font-bold text-sm">
                             <Zap size={14} />
-                            {mission.points} XP
+                            {mission.is_completed ? `ได้รับ ${mission.earned_xp || mission.points} XP` : `${mission.points} XP`}
                           </span>
                           <span className="text-slate-600 text-xs">·</span>
                           <span className="text-slate-400 text-xs font-medium">
@@ -215,11 +237,30 @@ const MissionSelect = () => {
                         </div>
 
                         {isUnlocked && (
-                          <span className={`text-sm font-bold transition-transform group-hover:translate-x-1 ${
-                            mission.is_completed ? 'text-emerald-400' : mission.status === 'failed' ? 'text-rose-400' : 'text-violet-400'
-                          }`}>
-                            {mission.is_completed || mission.status === 'failed' ? 'เล่นอีกครั้ง →' : 'เริ่มเลย →'}
-                          </span>
+                          <div className="flex items-center gap-3">
+                            {mission.mission_type === 'mcq' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); navigate(`/leaderboard?mission_id=${mission.mission_id}`); }}
+                                className={`p-2 rounded-xl text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 transition-colors ${!canPlay && 'cursor-pointer'}`}
+                                title="ดูอันดับผู้นำ 3D"
+                              >
+                                <Trophy size={16} />
+                              </button>
+                            )}
+                            {canPlay ? (
+                              <span className={`text-sm font-bold transition-transform group-hover:translate-x-1 ${
+                                mission.status === 'failed' ? 'text-rose-400' : 'text-violet-400'
+                              }`}>
+                                {mission.status === 'failed' ? 'ลองอีกครั้ง →' : (mission.mission_type === 'brainstorm' && mission.is_completed ? 'ดูภารกิจที่ทำ →' : 'เข้าทำภารกิจ →')}
+                              </span>
+                            ) : (
+                                mission.is_completed && mission.mission_type !== 'brainstorm' && !isTeacher && (
+                                    <span className="text-sm font-bold text-emerald-400">
+                                        สำเร็จแล้ว
+                                    </span>
+                                )
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

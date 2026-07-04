@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCharacterStore } from '../store/characterStore';
 import Swal from 'sweetalert2';
-import { ShoppingBag, Coins, Search, Filter } from 'lucide-react';
+import { ShoppingBag, Coins, Search, Filter, Shirt, Scissors, Smile, Activity, Star } from 'lucide-react';
 import CharacterCanvas from '../components/Character/CharacterCanvas';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -63,13 +63,14 @@ const Shop: React.FC = () => {
 
   const handlePurchase = async (item: any) => {
     const result = await Swal.fire({
-      title: 'Confirm Purchase',
-      text: `Do you want to buy ${item.name} for ${item.price_points} points?`,
+      title: 'ยืนยันการสั่งซื้อ',
+      text: `คุณต้องการซื้อ ${item.name} ในราคา ${item.price_points} แต้ม ใช่หรือไม่?`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#8b5cf6',
       cancelButtonColor: '#ef4444',
-      confirmButtonText: 'Yes, buy it!'
+      confirmButtonText: 'ใช่, ซื้อเลย!',
+      cancelButtonText: 'ยกเลิก'
     });
 
     if (result.isConfirmed) {
@@ -79,20 +80,44 @@ const Shop: React.FC = () => {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         setPoints(res.data.new_balance);
-        Swal.fire('Success!', res.data.message, 'success');
+        Swal.fire('สำเร็จ!', 'ซื้อไอเทมเรียบร้อยแล้ว', 'success');
       } catch (error: any) {
-        Swal.fire('Error', error.response?.data?.message || 'Purchase failed', 'error');
+        Swal.fire('เกิดข้อผิดพลาด', error.response?.data?.message || 'การสั่งซื้อล้มเหลว', 'error');
       }
     }
   };
 
   const categories = ['all', 'hair', 'top', 'bottom', 'shoes', 'accessory', 'emote', 'animation', 'dress', 'jacket', 'cape'];
 
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case 'hair': return <Scissors size={32} className="text-gray-400" />;
+      case 'top': case 'dress': case 'jacket': return <Shirt size={32} className="text-gray-400" />;
+      case 'emote': return <Smile size={32} className="text-gray-400" />;
+      case 'animation': return <Activity size={32} className="text-gray-400" />;
+      default: return <Star size={32} className="text-gray-400" />;
+    }
+  };
+
   const renderThumbnail = (item: any) => {
+    if (item.image_url) {
+      return (
+        <div className="w-full h-full bg-gray-50 flex items-center justify-center relative overflow-hidden group-hover:bg-gray-100 transition">
+          <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+          <div className="absolute top-2 right-2 bg-white/90 backdrop-blur px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm uppercase z-10 text-gray-600">
+            {item.rarity}
+          </div>
+        </div>
+      );
+    }
+
     const color = item.thumbnail_color || item.render_config?.default_color || '#cccccc';
     return (
       <div className="w-full h-full bg-gray-50 flex items-center justify-center relative overflow-hidden group-hover:bg-gray-100 transition">
-        <div style={{ backgroundColor: color }} className="w-16 h-16 rounded-xl shadow-inner border border-black/10 transform rotate-12 group-hover:rotate-0 transition-transform"></div>
+        <div style={{ backgroundColor: color }} className="absolute inset-0 opacity-20"></div>
+        <div className="z-10 bg-white p-3 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+          {getCategoryIcon(item.category)}
+        </div>
         <div className="absolute top-2 right-2 bg-white/90 backdrop-blur px-1.5 py-0.5 rounded text-[10px] font-bold shadow-sm uppercase z-10 text-gray-600">
           {item.rarity}
         </div>
@@ -104,10 +129,11 @@ const Shop: React.FC = () => {
   const getPreviewEquipped = () => {
     let current = { ...equipped };
     if (previewItem) {
+      const renderConfig = previewItem.render_config || {};
       if (previewItem.category === 'accessory') {
-        current.accessories = [...current.accessories, previewItem];
+        current.accessories = [...(current.accessories || []), renderConfig];
       } else {
-        current[previewItem.category as keyof typeof current] = previewItem;
+        current[previewItem.category as keyof typeof current] = renderConfig;
       }
     }
     return current;
@@ -127,8 +153,8 @@ const Shop: React.FC = () => {
           <div className="bg-white p-4 rounded-xl shadow-md flex items-center border border-gray-100 self-start md:self-auto">
             <Coins className="text-yellow-500 mr-2" size={28} />
             <div>
-              <p className="text-xs text-gray-500 font-semibold uppercase">Your Balance</p>
-              <p className="text-2xl font-bold text-gray-800">{points} PTS</p>
+              <p className="text-xs text-gray-500 font-semibold uppercase">แต้มคงเหลือ</p>
+              <p className="text-2xl font-bold text-gray-800">{points} แต้ม</p>
             </div>
           </div>
         </div>
@@ -229,7 +255,7 @@ const Shop: React.FC = () => {
           <div className="w-full lg:w-1/3 xl:w-1/4 relative">
              <div className="sticky top-24 bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden flex flex-col h-[500px]">
                 <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-                  <h3 className="font-bold text-gray-800">Preview</h3>
+                  <h3 className="font-bold text-gray-800">ตัวอย่าง (ทดลองสวมใส่)</h3>
                 </div>
                 
                 <div className="flex-1 bg-gradient-to-b from-gray-50 to-gray-200 relative">
@@ -258,13 +284,13 @@ const Shop: React.FC = () => {
                           : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                       }`}
                     >
-                      {points >= previewItem.price_points ? 'Buy Item' : 'Not Enough Points'}
+                      {points >= previewItem.price_points ? 'ซื้อไอเทม' : 'แต้มไม่พอ'}
                     </button>
                   </div>
                 )}
                 {!previewItem && (
                   <div className="p-4 bg-white border-t border-gray-100 text-center text-gray-500 text-sm">
-                    Select an item to try it on
+                    คลิกที่ไอเทมเพื่อทดลองสวมใส่
                   </div>
                 )}
              </div>

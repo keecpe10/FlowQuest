@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { ArrowLeft, CheckCircle, XCircle, Zap, Target } from 'lucide-react';
 import { useWindowSize } from 'react-use';
 import Confetti from 'react-confetti';
+import Swal from 'sweetalert2';
 
 interface Choice {
   choice_id: number;
@@ -35,6 +36,7 @@ const StudentMCQView = () => {
   const { id: missionId, studentId } = useParams<{ id: string, studentId: string }>();
   const navigate = useNavigate();
   const token = useAuthStore(state => state.token);
+  const user = useAuthStore(state => state.user);
   const { width, height } = useWindowSize();
   
   const [loading, setLoading] = useState(true);
@@ -77,6 +79,37 @@ const StudentMCQView = () => {
     
     return () => clearInterval(interval);
   }, [missionId, studentId, token, status]);
+
+  const handleManualGrade = async (questionId: number) => {
+      try {
+          const result = await Swal.fire({
+              title: 'ยืนยันการให้คะแนน?',
+              text: "ระบบจะปรับให้ข้อนี้ 'ถูกต้อง' และบวก XP ให้นักเรียน",
+              icon: 'warning',
+              showCancelButton: true,
+              confirmButtonText: 'ให้คะแนน',
+              cancelButtonText: 'ยกเลิก'
+          });
+
+          if (result.isConfirmed) {
+              const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${missionId}/grade-manual`, {
+                  student_id: studentId,
+                  question_id: questionId
+              }, { headers: { Authorization: `Bearer ${token}` } });
+
+              Swal.fire({
+                  title: 'ให้คะแนนสำเร็จ!',
+                  text: res.data.is_passed ? 'นักเรียนผ่านเกณฑ์แล้วและได้รับ XP ของด่าน!' : 'ให้คะแนนข้อนี้เรียบร้อยแล้ว',
+                  icon: 'success'
+              });
+
+              // Force reload data
+              setStatus(''); // Trigger useEffect refetch
+          }
+      } catch (error: any) {
+          Swal.fire('Error', error.response?.data?.message || 'ไม่สามารถให้คะแนนได้', 'error');
+      }
+  };
 
   if (loading && questions.length === 0) {
     return (
@@ -201,7 +234,17 @@ const StudentMCQView = () => {
                           <div className="space-y-2">
                               <p className="text-slate-300 text-sm">คำตอบที่นักเรียนพิมพ์: <span className={`font-bold ${!ansRecord ? 'text-slate-500' : 'text-white'}`}>{ansRecord?.answer_data || '(ยังไม่ตอบ)'}</span></p>
                               {showCorrectness && !isCorrect && (
-                                  <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{q.question_metadata?.correct_text}</span></p>
+                                  <div className="flex items-center gap-4">
+                                      <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{q.question_metadata?.correct_text}</span></p>
+                                      {user?.role === 'teacher' && (
+                                          <button 
+                                              onClick={() => handleManualGrade(q.question_id)}
+                                              className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shadow-lg shadow-emerald-500/20"
+                                          >
+                                              <CheckCircle size={14} /> ให้คะแนนข้อนี้
+                                          </button>
+                                      )}
+                                  </div>
                               )}
                           </div>
                       )}

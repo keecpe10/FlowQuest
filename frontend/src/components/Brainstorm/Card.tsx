@@ -21,7 +21,7 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
   
   const isTeacher = user?.role === 'teacher';
   const isClosed = board?.status === 'closed';
-  const canModify = isTeacher || (card.author_id === user?.user_id && !isClosed);
+  const canModify = isTeacher || (card.author_id === user?.user_id && !isClosed && !board?.is_completed);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -72,9 +72,20 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
     >
       {/* Card Header */}
       <div className="flex justify-between items-start mb-3">
-        <span className="text-xs font-bold text-gray-700 bg-white/50 px-3 py-1 rounded-full shadow-sm">
-          {card.author_name || (card.author_id ? `User ${card.author_id}` : 'Anonymous')}
-        </span>
+        <div className="flex items-center gap-2.5 bg-white/60 backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm max-w-[220px]">
+          {card.author_avatar ? (
+            <img src={card.author_avatar} alt="Avatar" className="w-8 h-8 rounded-full object-cover shrink-0 border border-white/50 shadow-sm" />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0 shadow-sm">
+              <span className="text-xs font-bold text-indigo-700">
+                {(card.author_name || 'A')[0]}
+              </span>
+            </div>
+          )}
+          <span className="text-sm font-bold text-gray-800 truncate" title={card.author_name || 'Anonymous'}>
+            {card.author_name || (card.author_id ? `User ${card.author_id}` : 'Anonymous')}
+          </span>
+        </div>
         <div className="flex gap-1">
           {card.is_pinned && <Pin size={16} className="text-blue-500" />}
           
