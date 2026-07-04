@@ -33,6 +33,8 @@ services:
       - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - SECRET_KEY=${SECRET_KEY:-dev_secret_key}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:

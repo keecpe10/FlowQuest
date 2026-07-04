@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     allowedHosts: [
       "6a79-2403-6200-8827-32ae-3c4d-170d-3128-7f53.ngrok-free.app",
-      "silly-zus-marine-allen.trycloudflare.com",
+      ".trycloudflare.com",
     ],
   },
 })
