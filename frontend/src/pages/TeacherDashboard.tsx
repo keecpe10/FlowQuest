@@ -291,9 +291,10 @@ const TeacherDashboard = () => {
       setIsUploadModalOpen(false);
       setUploadFile(null);
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to upload students', error);
-      Swal.fire({ icon: 'error', text: 'อัปโหลดรายชื่อนักเรียนไม่สำเร็จ โปรดตรวจสอบไฟล์' });
+      const errorMsg = error.response?.data?.error || 'อัปโหลดรายชื่อนักเรียนไม่สำเร็จ โปรดตรวจสอบไฟล์';
+      Swal.fire({ icon: 'error', text: errorMsg });
     } finally {
       setUploading(false);
     }

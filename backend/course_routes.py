@@ -245,6 +245,10 @@ def upload_course_students(course_id):
         # Expected columns: something like username, password, first_name, last_name
         # Or student_id which acts as username
         student_role = Role.query.filter_by(role_name='student').first()
+        if not student_role:
+            student_role = Role(role_name='student')
+            db.session.add(student_role)
+            db.session.commit()
         
         added_count = 0
         enrolled_count = 0
@@ -358,6 +362,8 @@ def upload_course_students(course_id):
         
     except Exception as e:
         db.session.rollback()
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @course_bp.route('/api/v1/classes/options', methods=['GET'])
