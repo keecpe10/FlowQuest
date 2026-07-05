@@ -45,3 +45,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user: null, token: null, isAuthenticated: false });
   },
 }));
+
+// Add a global axios interceptor to handle 401 Unauthorized responses
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Token is likely expired or invalid
+      useAuthStore.getState().logout();
+    }
+    return Promise.reject(error);
+  }
+);
