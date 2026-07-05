@@ -465,7 +465,7 @@ def reset_mission_progress(mission_id):
     # Delete XP for all students in this mission
     PointHistory.query.filter(
         PointHistory.source_id == mission_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission'])
     ).delete()
     
     db.session.commit()
@@ -536,7 +536,7 @@ def reset_student_progress(mission_id, student_id):
     PointHistory.query.filter(
         PointHistory.user_id == student_id,
         PointHistory.source_id == mission_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission'])
     ).delete()
     
     db.session.commit()

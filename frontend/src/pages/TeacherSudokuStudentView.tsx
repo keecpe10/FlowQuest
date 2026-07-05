@@ -127,7 +127,6 @@ const TeacherSudokuStudentView: React.FC = () => {
                 symbolSet={data.symbol_set}
                 givenGrid={data.given_grid}
                 currentGrid={data.current_grid}
-                solutionGrid={data.solution_grid}
                 conflictCells={wrongCells}
                 selectedCell={null}
                 onCellClick={() => {}}

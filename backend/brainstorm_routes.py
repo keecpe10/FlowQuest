@@ -99,8 +99,16 @@ def delete_board(board_id):
 @brainstorm_bp.route('/boards/<int:board_id>', methods=['GET'])
 def get_board(board_id):
     board = BrainstormBoard.query.get_or_404(board_id)
+    current_user_id = get_current_user_id()
+    requester = User.query.get(current_user_id) if current_user_id else None
+    is_teacher = bool(requester and requester.role and requester.role.role_name == 'teacher')
+    
     questions = BrainstormQuestion.query.filter_by(board_id=board_id).order_by(BrainstormQuestion.order_index).all()
-    cards = BrainstormCard.query.filter_by(board_id=board_id).all()
+    
+    cards_query = BrainstormCard.query.filter_by(board_id=board_id)
+    if not is_teacher and not board.show_student_posts:
+        cards_query = cards_query.filter_by(author_id=current_user_id)
+    cards = cards_query.all()
     
     questions_data = [{"question_id": q.question_id, "content": q.content, "order_index": q.order_index} for q in questions]
     
@@ -136,8 +144,6 @@ def get_board(board_id):
             "question_id": card.question_id,
             "reactions": reaction_counts
         })
-        
-    board = BrainstormBoard.query.get_or_404(board_id)
     
     # Allow board updates via Socket
     socketio.emit('board_updated', {
@@ -159,7 +165,7 @@ def get_board(board_id):
     }
     
     if board.mission_id:
-        user_id = get_current_user_id()
+        user_id = current_user_id
         if user_id:
             um = UserMission.query.filter_by(user_id=user_id, mission_id=board.mission_id).first()
             if um:
@@ -299,8 +305,14 @@ def add_card(board_id):
             db.session.commit()
             socketio.emit('points_awarded', {"user_id": user_id, "points": 10}, to=f"board_{board_id}")
             
-        # Broadcast to room
-        socketio.emit('card_added', card_data, to=f"board_{board_id}")
+        # Broadcast card to room (respect show_student_posts visibility)
+        if board.show_student_posts:
+            # Everyone in the board room can see new cards
+            socketio.emit('card_added', card_data, to=f"board_{board_id}")
+        else:
+            # Only emit to the author's personal socket room
+            # (teacher joins board room so they receive via board_updated polling)
+            socketio.emit('card_added', card_data, to=f"user_{user_id}")
         socketio.emit('missions_updated')
         return jsonify(card_data), 201
     except Exception as e:
@@ -526,6 +538,10 @@ def on_join(data):
     
     room = f"board_{board_id}"
     join_room(room)
+    # Also join personal room so targeted events (e.g. card_added when
+    # show_student_posts=False) can reach this specific client.
+    if user_id:
+        join_room(f"user_{user_id}")
     emit('user_joined', {"user_id": user_id}, to=room)
 
 @socketio.on('leave_board')

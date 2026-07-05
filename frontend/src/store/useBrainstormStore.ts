@@ -114,6 +114,14 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     socket.on('card_added', (card: CardData) => {
       set((state) => {
         if (state.cards.some(c => c.card_id === card.card_id)) return state;
+        // Defense-in-depth: respect show_student_posts visibility on client side too.
+        // The server already filters; this is a second line of defense.
+        const currentUser = useAuthStore.getState().user;
+        const isTeacher = currentUser?.role === 'teacher';
+        const showPosts = state.board?.show_student_posts ?? true;
+        if (!isTeacher && !showPosts && card.author_id !== currentUser?.user_id) {
+          return state; // silently drop cards that shouldn't be visible
+        }
         return { cards: [...state.cards, card] };
       });
     });
