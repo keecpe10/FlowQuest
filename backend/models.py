@@ -109,6 +109,8 @@ class UserMission(db.Model):
     started_at = db.Column(db.DateTime, nullable=True)
     time_spent_seconds = db.Column(db.Integer, default=0)
     completed_at = db.Column(db.DateTime)
+    attempt_count = db.Column(db.Integer, default=0)
+    hint_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -377,3 +379,38 @@ class AvatarOutfit(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = db.relationship('User', backref=db.backref('outfits', lazy=True, cascade='all, delete-orphan'))
+
+class SudokuPuzzle(db.Model):
+    __tablename__ = 'sudoku_puzzles'
+    puzzle_id = db.Column(db.Integer, primary_key=True)
+    mission_id = db.Column(db.Integer, db.ForeignKey('missions.mission_id', ondelete='CASCADE'), nullable=False)
+
+    size = db.Column(db.Integer, default=4)
+    box_rows = db.Column(db.Integer, default=2)
+    box_cols = db.Column(db.Integer, default=2)
+    symbol_set = db.Column(db.JSON, nullable=False)
+    render_mode = db.Column(db.String(20), default='icon')
+
+    given_grid = db.Column(db.JSON, nullable=False)
+    solution_grid = db.Column(db.JSON, nullable=False)
+    enable_guidance = db.Column(db.Boolean, default=True)
+    max_attempts = db.Column(db.Integer, default=0)
+    min_xp_to_pass = db.Column(db.Integer, default=0)
+    order_index = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    mission = db.relationship('Mission', backref=db.backref('sudoku_puzzles', cascade='all, delete-orphan', lazy=True))
+    events = db.relationship('SudokuEvent', backref='puzzle', lazy=True, cascade='all, delete-orphan')
+
+class SudokuEvent(db.Model):
+    __tablename__ = 'sudoku_events'
+    event_id = db.Column(db.Integer, primary_key=True)
+    user_mission_id = db.Column(db.Integer, db.ForeignKey('user_missions.user_mission_id', ondelete='CASCADE'), nullable=False)
+    puzzle_id = db.Column(db.Integer, db.ForeignKey('sudoku_puzzles.puzzle_id', ondelete='CASCADE'), nullable=False)
+
+    event_type = db.Column(db.String(20))
+    row = db.Column(db.Integer, nullable=True)
+    col = db.Column(db.Integer, nullable=True)
+    value_index = db.Column(db.Integer, nullable=True)
+    is_conflict = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

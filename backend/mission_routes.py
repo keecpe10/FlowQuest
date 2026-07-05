@@ -2,7 +2,7 @@ import jwt
 import os
 from flask import Blueprint, request, jsonify
 from app import db, socketio
-from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, CourseEnrollment, MCQQuestion, MCQUserAnswer
+from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
 from auth_utils import has_course_access, is_course_teacher
 from datetime import datetime
 
@@ -46,7 +46,7 @@ def get_missions(course_id):
         PointHistory.source_id, db.func.sum(PointHistory.points)
     ).filter(
         PointHistory.user_id == user_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission'])
     ).group_by(PointHistory.source_id).all()
     points_dict = {p[0]: p[1] for p in points_data}
     
@@ -70,13 +70,31 @@ def get_missions(course_id):
             'description': m.description,
             'mission_type': m.mission_type,
             'points': m.points,
-            'earned_xp': earned_xp,
+            'earned_xp': earned_xp if earned_xp else (um.score_awarded if um and um.score_awarded else 0),
             'difficulty_level': m.difficulty_level,
             'is_completed': is_completed,
             'status': status,
             'score_text': score_text,
             'passing_percentage': m.passing_percentage
         }
+        if m.mission_type == 'sudoku':
+            puzzle = SudokuPuzzle.query.filter_by(mission_id=m.mission_id).first()
+            max_att = puzzle.max_attempts if puzzle else 0
+            min_xp = puzzle.min_xp_to_pass if puzzle else 0
+            mission_data['max_attempts'] = max_att
+            mission_data['can_replay'] = (max_att == 0) or (um and (um.attempt_count or 0) < max_att)
+            # Always use score_awarded as the authoritative XP for sudoku (PointHistory may be stale)
+            if um and um.score_awarded is not None:
+                mission_data['earned_xp'] = um.score_awarded
+            # "passed" only if has submitted at least once AND XP meets threshold
+            score = um.score_awarded or 0 if um else 0
+            min_xp = puzzle.min_xp_to_pass if puzzle else 0
+            # has_submitted: attempt_count > 0 means submitted at least once (even while retrying)
+            has_submitted = bool(um and um.attempt_count and um.attempt_count > 0)
+            is_passed = has_submitted and ((min_xp == 0) or (score >= min_xp))
+            mission_data['is_passed'] = is_passed
+            mission_data['is_completed'] = is_completed  # submitted (status==completed)
+            mission_data['min_xp_to_pass'] = min_xp
         if m.mission_type == 'brainstorm':
             board = BrainstormBoard.query.filter_by(mission_id=m.mission_id).first()
             if board:
@@ -191,7 +209,7 @@ def get_students_progress(mission_id):
         PointHistory.user_id, db.func.sum(PointHistory.points)
     ).filter(
         PointHistory.source_id == mission_id,
-        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission'])
+        PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission'])
     ).group_by(PointHistory.user_id).all()
     points_dict = {p[0]: p[1] for p in points_data}
     
@@ -218,6 +236,28 @@ def get_students_progress(mission_id):
                 mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
                 correct_answers = sum(1 for a in mcq_answers if a.is_correct)
                 score_text = f"{correct_answers}/{total_questions}"
+                
+        is_passed = True
+        time_spent = None
+        attempt_count = None
+        
+        if mission.mission_type == 'sudoku':
+            # Use score_awarded for sudoku XP
+            if um and um.score_awarded is not None:
+                xp_awarded = um.score_awarded
+                
+            puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()
+            min_xp = puzzle.min_xp_to_pass if puzzle else 0
+            score = um.score_awarded or 0 if um else 0
+            
+            if um and status == 'completed':
+                is_passed = (min_xp == 0) or (score >= min_xp)
+                if not is_passed:
+                    status = 'failed'
+                    
+            if um:
+                time_spent = um.time_spent_seconds
+                attempt_count = um.attempt_count
 
         results.append({
             'user_id': student.user_id,
@@ -226,7 +266,10 @@ def get_students_progress(mission_id):
             'last_active': updated_at,
             'xp_awarded': xp_awarded,
             'mcq_progress_text': mcq_progress_text,
-            'score_text': score_text
+            'score_text': score_text,
+            'is_passed': is_passed,
+            'time_spent': time_spent,
+            'attempt_count': attempt_count
         })
         
     return jsonify(results), 200
@@ -534,3 +577,381 @@ def give_student_xp(mission_id, student_id):
     socketio.emit('points_awarded', {'mission_id': mission_id, 'user_id': student_id, 'points': points})
     
     return jsonify({'message': f'Awarded {points} XP to student successfully'}), 200
+
+import google.generativeai as genai
+
+@mission_bp.route('/<int:mission_id>/analyze-student/<int:student_id>', methods=['POST'])
+def analyze_student(mission_id, student_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'error': 'Unauthorized or mission not found'}), 403
+        
+    student = User.query.get(student_id)
+    if not student:
+        return jsonify({'error': 'Student not found'}), 404
+        
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
+        
+    um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).first()
+    if not um or um.status == 'not_started':
+        return jsonify({"analysis": f"นักเรียน {student_id} ยังไม่ได้เริ่มทำด่านนี้เลยครับ ลองกระตุ้นหรือให้คำแนะนำเบื้องต้นดูนะครับ"}), 200
+        
+    time_spent = um.time_spent_seconds or 0
+    attempts = um.attempt_count or 0
+    score = um.score_awarded or 0
+    wrong_count = max(0, attempts - 1 if um.status == 'completed' else attempts)
+    
+    prompt = f"""
+    ช่วยวิเคราะห์ความสามารถของนักเรียน (ชื่อผู้ใช้: {student.username}) ในการทำภารกิจแก้ปัญหา (เช่น ซูโดกุ หรือแบบทดสอบ) 
+    โดยใช้ข้อมูลต่อไปนี้:
+    - คะแนนที่ได้: {score} XP
+    - เวลาที่ใช้: {time_spent} วินาที
+    - จำนวนครั้งที่กดส่งคำตอบ: {attempts} ครั้ง
+    - จำนวนครั้งที่วางผิด: {wrong_count} ครั้ง
+    - สถานะปัจจุบัน: {um.status}
+    
+    เขียนวิเคราะห์สั้นๆ (ประมาณ 3-4 บรรทัด) เป็นภาษาไทยแบบเป็นกันเอง ให้กำลังใจ และบอกจุดแข็งหรือสิ่งที่ต้องปรับปรุง 
+    (ถ้าคะแนนดีเวลาเร็วแปลว่าหัวไว, ถ้าเวลาช้าแต่คะแนนดีแปลว่ารอบคอบ, ถ้ากดส่งหลายครั้งหรือวางผิดบ่อยแปลว่าอาจจะยังสับสนหรือใช้การเดา)
+    ไม่ต้องใส่ markdown เยอะ ใช้แค่ตัวหนาก็พอ
+    """
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(prompt)
+        return jsonify({"analysis": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to connect to AI: {str(e)}"}), 500
+
+@mission_bp.route('/<int:mission_id>/analyze-brainstorm-student/<int:student_id>', methods=['POST'])
+def analyze_brainstorm_student(mission_id, student_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'error': 'Unauthorized or mission not found'}), 403
+
+    student = User.query.get(student_id)
+    if not student:
+        return jsonify({'error': 'Student not found'}), 404
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
+
+    board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
+    if not board:
+        return jsonify({"analysis": "ยังไม่มีกระดานระดมสมองในด่านนี้"}), 200
+
+    questions = BrainstormQuestion.query.filter_by(board_id=board.board_id).order_by(BrainstormQuestion.order_index).all()
+    cards = BrainstormCard.query.filter_by(board_id=board.board_id, author_id=student_id).all()
+    text_cards = [c for c in cards if c.card_type == 'text' and c.content]
+
+    if not text_cards:
+        return jsonify({"analysis": f"นักเรียน {student.username} ยังไม่ได้เขียนอะไรลงในกระดานระดมสมองเลยครับ"}), 200
+
+    q_map = {q.question_id: q.content for q in questions}
+    grouped: dict = {}
+    ungrouped = []
+    for card in text_cards:
+        if card.question_id and card.question_id in q_map:
+            grouped.setdefault(card.question_id, []).append(card.content)
+        else:
+            ungrouped.append(card.content)
+
+    prompt_body = f"ด่านระดมความคิด: {mission.title}\nนักเรียน: {student.username}\n\n"
+    if questions:
+        for q in questions:
+            entries = grouped.get(q.question_id, [])
+            prompt_body += f"คำถาม: {q.content}\n"
+            if entries:
+                for e in entries:
+                    prompt_body += f"  - {e}\n"
+            else:
+                prompt_body += "  (ไม่ได้ตอบคำถามนี้)\n"
+            prompt_body += "\n"
+    if ungrouped:
+        prompt_body += "ความคิดเห็นอื่นๆ (ไม่ได้ตอบคำถามเฉพาะ):\n"
+        for e in ungrouped:
+            prompt_body += f"  - {e}\n"
+
+    prompt = f"""
+คุณเป็นผู้ช่วยวิเคราะห์ผลการระดมความคิดของนักเรียนเพื่อช่วยครู
+ต่อไปนี้คือคำถามและสิ่งที่นักเรียน (ชื่อผู้ใช้: {student.username}) เขียนลงบนกระดานระดมสมอง:
+
+{prompt_body}
+
+โปรดวิเคราะห์ผลงานของนักเรียนคนนี้เป็นภาษาไทยในแง่มุมต่อไปนี้ (ประมาณ 4-5 บรรทัด):
+1. ความสอดคล้องและสัมพันธ์กันระหว่างคำตอบของนักเรียนกับคำถามแต่ละข้อ
+2. ทัศนคติและแนวความคิดของนักเรียนที่สะท้อนออกมาจากคำตอบที่มีต่อคำถาม
+3. จุดแข็งหรือสิ่งที่ควรพัฒนาของนักเรียนคนนี้
+ใช้ภาษาเป็นกันเอง ให้กำลังใจ ไม่ต้องใส่ markdown ซับซ้อน ใช้แค่ตัวหนาหรือการขึ้นบรรทัดใหม่ก็พอ
+    """
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(prompt)
+        return jsonify({"analysis": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to connect to AI: {str(e)}"}), 500
+
+@mission_bp.route('/<int:mission_id>/analyze-all', methods=['POST'])
+def analyze_all_students(mission_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'error': 'Unauthorized or mission not found'}), 403
+        
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
+        
+    ums = UserMission.query.filter_by(mission_id=mission_id).all()
+    started_ums = [um for um in ums if um.status != 'not_started']
+    
+    if not started_ums:
+        return jsonify({"analysis": "ยังไม่มีนักเรียนคนไหนเริ่มทำด่านนี้เลยครับ แนะนำให้แจ้งเตือนนักเรียนให้เข้ามาทำภารกิจ"}), 200
+        
+    total_students = len(started_ums)
+    completed = sum(1 for um in started_ums if um.status == 'completed')
+    avg_score = sum((um.score_awarded or 0) for um in started_ums) / total_students
+    avg_time = sum((um.time_spent_seconds or 0) for um in started_ums) / total_students
+    avg_attempts = sum((um.attempt_count or 0) for um in started_ums) / total_students
+    
+    prompt = f"""
+    ช่วยวิเคราะห์ภาพรวมของชั้นเรียนในการทำภารกิจแก้ปัญหา '{mission.title}' 
+    ข้อมูลสถิติรวมของนักเรียนที่เริ่มทำแล้วจำนวน {total_students} คน มีดังนี้:
+    - จำนวนคนที่ทำเสร็จสมบูรณ์: {completed} คน
+    - คะแนนเฉลี่ย: {avg_score:.1f} XP
+    - เวลาเฉลี่ยที่ใช้ต่อคน: {avg_time:.1f} วินาที
+    - จำนวนครั้งที่กดส่งคำตอบเฉลี่ย: {avg_attempts:.1f} ครั้ง
+    
+    เขียนสรุปภาพรวมของชั้นเรียน (ประมาณ 4-5 บรรทัด) เป็นภาษาไทยในมุมมองผู้ช่วยครู 
+    บอกว่าภาพรวมเด็กๆ ทำได้ดีไหม ด่านนี้ยากไปหรือง่ายไป หรือควรให้ความช่วยเหลือจุดไหนเพิ่มเติม
+    ไม่ต้องใส่ markdown ที่ซับซ้อน ใช้แค่ตัวหนาหรือการขึ้นบรรทัดใหม่ก็พอ
+    """
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(prompt)
+        return jsonify({"analysis": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to connect to AI: {str(e)}"}), 500
+
+
+@mission_bp.route('/<int:mission_id>/analyze-brainstorm', methods=['POST'])
+def analyze_brainstorm(mission_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'error': 'Unauthorized or mission not found'}), 403
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
+
+    board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
+    if not board:
+        return jsonify({"analysis": "ยังไม่มีกระดานระดมสมองในด่านนี้"}), 200
+
+    questions = BrainstormQuestion.query.filter_by(board_id=board.board_id).order_by(BrainstormQuestion.order_index).all()
+    cards = BrainstormCard.query.filter_by(board_id=board.board_id).all()
+    text_cards = [c for c in cards if c.card_type == 'text' and c.content]
+
+    if not text_cards:
+        return jsonify({"analysis": "ยังไม่มีนักเรียนเขียนอะไรลงกระดานเลยครับ"}), 200
+
+    # Group cards by question
+    q_map = {q.question_id: q.content for q in questions}
+    grouped: dict = {}
+    ungrouped = []
+    for card in text_cards:
+        if card.question_id and card.question_id in q_map:
+            grouped.setdefault(card.question_id, []).append(card.content)
+        else:
+            ungrouped.append(card.content)
+
+    # Build prompt content
+    prompt_body = f"ด่านระดมความคิด: {mission.title}\n\n"
+    if questions:
+        for q in questions:
+            entries = grouped.get(q.question_id, [])
+            prompt_body += f"คำถาม: {q.content}\n"
+            if entries:
+                for e in entries:
+                    prompt_body += f"  - {e}\n"
+            else:
+                prompt_body += "  (ไม่มีนักเรียนตอบคำถามนี้)\n"
+            prompt_body += "\n"
+    if ungrouped:
+        prompt_body += "ความคิดเห็นอื่นๆ (ไม่ได้ตอบคำถามเฉพาะ):\n"
+        for e in ungrouped:
+            prompt_body += f"  - {e}\n"
+
+    prompt = f"""
+คุณเป็นผู้ช่วยวิเคราะห์ผลการระดมความคิดของนักเรียนเพื่อช่วยครู
+ต่อไปนี้คือคำถามและสิ่งที่นักเรียนเขียนลงบนกระดานระดมสมอง:
+
+{prompt_body}
+
+โปรดวิเคราะห์เป็นภาษาไทยในแง่มุมต่อไปนี้ (ประมาณ 5-7 บรรทัด):
+1. ความสอดคล้องและสัมพันธ์กันระหว่างคำตอบของนักเรียนกับคำถามแต่ละข้อ
+2. ทัศนคติและแนวความคิดของนักเรียนที่สะท้อนออกมาจากคำตอบที่มีต่อคำถาม
+3. ภาพรวมความคิดหลักและความหลากหลายของความคิด
+4. จุดเด่นและประเด็นที่ครูควรติดตามเพิ่มเติม
+ใช้ภาษาเป็นกันเอง ไม่ต้องใส่ markdown ซับซ้อน ใช้แค่ตัวหนาหรือการขึ้นบรรทัดใหม่ก็พอ
+    """
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(prompt)
+        return jsonify({"analysis": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to connect to AI: {str(e)}"}), 500
+
+@mission_bp.route('/<int:mission_id>/analyze-mcq-all', methods=['POST'])
+def analyze_mcq_all(mission_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'error': 'Unauthorized or mission not found'}), 403
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
+
+    questions = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(MCQQuestion.order_index).all()
+    if not questions:
+        return jsonify({"analysis": "ยังไม่มีคำถาม MCQ ในด่านนี้"}), 200
+
+    ums = UserMission.query.filter_by(mission_id=mission_id).all()
+    started_ums = [um for um in ums if um.status != 'not_started']
+    
+    if not started_ums:
+        return jsonify({"analysis": "ยังไม่มีนักเรียนทำด่านนี้เลยครับ"}), 200
+
+    # Aggregate stats per question
+    q_stats = {}
+    for q in questions:
+        q_stats[q.question_id] = {'text': q.question_text, 'correct': 0, 'total': 0}
+        
+    for um in started_ums:
+        answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+        for ans in answers:
+            if ans.question_id in q_stats:
+                q_stats[ans.question_id]['total'] += 1
+                if ans.is_correct:
+                    q_stats[ans.question_id]['correct'] += 1
+
+    prompt_body = f"ด่านแบบทดสอบ (MCQ): {mission.title}\nจำนวนนักเรียนที่ทำ: {len(started_ums)} คน\n\n"
+    for q_id, stat in q_stats.items():
+        total = stat['total']
+        correct = stat['correct']
+        wrong = total - correct
+        percent = round((correct/total*100) if total > 0 else 0, 1)
+        prompt_body += f"- คำถาม: {stat['text']}\n"
+        prompt_body += f"  ตอบถูก {correct} คน, ตอบผิด {wrong} คน (ความถูกต้อง {percent}%)\n\n"
+
+    prompt = f"""
+คุณเป็นผู้ช่วยครูในการวิเคราะห์ภาพรวมการทำแบบทดสอบ (MCQ) ของชั้นเรียน
+ข้อมูลสถิติการตอบคำถามของนักเรียนทั้งห้องมีดังนี้:
+
+{prompt_body}
+
+โปรดวิเคราะห์ภาพรวมเป็นภาษาไทยในแง่มุมต่อไปนี้ (ประมาณ 5-7 บรรทัด):
+1. ภาพรวมสถิติการตอบคำถามของนักเรียนทั้งห้องว่าเข้าใจเนื้อหาได้ดีเพียงใด
+2. ข้อที่นักเรียนส่วนใหญ่ตอบถูก (จุดแข็งของห้อง)
+3. ข้อที่นักเรียนส่วนใหญ่ตอบผิด หรือมีความเข้าใจคลาดเคลื่อน (จุดที่ครูควรเน้นย้ำหรือทบทวน)
+ใช้ภาษาเป็นกันเอง ไม่ต้องใส่ markdown ซับซ้อน ใช้แค่ตัวหนาหรือการขึ้นบรรทัดใหม่ก็พอ
+    """
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(prompt)
+        return jsonify({"analysis": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to connect to AI: {str(e)}"}), 500
+
+@mission_bp.route('/<int:mission_id>/analyze-mcq-student/<int:student_id>', methods=['POST'])
+def analyze_mcq_student(mission_id, student_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    mission = Mission.query.get(mission_id)
+    if not mission or not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'error': 'Unauthorized or mission not found'}), 403
+
+    student = User.query.get(student_id)
+    if not student:
+        return jsonify({'error': 'Student not found'}), 404
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
+
+    um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).first()
+    if not um or um.status == 'not_started':
+        return jsonify({"analysis": f"นักเรียน {student.username} ยังไม่ได้เริ่มทำแบบทดสอบนี้เลยครับ"}), 200
+
+    questions = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(MCQQuestion.order_index).all()
+    answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+    
+    if not answers:
+        return jsonify({"analysis": f"นักเรียน {student.username} ยังไม่ได้ตอบคำถามใดๆ"}), 200
+
+    ans_map = {a.question_id: a for a in answers}
+    
+    prompt_body = f"ด่านแบบทดสอบ (MCQ): {mission.title}\nนักเรียน: {student.username}\nคะแนนที่ได้: {um.score_awarded or 0} XP\nเวลาที่ใช้: {um.time_spent_seconds or 0} วินาที\n\n"
+    
+    for q in questions:
+        ans = ans_map.get(q.question_id)
+        if ans:
+            status_text = "ถูกต้อง" if ans.is_correct else "ผิด"
+            prompt_body += f"- คำถาม: {q.question_text}\n"
+            prompt_body += f"  ผลการตอบ: {status_text}\n\n"
+        else:
+            prompt_body += f"- คำถาม: {q.question_text}\n"
+            prompt_body += f"  ผลการตอบ: ข้าม / ยังไม่ได้ตอบ\n\n"
+
+    prompt = f"""
+คุณเป็นผู้ช่วยครูในการวิเคราะห์ความรู้ความสามารถของนักเรียนจากการทำแบบทดสอบ (MCQ)
+ข้อมูลคำถามและผลการตอบของนักเรียน (ชื่อผู้ใช้: {student.username}) มีดังนี้:
+
+{prompt_body}
+
+โปรดวิเคราะห์นักเรียนคนนี้เป็นภาษาไทยในแง่มุมต่อไปนี้ (ประมาณ 4-5 บรรทัด):
+1. ความรู้ความเข้าใจในเนื้อหาโดยรวมของนักเรียน
+2. เรื่องหรือแนวคิดที่นักเรียนทำได้ดี (ตอบถูกต้อง)
+3. เรื่องหรือข้อที่นักเรียนยังทำผิดหรือน่าจะมีความเข้าใจคลาดเคลื่อน
+ใช้ภาษาเป็นกันเอง ให้กำลังใจ ไม่ต้องใส่ markdown ซับซ้อน ใช้แค่ตัวหนาหรือการขึ้นบรรทัดใหม่ก็พอ
+    """
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(prompt)
+        return jsonify({"analysis": response.text})
+    except Exception as e:
+        return jsonify({"error": f"Failed to connect to AI: {str(e)}"}), 500

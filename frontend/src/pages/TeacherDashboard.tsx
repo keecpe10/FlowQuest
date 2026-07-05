@@ -48,12 +48,14 @@ const missionTypeLabel: Record<string, string> = {
   flowchart: 'Flowchart',
   brainstorm: 'Brainstorm',
   mcq: 'MCQ Quiz',
+  sudoku: 'ซูโดกุ',
 };
 
 const missionTypeColor: Record<string, string> = {
   flowchart: 'bg-sky-100 text-sky-700',
   brainstorm: 'bg-pink-100 text-pink-700',
   mcq: 'bg-indigo-100 text-indigo-700',
+  sudoku: 'bg-amber-100 text-amber-700',
 };
 
 const TeacherDashboard = () => {
@@ -819,7 +821,7 @@ const TeacherDashboard = () => {
                           <Users size={14} /> ดูความคืบหน้า
                         </button>
                       </Link>
-                      <Link to={mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/teacher/mission/${mission.mission_id}/mcq-design` : `/teacher/mission/${mission.mission_id}/design`} className="flex-1">
+                      <Link to={mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/teacher/mission/${mission.mission_id}/mcq-design` : mission.mission_type === 'sudoku' ? `/teacher/mission/${mission.mission_id}/sudoku-design` : `/teacher/mission/${mission.mission_id}/design`} className="flex-1">
                         <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold text-sm transition-colors">
                           <LayoutDashboard size={14} /> ออกแบบด่าน
                         </button>
@@ -924,6 +926,7 @@ const TeacherDashboard = () => {
                   <option value="flowchart">Flowchart — ผังงาน</option>
                   <option value="brainstorm">Brainstorm — ระดมความคิด</option>
                   <option value="mcq">MCQ — แบบทดสอบ 4 ตัวเลือก</option>
+                  <option value="sudoku">ซูโดกุ — เกมซูโดกุสัญลักษณ์</option>
                 </select>
               </div>
 

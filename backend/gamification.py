@@ -177,7 +177,7 @@ def get_leaderboard():
             PointHistory, 
             db.and_(
                 User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission']),
+                PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']),
                 PointHistory.source_id.in_(course_mission_ids)
             )
         ).filter(
@@ -234,7 +234,7 @@ def get_profile():
     if not user:
         return jsonify({'message': 'User not found'}), 404
         
-    valid_sources = ['mission', 'teacher_bonus', 'mcq_mission']
+    valid_sources = ['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']
     total_points = sum([p.points for p in user.points_history if p.source in valid_sources])
     
     return jsonify({
@@ -274,7 +274,7 @@ def get_leaderboard_3d():
             PointHistory, 
             db.and_(
                 User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(['mission', 'mcq_mission']),
+                PointHistory.source.in_(['mission', 'mcq_mission', 'sudoku_mission']),
                 PointHistory.source_id == mission_id
             )
         ).filter(
@@ -302,7 +302,7 @@ def get_leaderboard_3d():
             PointHistory, 
             db.and_(
                 User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission']),
+                PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']),
                 PointHistory.source_id.in_(course_mission_ids)
             )
         ).filter(

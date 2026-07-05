@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { Play, Lock, CheckCircle, Star, Zap, Target, ArrowLeft, Trophy } from 'lucide-react';
+import { Play, Lock, CheckCircle, Star, Zap, Target, ArrowLeft, Trophy, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { io } from 'socket.io-client';
 
@@ -13,15 +13,20 @@ interface Mission {
   points: number;
   difficulty_level: number;
   is_completed: boolean;
+  is_passed?: boolean;
   status?: string;
   score_text?: string;
   earned_xp?: number;
+  can_replay?: boolean;
+  max_attempts?: number;
+  min_xp_to_pass?: number;
 }
 
 const missionTypeLabel: Record<string, string> = {
   flowchart: 'Flowchart',
   brainstorm: 'Brainstorm',
   mcq: 'MCQ Quiz',
+  sudoku: 'ซูโดกุ',
 };
 
 const missionGradients = [
@@ -152,14 +157,25 @@ const MissionSelect = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {missions.map((mission, idx) => {
             const isTeacher = user?.role === 'teacher';
-            const isUnlocked = isTeacher || idx === 0 || missions[idx - 1]?.is_completed || mission.mission_type === 'brainstorm';
-            const canPlay = isUnlocked && (!mission.is_completed || isTeacher || mission.mission_type === 'brainstorm');
+            // For unlock chain: sudoku counts as completed once is_passed OR is_completed
+            const effectiveCompleted = mission.mission_type === 'sudoku'
+              ? (mission.is_passed || mission.is_completed)
+              : mission.is_completed;
+            const isUnlocked = isTeacher || idx === 0 || (missions[idx - 1]?.mission_type === 'sudoku'
+              ? (missions[idx - 1]?.is_passed || missions[idx - 1]?.is_completed)
+              : missions[idx - 1]?.is_completed) || mission.mission_type === 'brainstorm';
+            const canPlay = isUnlocked && (
+              !effectiveCompleted ||
+              isTeacher ||
+              mission.mission_type === 'brainstorm' ||
+              (mission.mission_type === 'sudoku' && mission.can_replay !== false)
+            );
             const gradient = missionGradients[idx % missionGradients.length];
 
             return (
               <div
                 key={mission.mission_id}
-                onClick={() => canPlay && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
+                onClick={() => canPlay && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : mission.mission_type === 'sudoku' ? `/sudoku/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
                 className={`relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
                   !isUnlocked
                     ? 'cursor-not-allowed opacity-50'
@@ -181,12 +197,17 @@ const MissionSelect = () => {
                         {/* Mission number badge */}
                         <div className="bg-black/20 backdrop-blur-sm rounded-xl px-3 py-1.5 flex items-center gap-2">
                           {isUnlocked ? (
-                            mission.is_completed
+                          (() => {
+                            const displayCompleted = mission.mission_type === 'sudoku'
+                              ? mission.is_passed
+                              : mission.is_completed;
+                            return displayCompleted
                               ? <CheckCircle size={16} className="text-emerald-300" />
-                              : <Play size={16} className="text-white" />
-                          ) : (
-                            <Lock size={16} className="text-white/70" />
-                          )}
+                              : <Play size={16} className="text-white" />;
+                          })()
+                        ) : (
+                          <Lock size={16} className="text-white/70" />
+                        )}
                           <span className="text-white font-bold text-sm">ด่านที่ {idx + 1}</span>
                         </div>
 
@@ -204,11 +225,26 @@ const MissionSelect = () => {
                       </div>
 
                       {/* Completed/Failed overlay badge */}
-                      {mission.is_completed && (
-                        <div className="mt-3 inline-flex items-center gap-1.5 bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full">
-                          <CheckCircle size={12} />
-                          ผ่านแล้ว! {mission.score_text ? `(${mission.score_text})` : ''}
-                        </div>
+                      {mission.mission_type === 'sudoku' ? (
+                        <>  
+                          {mission.is_passed && (
+                            <div className="mt-3 inline-flex items-center gap-1.5 bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full">
+                              <CheckCircle size={12} /> ผ่านแล้ว!
+                            </div>
+                          )}
+                          {mission.is_completed && !mission.is_passed && (
+                            <div className="mt-3 inline-flex items-center gap-1.5 bg-amber-500/30 border border-amber-400/50 text-amber-300 text-xs font-bold px-3 py-1 rounded-full">
+                              <AlertTriangle size={12} /> ส่งแล้ว ยังไม่ผ่าน{mission.min_xp_to_pass ? ` (${mission.earned_xp}/${mission.min_xp_to_pass} XP)` : ''}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        mission.is_completed && (
+                          <div className="mt-3 inline-flex items-center gap-1.5 bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full">
+                            <CheckCircle size={12} />
+                            ผ่านแล้ว! {mission.score_text ? `(${mission.score_text})` : ''}
+                          </div>
+                        )
                       )}
                       {mission.status === 'failed' && (
                         <div className="mt-3 inline-flex items-center gap-1.5 bg-rose-500/30 border border-rose-400/50 text-rose-300 text-xs font-bold px-3 py-1 rounded-full">
@@ -228,7 +264,10 @@ const MissionSelect = () => {
                         <div className="flex items-center gap-3">
                           <span className="flex items-center gap-1.5 text-amber-400 font-bold text-sm">
                             <Zap size={14} />
-                            {mission.is_completed ? `ได้รับ ${mission.earned_xp || mission.points} XP` : `${mission.points} XP`}
+                            {mission.is_completed
+                              ? `ได้รับ ${(mission.earned_xp != null ? mission.earned_xp : mission.points)} XP`
+                              : `${mission.points} XP`
+                            }
                           </span>
                           <span className="text-slate-600 text-xs">·</span>
                           <span className="text-slate-400 text-xs font-medium">
@@ -238,7 +277,7 @@ const MissionSelect = () => {
 
                         {isUnlocked && (
                           <div className="flex items-center gap-3">
-                            {mission.mission_type === 'mcq' && (
+                            {(mission.mission_type === 'mcq' || mission.mission_type === 'sudoku') && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); navigate(`/leaderboard?mission_id=${mission.mission_id}`); }}
                                 className={`p-2 rounded-xl text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 transition-colors ${!canPlay && 'cursor-pointer'}`}

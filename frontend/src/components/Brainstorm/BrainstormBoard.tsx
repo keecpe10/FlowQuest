@@ -221,20 +221,20 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
 
       {/* Action Buttons */}
       <div className="absolute top-4 right-4 z-50 flex flex-col md:flex-row gap-2 md:gap-3 items-end md:items-center">
-        {/* Search Input */}
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="ค้นหาชื่อ-นามสกุล..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 pr-4 py-1.5 md:py-2 rounded-xl border border-white/30 bg-black/20 backdrop-blur-md text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-pink-500 shadow-lg text-xs md:text-sm w-40 md:w-48 transition-all focus:w-48 md:focus:w-64"
-          />
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/70" />
-        </div>
-
         {isTeacher && (
           <>
+            {/* Search Input */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อ-นามสกุล..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-4 py-1.5 md:py-2 rounded-xl border border-white/30 bg-black/20 backdrop-blur-md text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-pink-500 shadow-lg text-xs md:text-sm w-40 md:w-48 transition-all focus:w-48 md:focus:w-64"
+              />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/70" />
+            </div>
+
             <button 
               onClick={() => useBrainstormStore.getState().toggleBoardVisibility(!showPosts)}
               className={`flex items-center gap-1 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold shadow-lg transition-transform hover:scale-105 text-white ${showPosts ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
@@ -249,19 +249,20 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
             >
               {isClosed ? '🔓 เปิดรับคำตอบ' : '🔒 ปิดรับคำตอบ'}
             </button>
+            
+            <button 
+              onClick={() => fetchSummary(board.board_id)}
+              disabled={isSummarizing}
+              className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg transition-transform hover:scale-105 disabled:opacity-70 disabled:hover:scale-100"
+            >
+              {isSummarizing ? (
+                <><Loader2 size={20} className="animate-spin" /> กำลังสรุป...</>
+              ) : (
+                <><Sparkles size={20} /> AI Summary</>
+              )}
+            </button>
           </>
         )}
-        <button 
-          onClick={() => fetchSummary(board.board_id)}
-          disabled={isSummarizing}
-          className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white px-4 py-2 rounded-xl font-bold shadow-lg transition-transform hover:scale-105 disabled:opacity-70 disabled:hover:scale-100"
-        >
-          {isSummarizing ? (
-            <><Loader2 size={20} className="animate-spin" /> กำลังสรุป...</>
-          ) : (
-            <><Sparkles size={20} /> AI Summary</>
-          )}
-        </button>
       </div>
 
       {/* Summary Modal */}

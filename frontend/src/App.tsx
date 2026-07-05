@@ -20,6 +20,9 @@ import { BrainstormStation } from './pages/BrainstormStation';
 import TeacherMCQBuilder from './pages/TeacherMCQBuilder';
 import StudentMCQPlayer from './pages/StudentMCQPlayer';
 import StudentMCQView from './pages/StudentMCQView';
+import TeacherSudokuBuilder from './pages/TeacherSudokuBuilder';
+import StudentSudokuPlayer from './pages/StudentSudokuPlayer';
+import TeacherSudokuStudentView from './pages/TeacherSudokuStudentView';
 import CharacterCreator from './pages/CharacterCreator';
 import Shop from './pages/Shop';
 import Inventory from './pages/Inventory';
@@ -387,10 +390,13 @@ function App() {
           <Route path="/teacher/courses/:courseId" element={<PageWithTitle title="จัดการด่าน"><DashboardLayout><TeacherDashboard /></DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/mission/:id/design" element={<PageWithTitle title="ออกแบบผังงาน"><TeacherFlowBuilder /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/mcq-design" element={<PageWithTitle title="สร้างแบบทดสอบ"><TeacherMCQBuilder /></PageWithTitle>} />
+          <Route path="/teacher/mission/:id/sudoku-design" element={<PageWithTitle title="ออกแบบซูโดกุ"><TeacherSudokuBuilder /></PageWithTitle>} />
           <Route path="/mcq/:id" element={<PageWithTitle title="ทำแบบทดสอบ"><StudentMCQPlayer /></PageWithTitle>} />
+          <Route path="/sudoku/:id" element={<PageWithTitle title="เล่นซูโดกุ"><StudentSudokuPlayer /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/progress" element={<PageWithTitle title="ติดตามผลนักเรียน"><MissionProgress /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/student/:studentId" element={<PageWithTitle title="ผลงานนักเรียน"><StudentFlowchartView /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/mcq-student/:studentId" element={<PageWithTitle title="ผลทดสอบนักเรียน"><StudentMCQView /></PageWithTitle>} />
+          <Route path="/teacher/mission/:id/sudoku-student/:studentId" element={<PageWithTitle title="ผลงานซูโดกุนักเรียน"><TeacherSudokuStudentView /></PageWithTitle>} />
         </Route>
       </Routes>
     </BrowserRouter>

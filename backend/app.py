@@ -45,6 +45,7 @@ def create_app():
         from mission_routes import mission_bp
         from brainstorm_routes import brainstorm_bp
         from mcq_routes import mcq_bp
+        from sudoku_routes import sudoku_bp
         from character_routes import character_bp
         from shop_routes import shop_bp
         from inventory_routes import inventory_bp
@@ -59,6 +60,7 @@ def create_app():
         app.register_blueprint(mission_bp)
         app.register_blueprint(brainstorm_bp)
         app.register_blueprint(mcq_bp)
+        app.register_blueprint(sudoku_bp)
         app.register_blueprint(character_bp)
         app.register_blueprint(shop_bp)
         app.register_blueprint(inventory_bp)

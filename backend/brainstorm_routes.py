@@ -466,11 +466,11 @@ def summarize_board(board_id):
         
     text_content = "\n".join([f"- {c.content}" for c in cards if c.card_type == 'text' and c.content])
     
-    prompt = f"Please summarize the following ideas from a student brainstorming session into 3-5 key bullet points. Keep it encouraging and easy to understand for students:\n\n{text_content}"
+    prompt = f"ช่วยสรุปไอเดียจากการระดมสมองของนักเรียนต่อไปนี้ให้เป็นหัวข้อย่อย (Bullet points) สั้นๆ 3-5 ข้อ และตอบเป็นภาษาไทย โดยใช้ภาษาที่เป็นกันเองและให้กำลังใจ:\n\n{text_content}"
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-flash-latest")
         response = model.generate_content(prompt)
         summary_text = response.text
             
