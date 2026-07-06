@@ -77,6 +77,7 @@ class Mission(db.Model):
     mission_type = db.Column(db.String(50)) # flowchart, mcq, brainstorm
     points = db.Column(db.Integer, default=0)
     difficulty_level = db.Column(db.Integer, default=1)
+    order_index = db.Column(db.Integer, default=0)
     
     solution_nodes = db.Column(db.JSON, nullable=True)
     solution_edges = db.Column(db.JSON, nullable=True)

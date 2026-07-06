@@ -30,7 +30,7 @@ def get_missions(course_id):
     if not has_course_access(user_id, course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
-    missions = Mission.query.filter_by(course_id=course_id, is_active=True).order_by(Mission.difficulty_level).all()
+    missions = Mission.query.filter_by(course_id=course_id, is_active=True).order_by(Mission.order_index.asc(), Mission.difficulty_level.asc()).all()
     
     # Get user's missions, ordered by updated_at ascending so we process oldest to newest
     user_missions = UserMission.query.filter_by(user_id=user_id).order_by(UserMission.updated_at.asc()).all()
@@ -103,6 +103,30 @@ def get_missions(course_id):
         results.append(mission_data)
         
     return jsonify(results), 200
+
+@mission_bp.route('/course/<int:course_id>/reorder', methods=['PUT'])
+def reorder_missions(course_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
+        
+    if not is_course_teacher(user_id, course_id):
+        return jsonify({'message': 'Forbidden. Only teacher can reorder missions.'}), 403
+        
+    data = request.json
+    mission_ids = data.get('mission_ids', [])
+    
+    if not isinstance(mission_ids, list):
+        return jsonify({'message': 'mission_ids must be a list'}), 400
+        
+    for index, mission_id in enumerate(mission_ids):
+        mission = Mission.query.filter_by(mission_id=mission_id, course_id=course_id).first()
+        if mission:
+            mission.order_index = index
+            
+    db.session.commit()
+    socketio.emit('missions_updated')
+    return jsonify({'message': 'Missions reordered successfully'}), 200
 
 @mission_bp.route('/<int:mission_id>', methods=['GET'])
 def get_mission(mission_id):
@@ -307,6 +331,10 @@ def create_mission(course_id):
         return jsonify({'message': 'Unauthorized. Teacher access required.'}), 403
         
     data = request.get_json()
+    
+    max_order = db.session.query(db.func.max(Mission.order_index)).filter_by(course_id=course_id).scalar()
+    next_order = (max_order or -1) + 1
+
     new_mission = Mission(
         course_id=course_id,
         title=data.get('title'),
@@ -314,6 +342,7 @@ def create_mission(course_id):
         mission_type=data.get('mission_type', 'flowchart'),
         points=data.get('points', 100),
         difficulty_level=data.get('difficulty_level', 1),
+        order_index=next_order,
         time_limit_seconds=data.get('time_limit_seconds'),
         randomize_questions=data.get('randomize_questions', False),
         randomize_choices=data.get('randomize_choices', True),

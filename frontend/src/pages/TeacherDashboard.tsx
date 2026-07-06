@@ -3,8 +3,13 @@ import axios from 'axios';
 import {
   Users, GraduationCap, Award, Search, LayoutDashboard,
   Edit2, Trash2, Plus, X, Target, Star, BarChart2,
-  BookOpen, ChevronRight, Zap, TrendingUp, Trophy
+  BookOpen, ChevronRight, Zap, TrendingUp, Trophy,
+  GripVertical, ArrowUp, ArrowDown, Save, ListOrdered
 } from 'lucide-react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, arrayMove, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useAuthStore } from '../store/useAuthStore';
 import { io } from 'socket.io-client';
 import { Navigate, Link, useParams } from 'react-router-dom';
@@ -58,6 +63,117 @@ const missionTypeColor: Record<string, string> = {
   sudoku: 'bg-amber-100 text-amber-700',
 };
 
+// Sortable card component for reordering
+const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFirst, isLast, openEditModal, handleDelete }: any) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: mission.mission_id });
+  
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={`relative bg-white rounded-2xl border ${isDragging ? 'border-violet-500 shadow-2xl scale-[1.02]' : 'border-slate-200/80 shadow-sm hover:shadow-lg'} transition-all group flex flex-col overflow-hidden`}>
+      {/* Card top accent */}
+      <div className={`h-1.5 w-full ${
+        mission.difficulty_level === 1 ? 'bg-gradient-to-r from-emerald-400 to-teal-400' :
+        mission.difficulty_level === 2 ? 'bg-gradient-to-r from-amber-400 to-orange-400' :
+        'bg-gradient-to-r from-rose-400 to-pink-500'
+      }`} />
+
+      <div className="p-5 flex flex-col flex-1">
+        {/* Top row */}
+        <div className="flex items-start justify-between mb-3">
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${missionTypeColor[mission.mission_type] || 'bg-slate-100 text-slate-600'}`}>
+            {missionTypeLabel[mission.mission_type] || mission.mission_type}
+          </span>
+          <div className="flex items-center gap-0.5">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Star
+                key={i}
+                size={15}
+                className={i < mission.difficulty_level ? difficultyColor(mission.difficulty_level) : 'text-slate-200'}
+                fill={i < mission.difficulty_level ? 'currentColor' : 'none'}
+              />
+            ))}
+          </div>
+        </div>
+
+        <h3 className="text-lg font-extrabold text-slate-800 mb-1.5 leading-tight">{mission.title}</h3>
+        <p className="text-slate-500 text-sm leading-relaxed flex-1 mb-4 line-clamp-2">{mission.description}</p>
+
+        {/* XP badge */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 font-bold px-3 py-1.5 rounded-xl text-sm">
+            <Zap size={14} className="text-amber-500" />
+            {mission.points} XP
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className={`border-t border-slate-100 pt-4 flex items-center gap-2 ${isReordering ? 'opacity-50 pointer-events-none' : ''}`}>
+          <Link to={`/teacher/mission/${mission.mission_id}/progress`} className="flex-1">
+            <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-sm transition-colors">
+              <Users size={14} /> ดูความคืบหน้า
+            </button>
+          </Link>
+          <Link to={mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/teacher/mission/${mission.mission_id}/mcq-design` : mission.mission_type === 'sudoku' ? `/teacher/mission/${mission.mission_id}/sudoku-design` : `/teacher/mission/${mission.mission_id}/design`} className="flex-1">
+            <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold text-sm transition-colors">
+              <LayoutDashboard size={14} /> ออกแบบด่าน
+            </button>
+          </Link>
+          {mission.mission_type === 'mcq' && (
+            <Link to={`/leaderboard?mission_id=${mission.mission_id}`}>
+              <button className="flex items-center justify-center p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors tooltip" title="Leaderboard">
+                <Trophy size={18} />
+              </button>
+            </Link>
+          )}
+        </div>
+
+        {/* Edit/Delete overlay */}
+        {!isReordering && (
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1">
+            <button onClick={() => openEditModal(mission)} className="p-2 bg-white/90 backdrop-blur-sm rounded-lg text-slate-600 hover:text-violet-600 hover:bg-violet-50 shadow-sm border border-slate-100 transition-colors">
+              <Edit2 size={14} />
+            </button>
+            <button onClick={() => handleDelete(mission.mission_id)} className="p-2 bg-white/90 backdrop-blur-sm rounded-lg text-slate-600 hover:text-rose-600 hover:bg-rose-50 shadow-sm border border-slate-100 transition-colors">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Reordering Overlay */}
+      {isReordering && (
+        <div className="absolute inset-0 bg-slate-900/5 backdrop-blur-[0.5px] rounded-2xl flex items-center justify-center pointer-events-auto">
+          {/* Desktop Drag Handle */}
+          <div {...attributes} {...listeners} className="hidden sm:flex p-4 bg-white rounded-xl shadow-lg cursor-grab active:cursor-grabbing items-center gap-2 font-bold text-slate-700 hover:scale-105 transition-transform">
+             <GripVertical size={20} className="text-violet-500" /> ลากเพื่อจัดเรียง
+          </div>
+          {/* Mobile Up/Down Arrows */}
+          <div className="flex sm:hidden items-center justify-center gap-4 bg-white/90 backdrop-blur-md px-6 py-3 rounded-full shadow-lg">
+             <button 
+                onClick={() => onMoveUp(mission.mission_id)} 
+                disabled={isFirst} 
+                className={`p-3 rounded-full transition-colors ${isFirst ? 'text-slate-300 bg-slate-100 cursor-not-allowed' : 'text-violet-600 bg-violet-100 hover:bg-violet-200 active:scale-95'}`}>
+                <ArrowUp size={24} />
+             </button>
+             <div className="w-[1px] h-8 bg-slate-200"></div>
+             <button 
+                onClick={() => onMoveDown(mission.mission_id)} 
+                disabled={isLast} 
+                className={`p-3 rounded-full transition-colors ${isLast ? 'text-slate-300 bg-slate-100 cursor-not-allowed' : 'text-violet-600 bg-violet-100 hover:bg-violet-200 active:scale-95'}`}>
+                <ArrowDown size={24} />
+             </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TeacherDashboard = () => {
   const { courseId } = useParams();
   const user = useAuthStore(state => state.user);
@@ -67,6 +183,9 @@ const TeacherDashboard = () => {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
+  const [orderedMissions, setOrderedMissions] = useState<Mission[]>([]);
+  const [isReordering, setIsReordering] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -117,6 +236,7 @@ const TeacherDashboard = () => {
       setOverview(courseRes.data);
       setStudents(studentsRes.data);
       setMissions(missionsRes.data);
+      setOrderedMissions(missionsRes.data);
       setClassOptions(classOptsRes.data);
     } catch (error) {
       console.error('Failed to fetch analytics', error);
@@ -138,6 +258,17 @@ const TeacherDashboard = () => {
       socket.disconnect();
     };
   }, [user]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   if (user?.role !== 'teacher') return <Navigate to="/" replace />;
   if (loading) return (
@@ -256,6 +387,66 @@ const TeacherDashboard = () => {
       console.error('Failed to add students', error);
       Swal.fire({ icon: 'error', text: 'เพิ่มนักเรียนไม่สำเร็จ' });
     }
+  };
+
+  const toggleReorderMode = () => {
+    if (isReordering) {
+      setOrderedMissions(missions); // reset
+      setIsReordering(false);
+    } else {
+      setOrderedMissions(missions);
+      setIsReordering(true);
+    }
+  };
+
+  const saveMissionOrder = async () => {
+    setSavingOrder(true);
+    try {
+      const missionIds = orderedMissions.map(m => m.mission_id);
+      await axios.put(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/course/${courseId}/reorder`, 
+        { mission_ids: missionIds },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      Swal.fire({ icon: 'success', title: 'บันทึกลำดับสำเร็จ', timer: 1500, showConfirmButton: false });
+      setIsReordering(false);
+      fetchData();
+    } catch (error) {
+      console.error('Failed to reorder missions', error);
+      Swal.fire({ icon: 'error', text: 'บันทึกลำดับไม่สำเร็จ' });
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setOrderedMissions((items) => {
+        const oldIndex = items.findIndex(item => item.mission_id === active.id);
+        const newIndex = items.findIndex(item => item.mission_id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleMoveUp = (missionId: number) => {
+    setOrderedMissions((items) => {
+      const index = items.findIndex(item => item.mission_id === missionId);
+      if (index > 0) {
+        return arrayMove(items, index, index - 1);
+      }
+      return items;
+    });
+  };
+
+  const handleMoveDown = (missionId: number) => {
+    setOrderedMissions((items) => {
+      const index = items.findIndex(item => item.mission_id === missionId);
+      if (index < items.length - 1) {
+        return arrayMove(items, index, index + 1);
+      }
+      return items;
+    });
   };
 
   const handleUploadStudents = async (e: React.FormEvent) => {
@@ -765,95 +956,70 @@ const TeacherDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">ด่านทั้งหมด</h2>
-                <p className="text-slate-500 text-sm mt-1">สร้างและแก้ไขด่านสำหรับนักเรียน</p>
+                <p className="text-slate-500 text-sm mt-1">สร้าง แก้ไข และจัดเรียงด่านสำหรับนักเรียน</p>
               </div>
-              <button
-                onClick={openCreateModal}
-                className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-lg shadow-violet-600/25 transition-all flex items-center gap-2"
-              >
-                <Plus size={18} /> สร้างด่านใหม่
-              </button>
+              <div className="flex gap-3">
+                {isReordering ? (
+                  <>
+                    <button
+                      onClick={toggleReorderMode}
+                      className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      onClick={saveMissionOrder}
+                      disabled={savingOrder}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/25 transition-all flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <Save size={18} /> {savingOrder ? 'กำลังบันทึก...' : 'บันทึกลำดับ'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={toggleReorderMode}
+                      className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl transition-all flex items-center gap-2"
+                    >
+                      <ListOrdered size={18} /> จัดเรียง
+                    </button>
+                    <button
+                      onClick={openCreateModal}
+                      className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl shadow-lg shadow-violet-600/25 transition-all flex items-center gap-2"
+                    >
+                      <Plus size={18} /> สร้างด่านใหม่
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {missions.map(mission => (
-                <div key={mission.mission_id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg transition-all group flex flex-col overflow-hidden">
-                  {/* Card top accent */}
-                  <div className={`h-1.5 w-full ${
-                    mission.difficulty_level === 1 ? 'bg-gradient-to-r from-emerald-400 to-teal-400' :
-                    mission.difficulty_level === 2 ? 'bg-gradient-to-r from-amber-400 to-orange-400' :
-                    'bg-gradient-to-r from-rose-400 to-pink-500'
-                  }`} />
-
-                  <div className="p-5 flex flex-col flex-1">
-                    {/* Top row */}
-                    <div className="flex items-start justify-between mb-3">
-                      <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${missionTypeColor[mission.mission_type] || 'bg-slate-100 text-slate-600'}`}>
-                        {missionTypeLabel[mission.mission_type] || mission.mission_type}
-                      </span>
-                      <div className="flex items-center gap-0.5">
-                        {Array.from({ length: 3 }).map((_, i) => (
-                          <Star
-                            key={i}
-                            size={15}
-                            className={i < mission.difficulty_level ? difficultyColor(mission.difficulty_level) : 'text-slate-200'}
-                            fill={i < mission.difficulty_level ? 'currentColor' : 'none'}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    <h3 className="text-lg font-extrabold text-slate-800 mb-1.5 leading-tight">{mission.title}</h3>
-                    <p className="text-slate-500 text-sm leading-relaxed flex-1 mb-4 line-clamp-2">{mission.description}</p>
-
-                    {/* XP badge */}
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 font-bold px-3 py-1.5 rounded-xl text-sm">
-                        <Zap size={14} className="text-amber-500" />
-                        {mission.points} XP
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="border-t border-slate-100 pt-4 flex items-center gap-2">
-                      <Link to={`/teacher/mission/${mission.mission_id}/progress`} className="flex-1">
-                        <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-sm transition-colors">
-                          <Users size={14} /> ดูความคืบหน้า
-                        </button>
-                      </Link>
-                      <Link to={mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/teacher/mission/${mission.mission_id}/mcq-design` : mission.mission_type === 'sudoku' ? `/teacher/mission/${mission.mission_id}/sudoku-design` : `/teacher/mission/${mission.mission_id}/design`} className="flex-1">
-                        <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold text-sm transition-colors">
-                          <LayoutDashboard size={14} /> ออกแบบด่าน
-                        </button>
-                      </Link>
-                      {mission.mission_type === 'mcq' && (
-                        <Link to={`/leaderboard?mission_id=${mission.mission_id}`}>
-                          <button
-                            className="p-2 rounded-xl text-amber-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                            title="ดูผู้นำ 3D"
-                          >
-                            <Trophy size={16} />
-                          </button>
-                        </Link>
-                      )}
-                      <button
-                        onClick={() => openEditModal(mission)}
-                        className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                        title="แก้ไขด่าน"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(mission.mission_id)}
-                        className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                        title="ลบด่าน"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
+            <DndContext 
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext 
+                items={orderedMissions.map(m => m.mission_id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                  {(isReordering ? orderedMissions : missions).map((mission, index) => (
+                    <SortableMissionCard 
+                      key={mission.mission_id}
+                      mission={mission}
+                      isReordering={isReordering}
+                      onMoveUp={handleMoveUp}
+                      onMoveDown={handleMoveDown}
+                      isFirst={index === 0}
+                      isLast={index === (isReordering ? orderedMissions.length : missions.length) - 1}
+                      openEditModal={openEditModal}
+                      handleDelete={handleDelete}
+                    />
+                  ))}
                 </div>
-              ))}
+              </SortableContext>
+            </DndContext>
 
               {/* Empty state */}
               {missions.length === 0 && (
@@ -866,7 +1032,6 @@ const TeacherDashboard = () => {
                   </button>
                 </div>
               )}
-            </div>
           </>
         )}
       </div>
