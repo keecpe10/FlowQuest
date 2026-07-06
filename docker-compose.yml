@@ -35,6 +35,7 @@ services:
       - REDIS_PORT=6379
       - SECRET_KEY=${SECRET_KEY:-dev_secret_key}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:
