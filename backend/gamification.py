@@ -325,7 +325,7 @@ def get_leaderboard_3d():
             User.role_id == student_role.role_id if student_role else False
         )
         
-    leaderboard_query = leaderboard_query.group_by(User.user_id).order_by(db.desc('total_points'), db.asc('total_time')).limit(3)
+    leaderboard_query = leaderboard_query.group_by(User.user_id).order_by(db.desc('total_points'), db.asc('total_time')).limit(10)
     results = leaderboard_query.all()
     
     from models import CharacterConfig, UserInventory
