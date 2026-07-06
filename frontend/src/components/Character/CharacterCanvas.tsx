@@ -54,7 +54,7 @@ const CharacterCanvas: React.FC<CharacterCanvasProps> = ({ config, equipped }) =
               far={2}
             />
           </group>
-          <Environment preset="city" />
+          <Environment files="/hdri/potsdamer_platz_1k.hdr" />
         </Suspense>
 
         <OrbitControls

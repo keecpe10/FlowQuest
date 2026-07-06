@@ -131,14 +131,21 @@ const SidebarRankCard = ({ user, index }: { user: LeaderboardUser; index: number
             <div className={`flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-white text-xs font-black shadow-lg`}>
                 {rankNum}
             </div>
-            <div className="flex-shrink-0 w-9 h-9 rounded-full overflow-hidden border-2 border-white/20 shadow-md">
-                {user.avatar_url ? (
-                    <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
-                ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-violet-500 to-indigo-700 flex items-center justify-center text-white text-xs font-bold">
-                        {initials}
-                    </div>
-                )}
+            <div className="flex-shrink-0 w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 shadow-md bg-slate-800/50 relative">
+                <Canvas shadows camera={{ position: [0, 0, 5], fov: 45 }} className="w-full h-full pointer-events-none">
+                    <ambientLight intensity={0.5} />
+                    <directionalLight position={[5, 5, 5]} intensity={1} />
+                    <Suspense fallback={null}>
+                        <group position={[0, -1.4, 0]}>
+                            <CharacterModel
+                                config={mapConfig(user.config)}
+                                equipped={user.equipped || { accessories: [] }}
+                                currentAnimation="idle"
+                                currentEmote="happy"
+                            />
+                        </group>
+                    </Suspense>
+                </Canvas>
             </div>
             <div className="flex-1 min-w-0">
                 <p className="text-white font-bold text-sm truncate">{user.name}</p>
@@ -265,7 +272,7 @@ const Leaderboard3D = () => {
                                     );
                                 })}
                             </group>
-                            <Environment preset="night" />
+                            <Environment files="/hdri/dikhololo_night_1k.hdr" />
                         </Suspense>
                         <OrbitControls enablePan={false} minDistance={5} maxDistance={16}
                             maxPolarAngle={Math.PI / 2 - 0.05} target={[0, 2, 0]} autoRotate autoRotateSpeed={0.4} />

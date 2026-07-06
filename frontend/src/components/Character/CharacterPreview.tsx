@@ -32,7 +32,7 @@ const CharacterPreview: React.FC<CharacterPreviewProps> = ({
               currentAnimation={currentAnimation}
             />
           </group>
-          <Environment preset="city" />
+          <Environment files="/hdri/potsdamer_platz_1k.hdr" />
         </Suspense>
 
         <ContactShadows 
