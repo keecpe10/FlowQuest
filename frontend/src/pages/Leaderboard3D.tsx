@@ -10,7 +10,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { CharacterConfig } from '../store/characterStore';
 import { GlobalStudentProfile } from '../App';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 interface LeaderboardUser {
     user_id: number;
