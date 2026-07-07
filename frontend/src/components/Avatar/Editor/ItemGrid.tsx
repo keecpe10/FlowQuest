@@ -90,7 +90,7 @@ const ItemGrid: React.FC<ItemGridProps> = ({ category, subCategories, showEquipp
           { inventory_id: invItem.inventory_id },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        equipItem({ ...item.render_config, category: item.category, sub_category: item.sub_category });
+        equipItem({ ...item.render_config, name: item.name, category: item.category, sub_category: item.sub_category });
       }
       fetchData();
     } catch (e) {
@@ -177,7 +177,21 @@ const ItemGrid: React.FC<ItemGridProps> = ({ category, subCategories, showEquipp
         {filteredItems.map((item: any) => {
           const owned = ownedIds.has(item.item_id);
           const invItem = inventory.find((i: any) => i.item_id === item.item_id);
-          const isEquipped = invItem?.is_equipped;
+          
+          let isEquipped = invItem?.is_equipped;
+          const itemHash = item.name + '_' + item.render_config?.shape + '_' + item.render_config?.default_color + '_' + item.render_config?.animation_id;
+          
+          if (!owned) {
+              if (item.category === 'accessory') {
+                  isEquipped = equipped.accessories?.some((a: any) => (a.name + '_' + a.shape + '_' + a.default_color + '_' + a.animation_id) === itemHash);
+              } else {
+                  const current = equipped[item.category as keyof typeof equipped] as any;
+                  if (current && (current.name + '_' + current.shape + '_' + current.default_color + '_' + current.animation_id) === itemHash) {
+                      isEquipped = true;
+                  }
+              }
+          }
+          
           const color = item.render_config?.default_color || item.thumbnail_color || '#ccc';
 
           return (
@@ -188,7 +202,15 @@ const ItemGrid: React.FC<ItemGridProps> = ({ category, subCategories, showEquipp
               }`}
               onClick={() => {
                 if (onPreview) onPreview(item);
-                if (owned) handleEquipToggle(item, invItem);
+                if (owned) {
+                    handleEquipToggle(item, invItem);
+                } else {
+                    if (isEquipped) {
+                        unequipItem(item.category, item.sub_category);
+                    } else {
+                        equipItem({ ...item.render_config, name: item.name, category: item.category, sub_category: item.sub_category });
+                    }
+                }
               }}
             >
               {/* Thumbnail */}
@@ -200,8 +222,8 @@ const ItemGrid: React.FC<ItemGridProps> = ({ category, subCategories, showEquipp
                   {getShapeIcon(item.category, item.render_config?.shape)}
                 </div>
                 {isEquipped && (
-                  <div className="absolute top-1 left-1 bg-violet-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">
-                    EQUIPPED
+                  <div className={`absolute top-1 left-1 ${owned ? 'bg-violet-600' : 'bg-pink-500'} text-white text-[8px] font-bold px-1.5 py-0.5 rounded`}>
+                    {owned ? 'EQUIPPED' : 'PREVIEW'}
                   </div>
                 )}
                 <div className="absolute top-1 right-1 text-[8px] font-bold text-gray-500 uppercase">

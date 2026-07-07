@@ -50,12 +50,39 @@ const Body: React.FC<BodyProps> = ({ config, skinColor, gender, bodyScale }) => 
     scale[1] *= 1.2; // Longer for dress
   }
 
-  return (
-    <group scale={scale}>
+  const itemName = (config?.name || '').toLowerCase();
+  const isCropTop = itemName.includes('crop');
+
+  const renderTorso = () => {
+    if (isCropTop) {
+      return (
+        <group>
+          {/* Upper Top */}
+          <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
+            <boxGeometry args={[1, 0.7, 0.6]} />
+            <meshStandardMaterial color={color} roughness={0.7} />
+          </mesh>
+          {/* Exposed Midriff (Skin) */}
+          <mesh position={[0, -0.35, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.95, 0.7, 0.55]} />
+            <meshStandardMaterial color={skinColor} roughness={0.7} />
+          </mesh>
+        </group>
+      );
+    }
+
+    return (
       <mesh castShadow receiveShadow>
         {geo}
         <meshStandardMaterial color={color} roughness={0.7} />
       </mesh>
+    );
+  };
+
+  return (
+    <group scale={scale}>
+      {renderTorso()}
+
       
       {/* Jacket Overlay */}
       {config?.category === 'jacket' && (

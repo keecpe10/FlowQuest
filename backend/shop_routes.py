@@ -59,6 +59,7 @@ def get_items():
             'thumbnail_color': item.thumbnail_color,
             'tags': item.tags,
             'preview_config': item.preview_config,
+            'render_config': item.render_config,
         })
         
     return jsonify({'status': 'success', 'items': result}), 200
@@ -83,6 +84,7 @@ def get_featured():
             'thumbnail_color': item.thumbnail_color,
             'tags': item.tags,
             'preview_config': item.preview_config,
+            'render_config': item.render_config,
         })
     
     return jsonify({'status': 'success', 'items': result}), 200

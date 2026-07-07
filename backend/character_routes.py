@@ -34,10 +34,15 @@ def get_character():
     
     for inv in equipped_items:
         item = inv.item
+        config_with_metadata = dict(item.render_config) if item.render_config else {}
+        config_with_metadata['name'] = item.name
+        config_with_metadata['category'] = item.category
+        config_with_metadata['sub_category'] = item.sub_category
+        
         if item.category == 'accessory':
-            equipped['accessories'].append(item.render_config)
+            equipped['accessories'].append(config_with_metadata)
         else:
-            equipped[item.category] = item.render_config
+            equipped[item.category] = config_with_metadata
 
     return jsonify({
         'status': 'success',
@@ -125,10 +130,15 @@ def get_user_character(target_user_id):
     
     for inv in equipped_items:
         item = inv.item
+        config_with_metadata = dict(item.render_config) if item.render_config else {}
+        config_with_metadata['name'] = item.name
+        config_with_metadata['category'] = item.category
+        config_with_metadata['sub_category'] = item.sub_category
+        
         if item.category == 'accessory':
-            equipped['accessories'].append(item.render_config)
+            equipped['accessories'].append(config_with_metadata)
         else:
-            equipped[item.category] = item.render_config
+            equipped[item.category] = config_with_metadata
 
     return jsonify({
         'status': 'success',

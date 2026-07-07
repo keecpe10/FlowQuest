@@ -85,18 +85,53 @@ const Arms: React.FC<ArmsProps> = ({ config, skinColor, emote, animation, bodySc
     }
   });
 
-  const sleeveColor = config?.default_color || skinColor;
+  const baseSleeveColor = config?.default_color || skinColor;
+  const itemName = (config?.name || '').toLowerCase();
+  
+  const isSleeveless = itemName.includes('tank') || itemName.includes('athletic');
+  const isShortSleeve = itemName.includes('t-shirt') || itemName.includes('polo') || itemName.includes('tee');
+
   const bodyScaleY = bodyScale ? 0.8 + (bodyScale.height / 100) * 0.6 : 1;
   const shoulderY = 0.7 * bodyScaleY - 0.2;
+
+  const renderArmSegment = () => {
+    if (isSleeveless) {
+      return (
+        <mesh position={[0, -0.5, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.4, 1.2, 0.4]} />
+          <meshStandardMaterial color={skinColor} />
+        </mesh>
+      );
+    } else if (isShortSleeve) {
+      return (
+        <group>
+          <mesh position={[0, -0.2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.42, 0.6, 0.42]} />
+            <meshStandardMaterial color={baseSleeveColor} />
+          </mesh>
+          <mesh position={[0, -0.8, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.4, 0.6, 0.4]} />
+            <meshStandardMaterial color={skinColor} />
+          </mesh>
+        </group>
+      );
+    } else {
+      // Long sleeve
+      return (
+        <mesh position={[0, -0.5, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.4, 1.2, 0.4]} />
+          <meshStandardMaterial color={baseSleeveColor} />
+        </mesh>
+      );
+    }
+  };
 
   return (
     <group>
       {/* Left Arm */}
       <group ref={leftArmRef} position={[-0.7, shoulderY, 0]}>
-        <mesh position={[0, -0.5, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.4, 1.2, 0.4]} />
-          <meshStandardMaterial color={sleeveColor} />
-        </mesh>
+        {renderArmSegment()}
+        {/* Hand */}
         <mesh position={[0, -1.2, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.38, 0.3, 0.38]} />
           <meshStandardMaterial color={skinColor} />
@@ -105,10 +140,8 @@ const Arms: React.FC<ArmsProps> = ({ config, skinColor, emote, animation, bodySc
 
       {/* Right Arm */}
       <group ref={rightArmRef} position={[0.7, shoulderY, 0]}>
-        <mesh position={[0, -0.5, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.4, 1.2, 0.4]} />
-          <meshStandardMaterial color={sleeveColor} />
-        </mesh>
+        {renderArmSegment()}
+        {/* Hand */}
         <mesh position={[0, -1.2, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.38, 0.3, 0.38]} />
           <meshStandardMaterial color={skinColor} />

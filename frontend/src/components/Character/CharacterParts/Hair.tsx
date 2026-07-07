@@ -8,7 +8,7 @@ interface HairProps {
 const Hair: React.FC<HairProps> = ({ config, defaultColor }) => {
   if (!config) return null;
 
-  const color = config.default_color || defaultColor;
+  const color = defaultColor || config.default_color;
   const shape = config.shape || 'spiky';
   const mat = <meshStandardMaterial color={color} roughness={0.9} />;
 
