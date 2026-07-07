@@ -111,14 +111,18 @@ const SudokuBoard: React.FC<SudokuBoardProps> = ({
     return currentGrid[r]?.[c] === selectedVal && !(r === selectedCell.row && c === selectedCell.col);
   };
 
-  const renderCellContent = (value: number) => {
+  const renderCellContent = (value: number, isGiven: boolean) => {
     if (value === -1) return null;
     if (renderMode === 'number') {
-      return <span className="font-bold">{value + 1}</span>;
+      return (
+        <span className={`font-bold ${!isGiven ? 'text-violet-600 dark:text-violet-400' : 'text-slate-800 dark:text-slate-200'}`}>
+          {value + 1}
+        </span>
+      );
     }
     const symbol = symbolSet[value];
     return (
-      <span className={`${symbolColors[value] || 'text-slate-700'} leading-none`}>
+      <span className={`${symbolColors[value] || 'text-slate-700'} leading-none ${!isGiven ? 'drop-shadow-sm' : 'drop-shadow-none'}`}>
         {getSymbolDisplay(symbol)}
       </span>
     );
@@ -181,7 +185,10 @@ const SudokuBoard: React.FC<SudokuBoardProps> = ({
                     ⚠
                   </span>
                 )}
-                {renderCellContent(value)}
+                {!given && value !== -1 && (
+                  <div className="absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full bg-violet-400/60 dark:bg-violet-500/60" title="นักเรียนเติม"></div>
+                )}
+                {renderCellContent(value, given)}
               </button>
             );
           })}

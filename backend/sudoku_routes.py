@@ -275,21 +275,38 @@ def submit_puzzle(mission_id):
     
     passed = (min_xp == 0) or (total_xp >= min_xp)
     
+    previous_score = user_mission.score_awarded or 0
+    new_best_score = max(previous_score, total_xp)
+    
     user_mission.status = 'completed'
-    user_mission.score_awarded = total_xp
+    user_mission.score_awarded = new_best_score
     user_mission.completed_at = datetime.utcnow()
         
-    # Give points idempotently
+    # Update points if new best score achieved
     existing_points = PointHistory.query.filter_by(
         user_id=user_id, source='sudoku_mission', source_id=mission_id
     ).first()
     
-    if not existing_points and total_xp > 0:
+    if existing_points:
+        difference = new_best_score - existing_points.points
+        if difference > 0:
+            existing_points.points = new_best_score
+            existing_points.description = f"Completed Sudoku: {mission.title} (New Best Score)"
+            db.session.commit()
+            socketio.emit('points_awarded', {
+                'user_id': user_id,
+                'mission_id': mission_id,
+                'points': difference,
+                'source': 'sudoku_mission'
+            })
+        else:
+            db.session.commit()
+    elif new_best_score > 0:
         ph = PointHistory(
             user_id=user_id,
             source='sudoku_mission',
             source_id=mission_id,
-            points=total_xp,
+            points=new_best_score,
             description=f"Completed Sudoku: {mission.title}"
         )
         db.session.add(ph)
@@ -297,7 +314,7 @@ def submit_puzzle(mission_id):
         socketio.emit('points_awarded', {
             'user_id': user_id,
             'mission_id': mission_id,
-            'points': total_xp,
+            'points': new_best_score,
             'source': 'sudoku_mission'
         })
     else:

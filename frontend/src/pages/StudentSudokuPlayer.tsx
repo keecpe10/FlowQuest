@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useSudokuStore } from '../store/useSudokuStore';
 import SudokuBoard from '../components/Sudoku/SudokuBoard';
 import SymbolPalette from '../components/Sudoku/SymbolPalette';
-import { ArrowLeft, Clock, Send, CheckCircle, Undo2, Redo2, Zap, Trophy, Sparkles, ShieldCheck, AlertTriangle, BookOpen, Target, Minus, X, Info, Timer } from 'lucide-react';
+import { ArrowLeft, Clock, Send, CheckCircle, Undo2, Redo2, Zap, Trophy, Sparkles, ShieldCheck, AlertTriangle, BookOpen, Target, Minus, X, Info, Timer, RotateCcw } from 'lucide-react';
 import Confetti from 'react-confetti';
 
 const StudentSudokuPlayer: React.FC = () => {
@@ -19,7 +19,7 @@ const StudentSudokuPlayer: React.FC = () => {
     isLoading, isSolved, points, timeLimitSeconds,
     history, historyIndex, enableGuidance,
     fetchPuzzle, setSelectedCell, placeValue, clearCell,
-    undo, redo, validateBoard, submitPuzzle, autoSave, reset, logEvent, retryPuzzle,
+    undo, redo, validateBoard, submitPuzzle, autoSave, reset, logEvent, retryPuzzle, clearAllUserCells,
     maxAttempts, minXpToPass,
   } = useSudokuStore();
   const user = useAuthStore(state => state.user);
@@ -33,6 +33,7 @@ const StudentSudokuPlayer: React.FC = () => {
   const [selectedPaletteValue, setSelectedPaletteValue] = useState<number | null>(null);
   const [mistakeCount, setMistakeCount] = useState(0);
   const [showIntroModal, setShowIntroModal] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gridChangedRef = useRef(false);
@@ -339,6 +340,40 @@ const StudentSudokuPlayer: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
+      {/* Reset Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden scale-100 transition-transform">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <RotateCcw size={32} className="text-red-400" />
+              </div>
+              <h3 className="text-xl font-extrabold text-white mb-2">เริ่มทำใหม่ทั้งหมด?</h3>
+              <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                การกระทำนี้จะล้างทุกช่องที่คุณเติมไปทั้งหมด<br/>และ <strong className="text-red-400">ไม่สามารถย้อนกลับได้</strong><br/>คุณแน่ใจหรือไม่?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 py-3 rounded-xl bg-slate-800 text-white font-bold hover:bg-slate-700 transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={() => {
+                    clearAllUserCells();
+                    setShowResetConfirm(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold transition-all shadow-lg shadow-red-500/30"
+                >
+                  ยืนยันล้างกระดาน
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Intro Modal */}
       {showIntroModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -562,6 +597,10 @@ const StudentSudokuPlayer: React.FC = () => {
                 <span className="text-white font-bold">{size}×{size}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400">จำนวนครั้งที่วางผิด</span>
+                <span className="text-rose-400 font-bold">{mistakeCount} ครั้ง</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-400">ส่งแล้ว</span>
                 <span className="text-white font-bold">{attemptCount} ครั้ง</span>
               </div>
@@ -593,6 +632,15 @@ const StudentSudokuPlayer: React.FC = () => {
                 <Redo2 size={16} /> ซ้ำ
               </button>
             </div>
+
+            {/* Reset Board */}
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              disabled={status === 'completed' || currentGrid.every((row, r) => row.every((val, c) => val === givenGrid[r][c]))}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 disabled:opacity-30 disabled:cursor-default transition-colors text-sm font-medium"
+            >
+              <RotateCcw size={16} /> เริ่มทำใหม่
+            </button>
 
     
             {/* Submit */}

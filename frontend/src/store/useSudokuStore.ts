@@ -79,6 +79,7 @@ interface SudokuState {
   setSelectedCell: (cell: { row: number; col: number } | null) => void;
   placeValue: (value: number) => void;
   clearCell: () => void;
+  clearAllUserCells: () => void;
   undo: () => void;
   redo: () => void;
   validateBoard: () => Promise<void>;
@@ -276,6 +277,22 @@ export const useSudokuStore = create<SudokuState>((set, get) => ({
       currentGrid: newGrid,
       history: newHistory,
       historyIndex: newHistory.length - 1,
+    });
+  },
+
+  // ── Clear all user cells ──────────────────────────────────────────────────
+
+  clearAllUserCells: () => {
+    const { givenGrid, history, historyIndex } = get();
+    const newGrid = cloneGrid(givenGrid);
+    const newHistory = [...history.slice(0, historyIndex + 1), cloneGrid(newGrid)];
+    
+    set({
+      currentGrid: newGrid,
+      history: newHistory,
+      historyIndex: newHistory.length - 1,
+      conflictCells: [],
+      selectedCell: null,
     });
   },
 

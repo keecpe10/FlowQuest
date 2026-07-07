@@ -131,21 +131,12 @@ const SidebarRankCard = ({ user, index }: { user: LeaderboardUser; index: number
             <div className={`flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-white text-xs font-black shadow-lg`}>
                 {rankNum}
             </div>
-            <div className="flex-shrink-0 w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 shadow-md bg-slate-800/50 relative">
-                <Canvas shadows camera={{ position: [0, 0, 5], fov: 45 }} className="w-full h-full pointer-events-none">
-                    <ambientLight intensity={0.5} />
-                    <directionalLight position={[5, 5, 5]} intensity={1} />
-                    <Suspense fallback={null}>
-                        <group position={[0, -1.4, 0]}>
-                            <CharacterModel
-                                config={mapConfig(user.config)}
-                                equipped={user.equipped || { accessories: [] }}
-                                currentAnimation="idle"
-                                currentEmote="happy"
-                            />
-                        </group>
-                    </Suspense>
-                </Canvas>
+            <div className="flex-shrink-0 w-12 h-12 rounded-full overflow-hidden border-2 border-white/20 shadow-md bg-slate-800/50 flex items-center justify-center text-white font-bold text-lg">
+                {user.avatar_url ? (
+                    <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                    initials
+                )}
             </div>
             <div className="flex-1 min-w-0">
                 <p className="text-white font-bold text-sm truncate">{user.name}</p>
