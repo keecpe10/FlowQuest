@@ -86,12 +86,12 @@ def get_missions(course_id):
             # Always use score_awarded as the authoritative XP for sudoku (PointHistory may be stale)
             if um and um.score_awarded is not None:
                 mission_data['earned_xp'] = um.score_awarded
-            # "passed" only if has submitted at least once AND XP meets threshold
+            # "passed" only if solved correctly (status=='completed') AND XP meets threshold
             score = um.score_awarded or 0 if um else 0
             min_xp = puzzle.min_xp_to_pass if puzzle else 0
-            # has_submitted: attempt_count > 0 means submitted at least once (even while retrying)
-            has_submitted = bool(um and um.attempt_count and um.attempt_count > 0)
-            is_passed = has_submitted and ((min_xp == 0) or (score >= min_xp))
+            # แก้สำเร็จจริง = status == 'completed' (คะแนนบางส่วนจากช่องที่ถูกไม่ทำให้ผ่าน)
+            solved = bool(um and um.status == 'completed')
+            is_passed = solved and ((min_xp == 0) or (score >= min_xp))
             mission_data['is_passed'] = is_passed
             mission_data['is_completed'] = is_completed  # submitted (status==completed)
             mission_data['min_xp_to_pass'] = min_xp

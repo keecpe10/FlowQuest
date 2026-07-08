@@ -65,10 +65,18 @@ def get_puzzle(mission_id):
     if not is_teacher:
         user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
         if not user_mission:
-            user_mission = UserMission(user_id=user_id, mission_id=mission_id, started_at=datetime.utcnow())
+            user_mission = UserMission(user_id=user_id, mission_id=mission_id,
+                                       started_at=datetime.utcnow(), status='in_progress')
             db.session.add(user_mission)
             db.session.commit()
-            
+        else:
+            # เริ่มจับเวลาฝั่ง server เมื่อ "เริ่มรอบใหม่" เท่านั้น (pending/not_started หรือยังไม่เคยตั้ง)
+            # ไม่รีเซ็ตตอนรีโหลดหน้ากลางคัน (status == 'in_progress')
+            if user_mission.status in ('pending', 'not_started', None) or not user_mission.started_at:
+                user_mission.started_at = datetime.utcnow()
+                user_mission.status = 'in_progress'
+                db.session.commit()
+
         response['status'] = user_mission.status
         response['time_spent_seconds'] = user_mission.time_spent_seconds
         response['current_grid'] = user_mission.current_nodes # Using current_nodes to store the current grid
@@ -164,9 +172,13 @@ def autosave_progress(mission_id):
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
     if user_mission and user_mission.status != 'completed':
         user_mission.current_nodes = current_grid
-        user_mission.time_spent_seconds = time_spent
+        # เก็บเวลาที่ใช้จากฝั่ง server เป็นหลัก (ให้ตรงกับตอน submit)
+        if user_mission.started_at:
+            user_mission.time_spent_seconds = max(0, int((datetime.utcnow() - user_mission.started_at).total_seconds()))
+        else:
+            user_mission.time_spent_seconds = time_spent
         db.session.commit()
-        
+
     return jsonify({'message': 'Progress saved'}), 200
 
 @sudoku_bp.route('/<int:mission_id>/validate', methods=['POST'])
@@ -216,8 +228,12 @@ def submit_puzzle(mission_id):
         
     data = request.json
     grid = data.get('grid')
-    time_spent = data.get('time_spent_seconds', user_mission.time_spent_seconds)
-    
+    # เวลาที่ใช้คำนวณจากฝั่ง server (started_at -> ปัจจุบัน) เพื่อกันการปั่นเวลาโบนัสจาก client
+    if user_mission.started_at:
+        time_spent = max(0, int((datetime.utcnow() - user_mission.started_at).total_seconds()))
+    else:
+        time_spent = data.get('time_spent_seconds', user_mission.time_spent_seconds) or 0
+
     # Validation logic
     conflicts = validate_board(grid, puzzle.box_cols, puzzle.box_rows)
     has_empty = any(val == -1 for row in grid for val in row)
@@ -273,14 +289,21 @@ def submit_puzzle(mission_id):
     if is_solved and min_xp > 0 and total_xp < min_xp:
         total_xp = min_xp
     
-    passed = (min_xp == 0) or (total_xp >= min_xp)
-    
+    # ผ่านได้ก็ต่อเมื่อ "แก้สำเร็จจริง" (is_solved) เท่านั้น
+    # คะแนนบางส่วนจากช่องที่ถูก (partial credit) จะไม่ทำให้ "ผ่าน" แม้ XP >= min_xp
+    passed = is_solved and ((min_xp == 0) or (total_xp >= min_xp))
+
+    # นับแต้มเข้า Leaderboard เฉพาะเมื่อผ่านจริง (แก้สำเร็จ); ยังแก้ไม่เสร็จ = 0 แต้ม
+    awarded_xp = total_xp if passed else 0
     previous_score = user_mission.score_awarded or 0
-    new_best_score = max(previous_score, total_xp)
-    
-    user_mission.status = 'completed'
+    new_best_score = max(previous_score, awarded_xp)
+
+    # 'completed' หมายถึงแก้สำเร็จถูกต้องเท่านั้น
+    # ยังแก้ไม่สำเร็จ -> 'in_progress' เพื่อให้ทำต่อ/กดส่งซ้ำได้ และไม่ถูกนับเป็น completed ใน Dashboard
+    user_mission.status = 'completed' if is_solved else 'in_progress'
     user_mission.score_awarded = new_best_score
-    user_mission.completed_at = datetime.utcnow()
+    if is_solved:
+        user_mission.completed_at = datetime.utcnow()
         
     # Update points if new best score achieved
     existing_points = PointHistory.query.filter_by(
@@ -326,6 +349,8 @@ def submit_puzzle(mission_id):
         'conflict_cells': conflicts,
         'status': user_mission.status,
         'total_xp_awarded': user_mission.score_awarded or 0,
+        'partial_xp': total_xp,          # คะแนนตามสัดส่วนช่องที่ถูก (ไว้แสดงผลป้อนกลับ ยังไม่ถือว่าผ่าน)
+        'wrong_cells_count': len(conflicts),
         'min_xp_to_pass': min_xp,
         'time_spent_seconds': user_mission.time_spent_seconds,
         'attempt_count': user_mission.attempt_count
@@ -348,6 +373,7 @@ def retry_puzzle(mission_id):
         
     user_mission.status = 'pending'
     user_mission.time_spent_seconds = 0
+    user_mission.started_at = datetime.utcnow()   # เริ่มจับเวลารอบใหม่ฝั่ง server
     # score_awarded is preserved intentionally — kept until new submission overwrites it
     user_mission.current_nodes = puzzle.given_grid
     db.session.commit()
@@ -430,11 +456,9 @@ def get_student_sudoku(mission_id, student_id):
             elif isinstance(um.current_nodes, dict) and 'current_grid' in um.current_nodes:
                 current_grid = um.current_nodes['current_grid']
             
-    # Check if passed
+    # Check if passed — ต้องแก้สำเร็จ (status == 'completed') ก่อน จึงจะพิจารณาผ่าน
     min_xp = puzzle.min_xp_to_pass or 0
-    is_passed = (min_xp == 0) or (score_awarded >= min_xp)
-    if status == 'completed' and not is_passed:
-        status = 'failed'
+    is_passed = (status == 'completed') and ((min_xp == 0) or (score_awarded >= min_xp))
             
     return jsonify({
         'student_name': f"{student.first_name} {student.last_name}".strip() if student else "Unknown",
