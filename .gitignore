@@ -7,5 +7,17 @@ __pycache__/
 .DS_Store
 uploads/
 backend/migrations/versions/__pycache__/
-~$*
+# Microsoft Office documents
+*.doc
+*.docx
+*.xls
 *.xlsx
+*.ppt
+*.pptx
+*.xlsm
+*.xlsb
+
+# Office temp/lock files
+~$*
+*.tmp
+.~lock.*
