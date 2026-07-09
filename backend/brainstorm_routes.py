@@ -128,6 +128,25 @@ def get_board(board_id):
                 author_avatar = author.avatar_url
         else:
             author_name = 'Anonymous'
+        
+        # Load comments for this card
+        comments = BrainstormComment.query.filter_by(card_id=card.card_id).order_by(BrainstormComment.created_at.asc()).all()
+        comments_data = []
+        for cmt in comments:
+            cmt_author = User.query.get(cmt.author_id)
+            cmt_author_name = 'Teacher'
+            cmt_author_avatar = None
+            if cmt_author:
+                cmt_author_name = f"{cmt_author.first_name} {cmt_author.last_name}".strip() or cmt_author.username
+                cmt_author_avatar = cmt_author.avatar_url
+            comments_data.append({
+                "comment_id": cmt.comment_id,
+                "content": cmt.content,
+                "author_id": cmt.author_id,
+                "author_name": cmt_author_name,
+                "author_avatar": cmt_author_avatar,
+                "created_at": cmt.created_at.isoformat()
+            })
             
         cards_data.append({
             "card_id": card.card_id,
@@ -142,7 +161,8 @@ def get_board(board_id):
             "author_name": author_name,
             "author_avatar": author_avatar,
             "question_id": card.question_id,
-            "reactions": reaction_counts
+            "reactions": reaction_counts,
+            "comments": comments_data
         })
     
     # Allow board updates via Socket
@@ -461,6 +481,109 @@ def toggle_reaction(card_id):
     }, to=f"board_{card.board_id}")
     
     return jsonify({"message": f"Reaction {action}"})
+
+# --- Comment Routes ---
+
+@brainstorm_bp.route('/cards/<int:card_id>/comments', methods=['GET'])
+def get_card_comments(card_id):
+    """Get all comments for a specific card."""
+    BrainstormCard.query.get_or_404(card_id)
+    comments = BrainstormComment.query.filter_by(card_id=card_id).order_by(BrainstormComment.created_at.asc()).all()
+    comments_data = []
+    for cmt in comments:
+        cmt_author = User.query.get(cmt.author_id)
+        cmt_author_name = 'Teacher'
+        cmt_author_avatar = None
+        if cmt_author:
+            cmt_author_name = f"{cmt_author.first_name} {cmt_author.last_name}".strip() or cmt_author.username
+            cmt_author_avatar = cmt_author.avatar_url
+        comments_data.append({
+            "comment_id": cmt.comment_id,
+            "content": cmt.content,
+            "author_id": cmt.author_id,
+            "author_name": cmt_author_name,
+            "author_avatar": cmt_author_avatar,
+            "created_at": cmt.created_at.isoformat()
+        })
+    return jsonify({"comments": comments_data})
+
+
+@brainstorm_bp.route('/cards/<int:card_id>/comments', methods=['POST'])
+def add_card_comment(card_id):
+    """Add a comment to a card. Only teachers are allowed."""
+    card = BrainstormCard.query.get_or_404(card_id)
+    data = request.json
+    content = (data.get('content') or '').strip()
+    author_id = data.get('author_id')
+
+    if not content:
+        return jsonify({"error": "Comment content cannot be empty"}), 400
+    if not author_id:
+        return jsonify({"error": "author_id is required"}), 400
+
+    # Verify the commenter is a teacher
+    commenter = User.query.get(author_id)
+    if not commenter or not commenter.role or commenter.role.role_name != 'teacher':
+        return jsonify({"error": "Only teachers can add comments"}), 403
+
+    try:
+        new_comment = BrainstormComment(
+            card_id=card_id,
+            author_id=author_id,
+            content=content
+        )
+        db.session.add(new_comment)
+        db.session.commit()
+
+        comment_data = {
+            "comment_id": new_comment.comment_id,
+            "card_id": card_id,
+            "content": new_comment.content,
+            "author_id": new_comment.author_id,
+            "author_name": f"{commenter.first_name} {commenter.last_name}".strip() or commenter.username,
+            "author_avatar": commenter.avatar_url,
+            "created_at": new_comment.created_at.isoformat()
+        }
+
+        # Broadcast to everyone in the board room
+        board = BrainstormBoard.query.get(card.board_id)
+        if board:
+            socketio.emit('comment_added', comment_data, to=f"board_{card.board_id}")
+
+        return jsonify(comment_data), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+
+@brainstorm_bp.route('/comments/<int:comment_id>', methods=['DELETE'])
+def delete_card_comment(comment_id):
+    """Delete a comment. Only the comment author (teacher) can delete."""
+    comment = BrainstormComment.query.get_or_404(comment_id)
+    data = request.json or {}
+    requester_id = data.get('user_id') or get_current_user_id()
+
+    if requester_id != comment.author_id:
+        # Also allow if requester is a teacher on the same board
+        requester = User.query.get(requester_id) if requester_id else None
+        if not requester or not requester.role or requester.role.role_name != 'teacher':
+            return jsonify({"error": "Not authorized to delete this comment"}), 403
+
+    card = BrainstormCard.query.get(comment.card_id)
+    board_id = card.board_id if card else None
+
+    try:
+        db.session.delete(comment)
+        db.session.commit()
+
+        if board_id:
+            socketio.emit('comment_deleted', {"comment_id": comment_id, "card_id": comment.card_id}, to=f"board_{board_id}")
+
+        return jsonify({"message": "Comment deleted"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
+
 
 import google.generativeai as genai
 

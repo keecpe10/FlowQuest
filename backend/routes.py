@@ -29,6 +29,11 @@ def login():
     if not user or not check_password_hash(user.password_hash, data['password']):
         return jsonify({'message': 'Invalid username or password'}), 401
         
+    role_name = user.role.role_name if user.role else 'student'
+    
+    if role_name == 'teacher' and not user.is_approved:
+        return jsonify({'message': 'รอการอนุมัติจาก Super Admin'}), 403
+        
     token = generate_token(user.user_id)
     
     return jsonify({
@@ -36,9 +41,10 @@ def login():
         'user': {
             'user_id': user.user_id,
             'username': user.username,
-            'role': user.role.role_name if user.role else 'student',
+            'role': role_name,
             'name': f"{user.first_name} {user.last_name}".strip(),
-            'avatar_url': user.avatar_url
+            'avatar_url': user.avatar_url,
+            'is_super_admin': user.is_super_admin
         }
     }), 200
 
@@ -110,7 +116,8 @@ def register():
         role_id=target_role.role_id,
         first_name=data.get('first_name', ''),
         last_name=data.get('last_name', ''),
-        class_id=class_id
+        class_id=class_id,
+        is_approved=(requested_role_name != 'teacher')
     )
     
     db.session.add(new_user)

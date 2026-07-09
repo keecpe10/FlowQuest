@@ -7,6 +7,7 @@ interface User {
   name: string;
   role: string;
   avatar_url?: string | null;
+  is_super_admin?: boolean;
 }
 
 interface AuthState {

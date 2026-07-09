@@ -52,6 +52,8 @@ def create_app():
         from trade_routes import trade_bp
         from outfit_routes import outfit_bp
         from course_routes import course_bp
+        from teacher_routes import teacher_bp
+        from student_routes import student_bp
         
         app.register_blueprint(course_bp)
         app.register_blueprint(auth_bp)
@@ -66,6 +68,8 @@ def create_app():
         app.register_blueprint(inventory_bp)
         app.register_blueprint(trade_bp)
         app.register_blueprint(outfit_bp)
+        app.register_blueprint(teacher_bp)
+        app.register_blueprint(student_bp)
 
     # File Uploads Configuration
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')

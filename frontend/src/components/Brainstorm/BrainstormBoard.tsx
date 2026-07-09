@@ -5,7 +5,7 @@ import Swal from 'sweetalert2';
 import { useBrainstormStore } from '../../store/useBrainstormStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Card } from './Card';
-import { MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search } from 'lucide-react';
+import { MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search, MessageCircle } from 'lucide-react';
 import LiveTimer from '../LiveTimer';
 
 interface BrainstormBoardProps {
@@ -18,7 +18,7 @@ const colors = ['#ffffff', '#fdf2f8', '#eff6ff', '#f0fdf4', '#fefce8', '#fff7ed'
 export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missionId }) => {
   const { 
     board, cards, cursors, summary, selectedCard, isSummarizing,
-    fetchBoard, fetchBoardByMission, initSocket, disconnectSocket, emitCursorMove, addCard, fetchSummary, setSelectedCard
+    fetchBoard, fetchBoardByMission, initSocket, disconnectSocket, emitCursorMove, addCard, fetchSummary, setSelectedCard, addComment, deleteComment
   } = useBrainstormStore();
   
   const [searchParams] = useSearchParams();
@@ -33,6 +33,8 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [modalCommentText, setModalCommentText] = useState('');
+  const [isPostingModalComment, setIsPostingModalComment] = useState(false);
   
   const lastMouseUpdate = useRef(0);
   const [zoom, setZoom] = useState(1);
@@ -282,36 +284,128 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
       {selectedCard && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setSelectedCard(null)}>
           <div 
-            className="rounded-3xl p-8 max-w-4xl w-full mx-4 shadow-2xl relative flex flex-col md:flex-row gap-8 items-start min-h-[300px]" 
-            style={{ backgroundColor: selectedCard.color || '#fff' }}
+            className="rounded-3xl max-w-4xl w-full mx-4 shadow-2xl relative flex flex-col overflow-hidden" 
+            style={{ backgroundColor: selectedCard.color || '#fff', maxHeight: '90vh' }}
             onClick={e => e.stopPropagation()}
           >
             <button onClick={() => setSelectedCard(null)} className="absolute top-4 right-6 text-gray-700 hover:text-black font-bold text-3xl z-10">&times;</button>
             
-            {/* Left Column: Author Info */}
-            <div className="flex flex-col items-center shrink-0 w-full md:w-48 text-center pt-2">
-              {selectedCard.author_avatar ? (
-                <img src={selectedCard.author_avatar} alt="Avatar" className="w-32 h-32 rounded-full object-cover border-4 border-white/50 shadow-lg mb-4 shrink-0" />
-              ) : (
-                <div className="w-32 h-32 rounded-full bg-indigo-100 border-4 border-indigo-200 flex items-center justify-center shadow-lg mb-4 shrink-0">
-                  <span className="text-5xl font-bold text-indigo-700">
-                    {(selectedCard.author_name || 'A')[0]}
-                  </span>
-                </div>
-              )}
-              <span className="text-xl font-bold text-gray-800 break-words w-full" title={selectedCard.author_name || 'Anonymous'}>
-                {selectedCard.author_name || (selectedCard.author_id ? `User ${selectedCard.author_id}` : 'Anonymous')}
-              </span>
-            </div>
-
-            {/* Right Column: Card Content */}
-            <div className="flex-1 w-full border-t md:border-t-0 md:border-l border-black/10 pt-6 md:pt-0 md:pl-8">
-              <div className="text-gray-900 font-medium whitespace-pre-wrap break-words text-3xl leading-relaxed mt-2">
-                {selectedCard.content}
+            {/* Main Content Area */}
+            <div className="p-8 flex flex-col md:flex-row gap-8 items-start min-h-[300px] overflow-y-auto">
+              {/* Left Column: Author Info */}
+              <div className="flex flex-col items-center shrink-0 w-full md:w-48 text-center pt-2">
+                {selectedCard.author_avatar ? (
+                  <img src={selectedCard.author_avatar} alt="Avatar" className="w-32 h-32 rounded-full object-cover border-4 border-white/50 shadow-lg mb-4 shrink-0" />
+                ) : (
+                  <div className="w-32 h-32 rounded-full bg-indigo-100 border-4 border-indigo-200 flex items-center justify-center shadow-lg mb-4 shrink-0">
+                    <span className="text-5xl font-bold text-indigo-700">
+                      {(selectedCard.author_name || 'A')[0]}
+                    </span>
+                  </div>
+                )}
+                <span className="text-xl font-bold text-gray-800 break-words w-full" title={selectedCard.author_name || 'Anonymous'}>
+                  {selectedCard.author_name || (selectedCard.author_id ? `User ${selectedCard.author_id}` : 'Anonymous')}
+                </span>
               </div>
 
-              {selectedCard.media_url && (
-                <img src={selectedCard.media_url} alt="card media" className="w-full rounded-2xl mt-6 pointer-events-none shadow-md" />
+              {/* Right Column: Card Content */}
+              <div className="flex-1 w-full border-t md:border-t-0 md:border-l border-black/10 pt-6 md:pt-0 md:pl-8">
+                <div className="text-gray-900 font-medium whitespace-pre-wrap break-words text-3xl leading-relaxed mt-2">
+                  {selectedCard.content}
+                </div>
+
+                {selectedCard.media_url && (
+                  <img src={selectedCard.media_url} alt="card media" className="w-full rounded-2xl mt-6 pointer-events-none shadow-md" />
+                )}
+              </div>
+            </div>
+
+            {/* Comment Section in Modal */}
+            <div className="border-t border-black/10 bg-indigo-50/70 px-8 py-4">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageCircle size={16} className="text-indigo-500" />
+                <span className="font-bold text-indigo-700 text-sm uppercase tracking-wide">ความคิดเห็นจากครู</span>
+                {(selectedCard.comments || []).length > 0 && (
+                  <span className="ml-auto text-xs text-gray-500">{(selectedCard.comments || []).length} ความคิดเห็น</span>
+                )}
+              </div>
+
+              {/* Comments List */}
+              {(selectedCard.comments || []).length === 0 ? (
+                <p className="text-sm text-gray-400 italic text-center py-2">
+                  {isTeacher ? 'ยังไม่มีความคิดเห็น — เพิ่มความคิดเห็นด้านล่าง' : 'ครูยังไม่ได้แสดงความคิดเห็น'}
+                </p>
+              ) : (
+                <div className="space-y-2 mb-3 max-h-40 overflow-y-auto pr-1">
+                  {(selectedCard.comments || []).map(cmt => (
+                    <div key={cmt.comment_id} className="flex gap-3 items-start group">
+                      {cmt.author_avatar ? (
+                        <img src={cmt.author_avatar} alt="" className="w-8 h-8 rounded-full object-cover shrink-0 border border-white shadow-sm mt-0.5" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-indigo-200 border border-indigo-300 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-xs font-bold text-indigo-700">{(cmt.author_name || 'T')[0]}</span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="bg-white rounded-xl rounded-tl-none px-4 py-2.5 shadow-sm border border-indigo-100">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-xs font-bold text-indigo-700">{cmt.author_name}</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs text-gray-400">
+                                {new Date(cmt.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {isTeacher && (
+                                <button
+                                  onClick={() => deleteComment(cmt.comment_id, selectedCard.card_id)}
+                                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all"
+                                  title="ลบความคิดเห็น"
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-700 break-words">{cmt.content}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Teacher Input in Modal */}
+              {isTeacher && (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!modalCommentText.trim() || isPostingModalComment) return;
+                    setIsPostingModalComment(true);
+                    try {
+                      await addComment(selectedCard.card_id, modalCommentText.trim());
+                      setModalCommentText('');
+                    } finally {
+                      setIsPostingModalComment(false);
+                    }
+                  }}
+                  className="flex gap-3 mt-1"
+                >
+                  <input
+                    type="text"
+                    value={modalCommentText}
+                    onChange={e => setModalCommentText(e.target.value)}
+                    placeholder="เขียนความคิดเห็นถึงนักเรียน..."
+                    className="flex-1 bg-white border border-indigo-200 rounded-full px-4 py-2 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-indigo-400 placeholder-gray-400"
+                    maxLength={300}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!modalCommentText.trim() || isPostingModalComment}
+                    className="bg-indigo-500 hover:bg-indigo-600 text-white px-5 py-2 rounded-full font-bold text-sm disabled:opacity-50 transition-colors flex items-center gap-2 shrink-0"
+                  >
+                    {isPostingModalComment ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    ส่ง
+                  </button>
+                </form>
               )}
             </div>
           </div>

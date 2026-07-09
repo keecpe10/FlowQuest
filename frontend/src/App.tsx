@@ -28,7 +28,9 @@ import Shop from './pages/Shop';
 import Inventory from './pages/Inventory';
 import TradeMarket from './pages/TradeMarket';
 import Leaderboard3D from './pages/Leaderboard3D';
-import { LayoutGrid, UserCircle, Zap, LogOut, BarChart3, ArrowLeft, BrainCircuit, Play, ShoppingBag, Archive, ArrowRightLeft, BookOpen, Trophy } from 'lucide-react';
+import TeacherManagement from './pages/TeacherManagement';
+import StudentManagement from './pages/StudentManagement';
+import { LayoutGrid, UserCircle, Zap, LogOut, BarChart3, ArrowLeft, BrainCircuit, Play, ShoppingBag, Archive, ArrowRightLeft, BookOpen, Trophy, Users, GraduationCap } from 'lucide-react';
 import { useAuthStore } from './store/useAuthStore';
 
 const HomeRoute = () => {
@@ -81,6 +83,34 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                   <span className="text-[9px] font-bold">รายวิชา</span>
                 </button>
               </Link>
+              <Link to="/teacher/manage-accounts">
+                <button
+                  className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+                    location.pathname === '/teacher/manage-accounts'
+                      ? 'bg-violet-50 text-violet-600'
+                      : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                  }`}
+                  title="จัดการครู"
+                >
+                  <Users size={22} />
+                  <span className="text-[9px] font-bold">จัดการครู</span>
+                </button>
+              </Link>
+              {user?.is_super_admin && (
+                <Link to="/teacher/manage-students">
+                  <button
+                    className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+                      location.pathname === '/teacher/manage-students'
+                        ? 'bg-violet-50 text-violet-600'
+                        : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                    }`}
+                    title="จัดการนักเรียน"
+                  >
+                    <GraduationCap size={22} />
+                    <span className="text-[9px] font-bold">นร.ทั้งหมด</span>
+                  </button>
+                </Link>
+              )}
               {currentCourseId && (
                 <>
                   <Link to={`/teacher/courses/${currentCourseId}`}>
@@ -366,6 +396,8 @@ const PageWithTitle = ({ title, children }: { title: string, children: React.Rea
 };
 
 function App() {
+  const user = useAuthStore(state => state.user);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -387,6 +419,8 @@ function App() {
           <Route path="/leaderboard" element={<PageWithTitle title="หอเกียรติยศ 3D"><Leaderboard3D /></PageWithTitle>} />
           <Route path="/teacher" element={<Navigate to="/teacher/courses" replace />} />
           <Route path="/teacher/courses" element={<PageWithTitle title="จัดการรายวิชา"><DashboardLayout><TeacherCourseList /></DashboardLayout></PageWithTitle>} />
+          <Route path="/teacher/manage-accounts" element={<PageWithTitle title="จัดการบัญชีครู"><DashboardLayout><TeacherManagement /></DashboardLayout></PageWithTitle>} />
+          <Route path="/teacher/manage-students" element={<PageWithTitle title="จัดการนักเรียนส่วนกลาง"><DashboardLayout>{user?.is_super_admin ? <StudentManagement /> : <Navigate to="/teacher/courses" replace />}</DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/courses/:courseId" element={<PageWithTitle title="จัดการด่าน"><DashboardLayout><TeacherDashboard /></DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/mission/:id/design" element={<PageWithTitle title="ออกแบบผังงาน"><TeacherFlowBuilder /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/mcq-design" element={<PageWithTitle title="สร้างแบบทดสอบ"><TeacherMCQBuilder /></PageWithTitle>} />

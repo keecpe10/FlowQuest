@@ -11,6 +11,16 @@ export interface ReactionCounts {
   [emoji: string]: number;
 }
 
+export interface CommentData {
+  comment_id: number;
+  card_id?: number;
+  content: string;
+  author_id: number;
+  author_name: string;
+  author_avatar?: string | null;
+  created_at: string;
+}
+
 export interface CardData {
   card_id: number;
   board_id: number;
@@ -26,6 +36,7 @@ export interface CardData {
   author_avatar?: string | null;
   question_id?: number | null;
   reactions: Record<string, number>;
+  comments: CommentData[];
 }
 
 export interface QuestionData {
@@ -76,6 +87,8 @@ interface BrainstormState {
   saveCardPositions: (boardId: number, positions: { card_id: number, position_x: number, position_y: number }[]) => Promise<void>;
   toggleReaction: (cardId: number, emoji: string) => Promise<void>;
   deleteCard: (cardId: number) => Promise<void>;
+  addComment: (cardId: number, content: string) => Promise<void>;
+  deleteComment: (commentId: number, cardId: number) => Promise<void>;
   
   emitCursorMove: (x: number, y: number, name: string) => void;
   fetchSummary: (boardId: number) => Promise<void>;
@@ -188,6 +201,36 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
         if (data.status !== undefined) newBoard.status = data.status;
         if (data.show_student_posts !== undefined) newBoard.show_student_posts = data.show_student_posts;
         return { board: newBoard };
+      });
+    });
+
+    socket.on('comment_added', (comment: CommentData) => {
+      set((state) => {
+        const updatedCards = state.cards.map(c =>
+          c.card_id === comment.card_id
+            ? { ...c, comments: [...(c.comments || []), comment] }
+            : c
+        );
+        let updatedSelected = state.selectedCard;
+        if (updatedSelected && updatedSelected.card_id === comment.card_id) {
+          updatedSelected = { ...updatedSelected, comments: [...(updatedSelected.comments || []), comment] };
+        }
+        return { cards: updatedCards, selectedCard: updatedSelected };
+      });
+    });
+
+    socket.on('comment_deleted', (data: { comment_id: number, card_id: number }) => {
+      set((state) => {
+        const updatedCards = state.cards.map(c =>
+          c.card_id === data.card_id
+            ? { ...c, comments: (c.comments || []).filter(cmt => cmt.comment_id !== data.comment_id) }
+            : c
+        );
+        let updatedSelected = state.selectedCard;
+        if (updatedSelected && updatedSelected.card_id === data.card_id) {
+          updatedSelected = { ...updatedSelected, comments: (updatedSelected.comments || []).filter(cmt => cmt.comment_id !== data.comment_id) };
+        }
+        return { cards: updatedCards, selectedCard: updatedSelected };
       });
     });
 
@@ -343,6 +386,50 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       await fetch(`${API_URL}/brainstorm/cards/${cardId}`, {
         method: 'DELETE'
       });
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  addComment: async (cardId, content) => {
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser) return;
+    const token = useAuthStore.getState().token;
+    try {
+      const res = await fetch(`${API_URL}/brainstorm/cards/${cardId}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ content, author_id: currentUser.user_id })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Failed to add comment:', err);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  deleteComment: async (commentId, cardId) => {
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser) return;
+    const token = useAuthStore.getState().token;
+    try {
+      const res = await fetch(`${API_URL}/brainstorm/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: currentUser.user_id })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Failed to delete comment:', err);
+      }
     } catch (e) {
       console.error(e);
     }
