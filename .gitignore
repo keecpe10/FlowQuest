@@ -21,3 +21,17 @@ backend/migrations/versions/__pycache__/
 ~$*
 *.tmp
 .~lock.*
+
+# Large media files (ไม่ควร commit ขึ้น GitHub)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wmv
+*.flv
+*.mp3
+*.wav
+
+# PDF and HDR
+*.pdf
+*.hdr
