@@ -45,6 +45,8 @@ const FlowBuilderCore: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ status: 'success' | 'failed', message: string, points: number } | null>(null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState<number | null>(null);
+  const [isCompleted, setIsCompleted] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingNode, setPendingNode] = useState<any>(null);
@@ -59,8 +61,16 @@ const FlowBuilderCore: React.FC = () => {
         const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        
+        if (response.data.mission_status === 'completed') {
+          setIsCompleted(true);
+        }
+        
         if (response.data.started_at) {
           setStartedAt(response.data.started_at);
+        }
+        if (response.data.time_limit_seconds) {
+          setTimeLimitSeconds(response.data.time_limit_seconds);
         }
         
         if (response.data.saved_progress) {
@@ -287,6 +297,11 @@ const FlowBuilderCore: React.FC = () => {
 
   return (
     <div className="flex-1 relative w-full h-full bg-slate-50/50" ref={reactFlowWrapper}>
+      {!isCompleted && timeLimitSeconds && startedAt && (
+        <div className="absolute top-6 right-6 z-50 pointer-events-none">
+          <LiveTimer startedAt={startedAt} timeLimitSeconds={timeLimitSeconds} />
+        </div>
+      )}
       <AnimatePresence>
         {feedback && (
           <motion.div 
@@ -368,76 +383,83 @@ const FlowBuilderCore: React.FC = () => {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
+        onNodesChange={!isCompleted ? onNodesChange : undefined}
+        onEdgesChange={!isCompleted ? onEdgesChange : undefined}
+        onConnect={!isCompleted ? onConnect : undefined}
         onInit={setReactFlowInstance}
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        onNodeDoubleClick={onNodeDoubleClick}
+        onDrop={!isCompleted ? onDrop : undefined}
+        onDragOver={!isCompleted ? onDragOver : undefined}
+        onNodeDoubleClick={!isCompleted ? onNodeDoubleClick : undefined}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={{ type: 'waypoint', style: { stroke: '#94a3b8', strokeWidth: 2 } }}
         snapToGrid={true}
         snapGrid={[16, 16]}
         fitView
+        nodesDraggable={!isCompleted}
+        nodesConnectable={!isCompleted}
+        elementsSelectable={!isCompleted}
+        edgesFocusable={!isCompleted}
+        nodesFocusable={!isCompleted}
       >
         <Controls className="bg-white shadow-lg border-none" />
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
       </ReactFlow>
 
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-white">
-        <button
-          onClick={undo}
-          disabled={!canUndo}
-          className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors"
-          title="Undo"
-        >
-          <Undo2 size={18} />
-        </button>
-        <button
-          onClick={redo}
-          disabled={!canRedo}
-          className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors"
-          title="Redo"
-        >
-          <Redo2 size={18} />
-        </button>
-        <div className="w-px h-8 bg-slate-200"></div>
-        <button 
-          onClick={resetProgress}
-          className="px-4 py-2.5 rounded-xl font-medium text-blue-500 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center gap-2"
-        >
-          <RotateCcw size={18} /> Reset Puzzle
-        </button>
-        <button 
-          onClick={clearCanvas}
-          className="px-4 py-2.5 rounded-xl font-medium text-rose-500 hover:bg-rose-50 hover:text-rose-600 transition-colors flex items-center gap-2"
-        >
-          <Trash2 size={18} /> Clear Edges
-        </button>
-        {hasSelectedElements && (
-          <button 
-            onClick={deleteSelected}
-            className="px-4 py-2.5 rounded-xl font-medium text-amber-500 hover:bg-amber-50 hover:text-amber-600 transition-colors flex items-center gap-2"
+      {!isCompleted && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-xl border border-white">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors"
+            title="Undo"
           >
-            <X size={18} /> Delete Selected
+            <Undo2 size={18} />
           </button>
-        )}
-        <div className="w-px h-8 bg-slate-200"></div>
-        <button 
-          onClick={submitFlowchart}
-          disabled={isSubmitting}
-          className="px-6 py-2.5 rounded-xl font-bold text-white bg-primary-600 hover:bg-primary-700 transition-all active:scale-95 flex items-center gap-2 shadow-lg shadow-primary-600/30 disabled:opacity-70"
-        >
-          {isSubmitting ? (
-            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          ) : (
-            <Play size={18} fill="currentColor" />
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30 transition-colors"
+            title="Redo"
+          >
+            <Redo2 size={18} />
+          </button>
+          <div className="w-px h-8 bg-slate-200"></div>
+          <button 
+            onClick={resetProgress}
+            className="px-4 py-2.5 rounded-xl font-medium text-blue-500 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center gap-2"
+          >
+            <RotateCcw size={18} /> Reset Puzzle
+          </button>
+          <button 
+            onClick={clearCanvas}
+            className="px-4 py-2.5 rounded-xl font-medium text-rose-500 hover:bg-rose-50 hover:text-rose-600 transition-colors flex items-center gap-2"
+          >
+            <Trash2 size={18} /> Clear Edges
+          </button>
+          {hasSelectedElements && (
+            <button 
+              onClick={deleteSelected}
+              className="px-4 py-2.5 rounded-xl font-medium text-amber-500 hover:bg-amber-50 hover:text-amber-600 transition-colors flex items-center gap-2"
+            >
+              <X size={18} /> Delete Selected
+            </button>
           )}
-          Run & Verify
-        </button>
-      </div>
+          <div className="w-px h-8 bg-slate-200"></div>
+          <button 
+            onClick={submitFlowchart}
+            disabled={isSubmitting}
+            className="px-6 py-2.5 rounded-xl font-bold text-white bg-primary-600 hover:bg-primary-700 transition-all active:scale-95 flex items-center gap-2 shadow-lg shadow-primary-600/30 disabled:opacity-70"
+          >
+            {isSubmitting ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Play size={18} fill="currentColor" />
+            )}
+            Run & Verify
+          </button>
+        </div>
+      )}
     </div>
   );
 };

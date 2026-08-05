@@ -84,8 +84,11 @@ class Mission(db.Model):
     solution_nodes = db.Column(db.JSON, nullable=True)
     solution_edges = db.Column(db.JSON, nullable=True)
     
-    # MCQ Specific Fields
+    # Time / Grading Settings
     time_limit_seconds = db.Column(db.Integer, nullable=True)
+    min_score = db.Column(db.Integer, default=0)
+    
+    # MCQ Specific Fields
     randomize_questions = db.Column(db.Boolean, default=False)
     randomize_choices = db.Column(db.Boolean, default=True)
     passing_percentage = db.Column(db.Integer, default=70)

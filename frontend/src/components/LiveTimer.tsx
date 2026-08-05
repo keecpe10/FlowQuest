@@ -4,9 +4,10 @@ import { Timer } from 'lucide-react';
 interface LiveTimerProps {
   startedAt?: string | null; // ISO string from backend
   className?: string;
+  timeLimitSeconds?: number | null;
 }
 
-const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '' }) => {
+const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLimitSeconds }) => {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -36,11 +37,20 @@ const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '' }) => {
     ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}`
     : `${pad(mins)}:${pad(secs)}`;
 
+  const isOverTime = timeLimitSeconds ? elapsed > timeLimitSeconds : false;
+  const isDanger = timeLimitSeconds ? elapsed > timeLimitSeconds * 0.8 && !isOverTime : false;
+
+  const styleClass = isOverTime 
+    ? "bg-rose-500/10 border-rose-500/30 text-rose-500"
+    : isDanger 
+      ? "bg-amber-500/10 border-amber-500/30 text-amber-500" 
+      : "bg-sky-500/10 border-sky-500/30 text-sky-400";
+
   return (
-    <div className={`flex items-center gap-2 bg-sky-500/10 border border-sky-500/30 px-3 py-1.5 rounded-full ${className}`}>
-      <Timer size={14} className="text-sky-400" />
-      <span className="text-sm font-mono font-bold text-sky-300 tabular-nums tracking-wider">
-        {timeStr}
+    <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-full ${styleClass} ${className}`}>
+      <Timer size={14} className="currentColor" />
+      <span className="text-sm font-mono font-bold tabular-nums tracking-wider">
+        {timeStr} {timeLimitSeconds ? `/ ${pad(Math.floor(timeLimitSeconds/60))}:${pad(timeLimitSeconds%60)}` : ''}
       </span>
     </div>
   );

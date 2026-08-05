@@ -75,7 +75,9 @@ def get_missions(course_id):
             'is_completed': is_completed,
             'status': status,
             'score_text': score_text,
-            'passing_percentage': m.passing_percentage
+            'passing_percentage': m.passing_percentage,
+            'time_limit_seconds': m.time_limit_seconds,
+            'min_score': m.min_score
         }
         if m.mission_type == 'sudoku':
             puzzle = SudokuPuzzle.query.filter_by(mission_id=m.mission_id).first()
@@ -150,6 +152,7 @@ def get_mission(mission_id):
         'points': mission.points,
         'difficulty_level': mission.difficulty_level,
         'time_limit_seconds': mission.time_limit_seconds,
+        'min_score': mission.min_score,
         'randomize_questions': mission.randomize_questions,
         'randomize_choices': mission.randomize_choices,
         'passing_percentage': mission.passing_percentage
@@ -346,6 +349,7 @@ def create_mission(course_id):
         difficulty_level=data.get('difficulty_level', 1),
         order_index=next_order,
         time_limit_seconds=data.get('time_limit_seconds'),
+        min_score=data.get('min_score', 0),
         randomize_questions=data.get('randomize_questions', False),
         randomize_choices=data.get('randomize_choices', True),
         passing_percentage=data.get('passing_percentage', 70)
@@ -398,6 +402,8 @@ def update_mission(mission_id):
     
     if 'time_limit_seconds' in data:
         mission.time_limit_seconds = data.get('time_limit_seconds')
+    if 'min_score' in data:
+        mission.min_score = data.get('min_score')
     if 'randomize_questions' in data:
         mission.randomize_questions = data.get('randomize_questions')
     if 'randomize_choices' in data:

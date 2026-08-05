@@ -41,6 +41,8 @@ interface Mission {
   difficulty_level: number;
   questions?: string[];
   passing_percentage?: number;
+  time_limit_seconds?: number;
+  min_score?: number;
 }
 
 const difficultyColor = (level: number) => {
@@ -222,7 +224,9 @@ const TeacherDashboard = () => {
     points: 100,
     difficulty_level: 1,
     questions: [''],
-    passing_percentage: 70
+    passing_percentage: 70,
+    time_limit_seconds: undefined as number | undefined,
+    min_score: 0
   });
 
   const fetchData = async () => {
@@ -293,7 +297,7 @@ const TeacherDashboard = () => {
 
   const openCreateModal = () => {
     setEditingMission(null);
-    setFormData({ title: '', description: '', mission_type: 'flowchart', points: 100, difficulty_level: 1, questions: [''], passing_percentage: 70 });
+    setFormData({ title: '', description: '', mission_type: 'flowchart', points: 100, difficulty_level: 1, questions: [''], passing_percentage: 70, time_limit_seconds: undefined, min_score: 0 });
     setIsModalOpen(true);
   };
 
@@ -306,7 +310,9 @@ const TeacherDashboard = () => {
       points: mission.points,
       difficulty_level: mission.difficulty_level,
       questions: mission.questions || [''],
-      passing_percentage: mission.passing_percentage || 70
+      passing_percentage: mission.passing_percentage || 70,
+      time_limit_seconds: mission.time_limit_seconds,
+      min_score: mission.min_score || 0
     });
     setIsModalOpen(true);
   };
@@ -1157,7 +1163,38 @@ const TeacherDashboard = () => {
                   </div>
                 </div>
               )}
-
+              {formData.mission_type === 'flowchart' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">เวลาที่กำหนด (นาที)</label>
+                    <input
+                      type="number"
+                      min={1} step={1}
+                      placeholder="เว้นว่างถ้าไม่จับเวลา"
+                      value={formData.time_limit_seconds ? Math.floor(formData.time_limit_seconds / 60) : ''}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (!isNaN(val) && val > 0) {
+                          setFormData({ ...formData, time_limit_seconds: val * 60 });
+                        } else if (e.target.value === '') {
+                          setFormData({ ...formData, time_limit_seconds: undefined });
+                        }
+                      }}
+                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนนต่ำสุด (XP)</label>
+                    <input
+                      type="number"
+                      min={0} step={1}
+                      value={formData.min_score}
+                      onChange={(e) => setFormData({ ...formData, min_score: parseInt(e.target.value) || 0 })}
+                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                    />
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนน XP</label>

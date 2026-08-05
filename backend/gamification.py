@@ -109,19 +109,40 @@ def submit_flowchart():
             db.session.add(existing_um)
             
         existing_um.status = 'completed'
-        existing_um.score_awarded = mission.points
         existing_um.current_nodes = nodes
         existing_um.current_edges = edges
         existing_um.completed_at = datetime.utcnow()
-        if existing_um.started_at and not existing_um.time_spent_seconds:
-            existing_um.time_spent_seconds = int((datetime.utcnow() - existing_um.started_at).total_seconds())
+        
+        # Calculate time spent
+        time_spent_seconds = 0
+        if existing_um.started_at:
+            time_spent_seconds = int((datetime.utcnow() - existing_um.started_at).total_seconds())
+        existing_um.time_spent_seconds = time_spent_seconds
+        
+        # Calculate awarded score
+        awarded_points = mission.points
+        if mission.time_limit_seconds and mission.time_limit_seconds > 0:
+            if time_spent_seconds <= mission.time_limit_seconds:
+                awarded_points = mission.points
+            else:
+                over_time = time_spent_seconds - mission.time_limit_seconds
+                decay_window = mission.time_limit_seconds
+                min_score = mission.min_score or 0
+                if over_time >= decay_window:
+                    awarded_points = min_score
+                else:
+                    ratio = over_time / decay_window
+                    awarded_points = int(mission.points - (mission.points - min_score) * ratio)
+                    awarded_points = max(min_score, awarded_points)
+        
+        existing_um.score_awarded = awarded_points
         
         # Record points
         history = PointHistory(
             user_id=user_id,
             source='mission',
             source_id=mission_id,
-            points=mission.points,
+            points=awarded_points,
             description=f'Completed {mission.title}'
         )
         db.session.add(history)
@@ -130,7 +151,8 @@ def submit_flowchart():
         return jsonify({
             'status': status, 
             'message': message, 
-            'points': mission.points
+            'points': awarded_points,
+            'time_spent_seconds': time_spent_seconds
         }), 200
     else:
         return jsonify({

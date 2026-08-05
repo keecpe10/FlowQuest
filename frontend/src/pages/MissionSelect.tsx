@@ -168,6 +168,7 @@ const MissionSelect = () => {
               !effectiveCompleted ||
               isTeacher ||
               mission.mission_type === 'brainstorm' ||
+              mission.mission_type === 'flowchart' ||
               (mission.mission_type === 'sudoku' && mission.can_replay !== false)
             );
             const gradient = missionGradients[idx % missionGradients.length];
