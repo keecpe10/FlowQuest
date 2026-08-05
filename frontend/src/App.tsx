@@ -352,8 +352,7 @@ const GameView = () => {
   }, [id, user, token]);
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-900">
-      <GlobalStudentProfile />
+    <div className="flex-1 flex flex-col overflow-hidden bg-slate-900">
       <header className="h-16 bg-slate-900/95 border-b border-white/10 px-6 flex items-center justify-between z-10 flex-shrink-0">
         <div className="flex items-center gap-3">
           <button 

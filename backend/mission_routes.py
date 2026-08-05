@@ -205,9 +205,11 @@ def get_mission(mission_id):
                 })
             response_data['mcq_answers'] = ans_data
     
+    # Students get nodes (symbols to arrange) but NOT edges (the answer)
+    response_data['solution_nodes'] = mission.solution_nodes
+
     if is_course_teacher(user_id, mission.course_id):
         response_data['solution_edges'] = mission.solution_edges
-        response_data['solution_nodes'] = mission.solution_nodes
         
     return jsonify(response_data), 200
 
