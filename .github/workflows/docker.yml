@@ -80,5 +80,7 @@ jobs:
             docker compose -f docker-compose.prod.yml pull
             # Restart the services with the new images
             docker compose -f docker-compose.prod.yml up -d
+            # Run database migrations
+            docker compose -f docker-compose.prod.yml exec -T backend flask db upgrade
             # Optional: Clean up old unused images
             docker image prune -f
