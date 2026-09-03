@@ -58,6 +58,48 @@ def mcq_can_start_attempt(mission, user_mission):
     return left is None or left > 0
 
 
+def ensure_mcq_attempt(user_id, mission, user_mission):
+    """เตรียม attempt ของนักเรียนให้พร้อมทำ แล้วคืน UserMission ที่ใช้งานได้
+
+    รวมตรรกะการเริ่ม/รีเซ็ต/ปิดจ๊อบไว้ที่เดียว เพราะทั้ง get_mcq_questions
+    และ get_mission (ใน mission_routes) ถูกเรียกคู่กันจากหน้าเดียวกัน
+    ถ้าต่างคนต่างรีเซ็ต ตัวนับจำนวนครั้งจะเพี้ยน
+    """
+    from datetime import datetime
+
+    if user_mission is None:
+        user_mission = UserMission(
+            user_id=user_id, mission_id=mission.mission_id,
+            status='pending', started_at=datetime.utcnow(),
+        )
+        db.session.add(user_mission)
+        db.session.commit()
+        return user_mission
+
+    # ปิดแท็บหนีระหว่างจับเวลา แล้วกลับมาเปิดใหม่ ต้องไม่ได้ทำต่อ
+    if user_mission.status == 'pending' and mcq_deadline_passed(mission, user_mission):
+        finalize_mcq(user_id, mission, user_mission)
+        return user_mission
+
+    if user_mission.status == 'failed':
+        # สอบตกแล้วเริ่มรอบใหม่ได้ ต่อเมื่อยังเหลือสิทธิ์
+        if mcq_can_start_attempt(mission, user_mission):
+            MCQUserAnswer.query.filter_by(
+                user_mission_id=user_mission.user_mission_id
+            ).delete()
+            user_mission.status = 'pending'
+            user_mission.started_at = datetime.utcnow()
+            user_mission.score_awarded = 0
+            db.session.commit()
+        return user_mission
+
+    if user_mission.status == 'pending' and not user_mission.started_at:
+        user_mission.started_at = datetime.utcnow()
+        db.session.commit()
+
+    return user_mission
+
+
 def finalize_mcq(user_id, mission, user_mission):
     """Compute pass/fail, set mission status, and award XP idempotently.
 
@@ -144,23 +186,9 @@ def get_mcq_questions(mission_id):
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     is_user_teacher = is_course_teacher(user_id, mission.course_id)
     
-    from datetime import datetime
     if not is_user_teacher:
-        if not user_mission:
-            user_mission = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
-            db.session.add(user_mission)
-            db.session.commit()
-        elif user_mission.status == 'failed':
-            # Reset the attempt and delete previous answers
-            MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id).delete()
-            user_mission.status = 'pending'
-            user_mission.started_at = datetime.utcnow()
-            user_mission.score_awarded = 0
-            db.session.commit()
-        elif user_mission.status == 'pending' and not user_mission.started_at:
-            user_mission.started_at = datetime.utcnow()
-            db.session.commit()
-            
+        user_mission = ensure_mcq_attempt(user_id, mission, user_mission)
+
     questions = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(MCQQuestion.order_index).all()
     
     q_data = []
@@ -300,12 +328,7 @@ def submit_mcq(mission_id):
         user_mission = UserMission(user_id=user_id, mission_id=mission_id, status='pending')
         db.session.add(user_mission)
         db.session.flush()
-    else:
-        if mission.time_limit_seconds and user_mission.status == 'pending':
-            elapsed = (datetime.utcnow() - user_mission.created_at).total_seconds()
-            if elapsed > (mission.time_limit_seconds + 5):
-                return jsonify({'message': 'Time limit exceeded'}), 400
-        
+
     # Delete previous answers if re-submitting (for non-completed missions like failed ones)
     MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id).delete()
     
@@ -541,12 +564,19 @@ def submit_mcq_single(mission_id):
         
     if not can_play_mission(user_id, mission):
         return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
-        
+
+    um_for_check = UserMission.query.filter_by(
+        user_id=user_id, mission_id=mission_id
+    ).order_by(UserMission.user_mission_id.asc()).first()
+    # กันการแก้นาฬิกาเครื่องตัวเองแล้วตอบต่อหลังหมดเวลา
+    if mcq_deadline_passed(mission, um_for_check):
+        return jsonify({'error': 'หมดเวลาทำข้อสอบแล้ว'}), 403
+
     data = request.get_json()
     ans = data.get('answer', {})
-    
+
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
-    
+
     if user_mission and user_mission.status == 'completed':
         return jsonify({
             'message': 'Mission already finished!',
@@ -677,6 +707,9 @@ def complete_mcq(mission_id):
     if not user_mission:
         return jsonify({'message': 'Mission not started'}), 400
 
+    # endpoint นี้เป็นทางออกของ attempt ที่เริ่มไปแล้ว รวมถึงการส่งอัตโนมัติเมื่อหมดเวลา
+    # จึงต้องผ่านเสมอ ห้ามกันด้วยโควตา — การกันโควตาอยู่ที่ ensure_mcq_attempt (ทางเข้า)
+    # เรียกซ้ำเมื่อสถานะจบไปแล้ว finalize_mcq จะไม่นับครั้งเพิ่มให้เอง
     result = finalize_mcq(user_id, mission, user_mission)
 
     return jsonify({

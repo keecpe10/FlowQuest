@@ -265,6 +265,205 @@ def test_attempt_counting(client, f):
     reset_attempt(f)
 
 
+def answer_question(client, f, idx, correct=True):
+    """ตอบคำถามข้อที่ idx ผ่าน submit-single คืน response object"""
+    q = f['questions'][idx]
+    choice = q['right'] if correct else q['wrong']
+    return client.post(
+        f"/api/v1/mcq/{f['mission'].mission_id}/submit-single",
+        json={'answer': {
+            'question_id': q['question'].question_id,
+            'choice_id': choice.choice_id,
+        }},
+        headers=auth(f['student_token']),
+    )
+
+
+def current_um(f):
+    return UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id
+    ).order_by(UserMission.user_mission_id.asc()).first()
+
+
+def test_timeout_behaviour(client, f):
+    print('\n[4] หมดเวลาแล้วส่งอัตโนมัติ')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = 600
+    mission.max_attempts = 0
+    db.session.commit()
+
+    res = client.get(
+        f"/api/v1/mcq/{mission.mission_id}/questions", headers=auth(f['student_token'])
+    )
+    check('เปิดด่านได้ 200', res.status_code == 200)
+    check('response ของ questions ยังเป็น array', isinstance(res.get_json(), list))
+
+    check('ตอบข้อ 1 ได้ตามปกติ', answer_question(client, f, 0).status_code == 200)
+    check('ตอบข้อ 2 ได้ตามปกติ', answer_question(client, f, 1).status_code == 200)
+    check('ตอบข้อ 3 ได้ตามปกติ', answer_question(client, f, 2).status_code == 200)
+
+    # ย้อนเวลาเริ่มให้เลยเส้นตาย
+    um = current_um(f)
+    um.started_at = datetime.utcnow() - timedelta(seconds=700)
+    db.session.commit()
+
+    check('หมดเวลาแล้วตอบข้อ 4 ไม่ได้ 403',
+          answer_question(client, f, 3).status_code == 403)
+
+    res = client.post(
+        f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+        headers=auth(f['student_token']),
+    )
+    check('หมดเวลาแล้ว /complete ยังตรวจให้ได้ 200', res.status_code == 200)
+    body = res.get_json()
+    check('ตอบถูก 3 ข้อ', body.get('correct_answers') == 3)
+    check('ตัวหารเป็น 5 ข้อทั้งหมด (ข้อที่ไม่ได้ตอบนับเป็นผิด)',
+          body.get('total_questions') == 5)
+    check('3 จาก 5 = 60% ต่ำกว่าเกณฑ์ 70 จึงไม่ผ่าน', body.get('status') == 'failed')
+
+    mission.time_limit_seconds = None
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_expired_attempt_closed_on_reopen(client, f):
+    print('\n[5] ปิดแท็บหนีระหว่างจับเวลา แล้วกลับมาเปิดใหม่')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = 600
+    mission.max_attempts = 0
+    db.session.commit()
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    answer_question(client, f, 0)
+
+    um = current_um(f)
+    um.started_at = datetime.utcnow() - timedelta(seconds=700)
+    db.session.commit()
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    um = current_um(f)
+    check('attempt ที่ค้างและเลยเวลา ถูกปิดจ๊อบให้อัตโนมัติ', um.status != 'pending')
+    check('การปิดจ๊อบนับเป็น 1 ครั้ง', um.attempt_count == 1)
+
+    mission.time_limit_seconds = None
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_attempt_quota_enforced(client, f):
+    print('\n[6] จำนวนครั้งที่ทำได้')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 2
+    db.session.commit()
+
+    # ครั้งที่ 1 สอบตก (ไม่ตอบเลย)
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+    check('ครั้งที่ 1 นับแล้ว', current_um(f).attempt_count == 1)
+
+    # ครั้งที่ 2 สอบตกอีก
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    um = current_um(f)
+    check('ยังเหลือสิทธิ์ จึงรีเซ็ตให้ทำใหม่ได้', um.status == 'pending')
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+    check('ครั้งที่ 2 นับแล้ว', current_um(f).attempt_count == 2)
+
+    # ครั้งที่ 3 ต้องถูกกัน
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    um = current_um(f)
+    check('หมดสิทธิ์แล้วไม่รีเซ็ตให้ทำใหม่', um.status == 'failed')
+    check('หมดสิทธิ์แล้ว attempt_count ไม่เพิ่มจากการเปิดด่าน', um.attempt_count == 2)
+
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_passed_cannot_retry(client, f):
+    print('\n[7] สอบผ่านแล้วทำซ้ำไม่ได้ แม้เหลือสิทธิ์')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 5
+    db.session.commit()
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    for i in range(5):
+        answer_question(client, f, i, correct=True)
+    res = client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                      headers=auth(f['student_token']))
+    check('ตอบถูกหมดจึงผ่าน', res.get_json().get('status') == 'completed')
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    um = current_um(f)
+    check('ผ่านแล้วเปิดด่านซ้ำ ไม่ถูกรีเซ็ตเป็น pending', um.status == 'completed')
+    check('ผ่านแล้ว attempt_count ไม่เพิ่ม', um.attempt_count == 1)
+
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_started_at_resets_each_attempt(client, f):
+    print('\n[8] เวลาคิดจาก started_at ที่รีเซ็ตทุกรอบ ไม่ใช่ created_at')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = 600
+    mission.max_attempts = 0
+    db.session.commit()
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    um = current_um(f)
+    # ทำให้แถวนี้ "เก่า" แต่ยังไม่หมดเวลาของรอบปัจจุบัน
+    old = datetime.utcnow() - timedelta(seconds=100000)
+    um.created_at = old
+    db.session.commit()
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    um = current_um(f)
+    check('เริ่มรอบใหม่แล้ว started_at ถูกตั้งใหม่',
+          um.started_at is not None and (datetime.utcnow() - um.started_at).total_seconds() < 60)
+    check('created_at ยังเก่าอยู่ แต่ต้องไม่ทำให้รอบใหม่หมดเวลาทันที',
+          answer_question(client, f, 0).status_code == 200)
+
+    mission.time_limit_seconds = None
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_teacher_sees_original_order(client, f):
+    print('\n[9] ครูเห็นคำถามเรียงเดิมแม้เปิดสลับ')
+    mission = f['mission']
+    mission.randomize_questions = True
+    db.session.commit()
+
+    res = client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+                     headers=auth(f['teacher_token']))
+    order = [q['order_index'] for q in res.get_json()]
+    check('ครูได้คำถามเรียงตาม order_index', order == sorted(order))
+
+    mission.randomize_questions = False
+    db.session.commit()
+    reset_attempt(f)
+
+
 def test_max_attempts_edge_cases(client, f):
     print('\n[2] max_attempts กับค่าอินพุตแปลกๆ')
     url_list = f"/api/v1/missions/course/{f['course'].course_id}"
@@ -364,6 +563,12 @@ def main():
         try:
             test_max_attempts_crud(client, f)
             test_attempt_counting(client, f)
+            test_timeout_behaviour(client, f)
+            test_expired_attempt_closed_on_reopen(client, f)
+            test_attempt_quota_enforced(client, f)
+            test_passed_cannot_retry(client, f)
+            test_started_at_resets_each_attempt(client, f)
+            test_teacher_sees_original_order(client, f)
             test_max_attempts_edge_cases(client, f)
         finally:
             db.session.rollback()
