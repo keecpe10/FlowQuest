@@ -34,48 +34,63 @@ def _get_or_create_role(name):
 
 def setup_fixtures():
     """สร้างครู 1 คน นักเรียน 1 คน รายวิชา 1 วิชา และด่าน 2 ด่าน (เปิด 1 ปิด 1)"""
-    suffix = uuid.uuid4().hex[:8]
-    teacher_role = _get_or_create_role('teacher')
-    student_role = _get_or_create_role('student')
+    # ติดตามสิ่งที่ commit ไปแล้วเพื่อให้ลบได้ถ้าเกิดข้อผิดพลาดในระหว่างการสร้าง
+    committed_objects = []
 
-    teacher = User(
-        username=f'vis_teacher_{suffix}',
-        password_hash=generate_password_hash('x'),
-        role_id=teacher_role.role_id,
-        first_name='Vis', last_name='Teacher',
-    )
-    student = User(
-        username=f'vis_student_{suffix}',
-        password_hash=generate_password_hash('x'),
-        role_id=student_role.role_id,
-        first_name='Vis', last_name='Student',
-    )
-    db.session.add_all([teacher, student])
-    db.session.commit()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        teacher_role = _get_or_create_role('teacher')
+        student_role = _get_or_create_role('student')
 
-    course = Course(course_name=f'Vis Course {suffix}', teacher_id=teacher.user_id)
-    db.session.add(course)
-    db.session.commit()
+        teacher = User(
+            username=f'vis_teacher_{suffix}',
+            password_hash=generate_password_hash('x'),
+            role_id=teacher_role.role_id,
+            first_name='Vis', last_name='Teacher',
+        )
+        student = User(
+            username=f'vis_student_{suffix}',
+            password_hash=generate_password_hash('x'),
+            role_id=student_role.role_id,
+            first_name='Vis', last_name='Student',
+        )
+        db.session.add_all([teacher, student])
+        db.session.commit()
+        # บันทึกผู้ใช้ที่ commit ไปแล้ว
+        committed_objects.extend([teacher, student])
 
-    db.session.add(CourseEnrollment(course_id=course.course_id, user_id=student.user_id))
+        course = Course(course_name=f'Vis Course {suffix}', teacher_id=teacher.user_id)
+        db.session.add(course)
+        db.session.commit()
+        # บันทึกรายวิชาที่ commit ไปแล้ว
+        committed_objects.append(course)
 
-    shown = Mission(
-        course_id=course.course_id, title='ด่านที่เปิด', mission_type='flowchart',
-        points=100, difficulty_level=1, order_index=0, is_active=True,
-    )
-    hidden = Mission(
-        course_id=course.course_id, title='ด่านที่ปิด', mission_type='flowchart',
-        points=100, difficulty_level=1, order_index=1, is_active=False,
-    )
-    db.session.add_all([shown, hidden])
-    db.session.commit()
+        db.session.add(CourseEnrollment(course_id=course.course_id, user_id=student.user_id))
 
-    return {
-        'teacher': teacher, 'student': student, 'course': course,
-        'shown': shown, 'hidden': hidden,
-        'teacher_token': generate_token(teacher.user_id),
-        'student_token': generate_token(student.user_id),
-    }
+        shown = Mission(
+            course_id=course.course_id, title='ด่านที่เปิด', mission_type='flowchart',
+            points=100, difficulty_level=1, order_index=0, is_active=True,
+        )
+        hidden = Mission(
+            course_id=course.course_id, title='ด่านที่ปิด', mission_type='flowchart',
+            points=100, difficulty_level=1, order_index=1, is_active=False,
+        )
+        db.session.add_all([shown, hidden])
+        db.session.commit()
+
+        return {
+            'teacher': teacher, 'student': student, 'course': course,
+            'shown': shown, 'hidden': hidden,
+            'teacher_token': generate_token(teacher.user_id),
+            'student_token': generate_token(student.user_id),
+        }
+
+    except Exception:
+        # ถ้ามีข้อผิดพลาด ให้ลบสิ่งที่ commit ไปแล้วเพื่อป้องกันการเสียข้อมูลค้าง
+        for obj in committed_objects:
+            db.session.delete(obj)
+        db.session.commit()
+        raise
 
 
 def teardown_fixtures(f):
