@@ -4,7 +4,8 @@ import {
   Users, GraduationCap, Award, Search, LayoutDashboard,
   Edit2, Trash2, Plus, X, Target, Star, BarChart2,
   BookOpen, ChevronRight, Zap, TrendingUp, Trophy,
-  GripVertical, ArrowUp, ArrowDown, Save, ListOrdered
+  GripVertical, ArrowUp, ArrowDown, Save, ListOrdered,
+  Eye, EyeOff
 } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -67,7 +68,8 @@ const missionTypeColor: Record<string, string> = {
 };
 
 // Sortable card component for reordering
-const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFirst, isLast, openEditModal, handleDelete }: any) => {
+const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFirst, isLast, openEditModal, handleDelete, handleToggleVisibility }: any) => {
+  const isHidden = mission.is_active === false;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: mission.mission_id });
   
   const style = {
@@ -77,9 +79,10 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
   };
 
   return (
-    <div ref={setNodeRef} style={style} className={`relative bg-white rounded-2xl border ${isDragging ? 'border-violet-500 shadow-2xl scale-[1.02]' : 'border-slate-200/80 shadow-sm hover:shadow-lg'} transition-all group flex flex-col overflow-hidden`}>
+    <div ref={setNodeRef} style={style} className={`relative bg-white rounded-2xl border ${isDragging ? 'border-violet-500 shadow-2xl scale-[1.02]' : 'border-slate-200/80 shadow-sm hover:shadow-lg'} ${isHidden ? 'opacity-60' : ''} transition-all group flex flex-col overflow-hidden`}>
       {/* Card top accent */}
       <div className={`h-1.5 w-full ${
+        isHidden ? 'bg-slate-300' :
         mission.difficulty_level === 1 ? 'bg-gradient-to-r from-emerald-400 to-teal-400' :
         mission.difficulty_level === 2 ? 'bg-gradient-to-r from-amber-400 to-orange-400' :
         'bg-gradient-to-r from-rose-400 to-pink-500'
@@ -88,9 +91,16 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
       <div className="p-5 flex flex-col flex-1">
         {/* Top row */}
         <div className="flex items-start justify-between mb-3">
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${missionTypeColor[mission.mission_type] || 'bg-slate-100 text-slate-600'}`}>
-            {missionTypeLabel[mission.mission_type] || mission.mission_type}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${missionTypeColor[mission.mission_type] || 'bg-slate-100 text-slate-600'}`}>
+              {missionTypeLabel[mission.mission_type] || mission.mission_type}
+            </span>
+            {isHidden && (
+              <span className="flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-slate-200 text-slate-600">
+                <EyeOff size={12} /> ซ่อนอยู่
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-0.5">
             {Array.from({ length: 3 }).map((_, i) => (
               <Star
@@ -137,11 +147,22 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
 
         {/* Edit/Delete overlay */}
         {!isReordering && (
-          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1">
-            <button onClick={() => openEditModal(mission)} className="p-2 bg-white/90 backdrop-blur-sm rounded-lg text-slate-600 hover:text-violet-600 hover:bg-violet-50 shadow-sm border border-slate-100 transition-colors">
+          <div className="absolute top-2 right-2 flex flex-col gap-1">
+            <button
+              onClick={() => handleToggleVisibility(mission)}
+              title={isHidden ? 'เปิดให้นักเรียนเห็นด่านนี้' : 'ซ่อนด่านนี้จากนักเรียน'}
+              className={`p-2 backdrop-blur-sm rounded-lg shadow-sm border transition-colors ${
+                isHidden
+                  ? 'bg-slate-200/90 text-slate-600 border-slate-300 hover:bg-slate-300'
+                  : 'bg-emerald-50/90 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
+              }`}
+            >
+              {isHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+            <button onClick={() => openEditModal(mission)} className="p-2 bg-white/90 backdrop-blur-sm rounded-lg text-slate-600 hover:text-violet-600 hover:bg-violet-50 shadow-sm border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
               <Edit2 size={14} />
             </button>
-            <button onClick={() => handleDelete(mission.mission_id)} className="p-2 bg-white/90 backdrop-blur-sm rounded-lg text-slate-600 hover:text-rose-600 hover:bg-rose-50 shadow-sm border border-slate-100 transition-colors">
+            <button onClick={() => handleDelete(mission.mission_id)} className="p-2 bg-white/90 backdrop-blur-sm rounded-lg text-slate-600 hover:text-rose-600 hover:bg-rose-50 shadow-sm border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
               <Trash2 size={14} />
             </button>
           </div>
@@ -318,6 +339,30 @@ const TeacherDashboard = () => {
       is_active: mission.is_active !== false
     });
     setIsModalOpen(true);
+  };
+
+  const handleToggleVisibility = async (mission: Mission) => {
+    const next = !mission.is_active;
+    // อัปเดตหน้าจอทันทีเพื่อให้กดแล้วตอบสนองทันตอนสอน แล้วค่อยย้อนกลับถ้า API ล้มเหลว
+    const apply = (value: boolean) => {
+      const patch = (list: Mission[]) =>
+        list.map(m => m.mission_id === mission.mission_id ? { ...m, is_active: value } : m);
+      setMissions(prev => patch(prev));
+      setOrderedMissions(prev => patch(prev));
+    };
+
+    apply(next);
+    try {
+      await axios.patch(
+        `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${mission.mission_id}/visibility`,
+        { is_active: next },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (error) {
+      console.error('Failed to toggle mission visibility', error);
+      apply(!next);
+      Swal.fire({ icon: 'error', text: 'เปลี่ยนสถานะการมองเห็นไม่สำเร็จ' });
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -1024,6 +1069,7 @@ const TeacherDashboard = () => {
                       isLast={index === (isReordering ? orderedMissions.length : missions.length) - 1}
                       openEditModal={openEditModal}
                       handleDelete={handleDelete}
+                      handleToggleVisibility={handleToggleVisibility}
                     />
                   ))}
                 </div>
