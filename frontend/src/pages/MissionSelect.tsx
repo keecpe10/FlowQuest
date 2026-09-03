@@ -278,7 +278,7 @@ const MissionSelect = () => {
 
                         {isUnlocked && (
                           <div className="flex items-center gap-3">
-                            {(mission.mission_type === 'mcq' || mission.mission_type === 'sudoku') && (
+                            {(mission.mission_type === 'mcq' || mission.mission_type === 'sudoku' || mission.mission_type === 'flowchart') && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); navigate(`/leaderboard?mission_id=${mission.mission_id}`); }}
                                 className={`p-2 rounded-xl text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 transition-colors ${!canPlay && 'cursor-pointer'}`}

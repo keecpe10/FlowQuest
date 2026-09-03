@@ -14,11 +14,11 @@ import type { Connection, Edge, Node } from 'reactflow';
 import 'reactflow/dist/style.css';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import { Play, CheckCircle2, AlertCircle, Trash2, X, RotateCcw, Undo2, Redo2 } from 'lucide-react';
+import { Play, CheckCircle2, AlertCircle, Trash2, X, RotateCcw, Undo2, Redo2, Trophy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nodeTypes } from './components/CustomNodes';
 import WaypointEdge from './components/WaypointEdge';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import { useHistory } from './hooks/useHistory';
 import LiveTimer from './components/LiveTimer';
@@ -36,6 +36,7 @@ const getId = () => `dndnode_${Date.now()}_${Math.random().toString(36).substrin
 
 const FlowBuilderCore: React.FC = () => {
   const { id: missionId } = useParams();
+  const navigate = useNavigate();
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -300,6 +301,18 @@ const FlowBuilderCore: React.FC = () => {
       {!isCompleted && timeLimitSeconds && startedAt && (
         <div className="absolute top-6 right-6 z-50 pointer-events-none">
           <LiveTimer startedAt={startedAt} timeLimitSeconds={timeLimitSeconds} />
+        </div>
+      )}
+      
+      {isCompleted && (
+        <div className="absolute top-6 right-6 z-50">
+          <button
+            onClick={() => navigate(`/leaderboard?mission_id=${missionId}`)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg transition-colors cursor-pointer"
+          >
+            <Trophy size={18} />
+            ดูอันดับผู้นำ
+          </button>
         </div>
       )}
       <AnimatePresence>

@@ -125,7 +125,7 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
               <LayoutDashboard size={14} /> ออกแบบด่าน
             </button>
           </Link>
-          {mission.mission_type === 'mcq' && (
+          {(mission.mission_type === 'mcq' || mission.mission_type === 'flowchart' || mission.mission_type === 'sudoku') && (
             <Link to={`/leaderboard?mission_id=${mission.mission_id}`}>
               <button className="flex items-center justify-center p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors tooltip" title="Leaderboard">
                 <Trophy size={18} />
