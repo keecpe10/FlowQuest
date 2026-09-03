@@ -196,6 +196,97 @@ def test_max_attempts_crud(client, f):
     db.session.commit()
 
 
+def test_max_attempts_edge_cases(client, f):
+    print('\n[2] max_attempts กับค่าอินพุตแปลกๆ')
+    url_list = f"/api/v1/missions/course/{f['course'].course_id}"
+    created_ids = []
+
+    try:
+        # ส่ง max_attempts: null มาตรงๆ ตอนสร้าง ต้องได้ 0 ไม่ใช่ NULL
+        res = client.post(
+            url_list,
+            json={
+                'title': 'ด่าน null ตอนสร้าง', 'description': '',
+                'mission_type': 'mcq', 'points': 100, 'difficulty_level': 1,
+                'max_attempts': None,
+            },
+            headers=auth(f['teacher_token']),
+        )
+        check('สร้างด่านพร้อม max_attempts: null สำเร็จ 201', res.status_code == 201)
+        null_id = res.get_json().get('mission_id')
+        created_ids.append(null_id)
+        created = db.session.get(Mission, null_id)
+        check('max_attempts: null ตอนสร้าง -> ไม่ใช่ NULL', created is not None and created.max_attempts is not None)
+        check('max_attempts: null ตอนสร้าง -> เก็บเป็น 0', created is not None and created.max_attempts == 0)
+
+        # ส่งค่าติดลบตอนสร้าง ต้องถูกหักเหลือ 0 (ไม่จำกัด)
+        res = client.post(
+            url_list,
+            json={
+                'title': 'ด่านติดลบตอนสร้าง', 'description': '',
+                'mission_type': 'mcq', 'points': 100, 'difficulty_level': 1,
+                'max_attempts': -5,
+            },
+            headers=auth(f['teacher_token']),
+        )
+        check('สร้างด่านพร้อม max_attempts: -5 สำเร็จ 201', res.status_code == 201)
+        neg_create_id = res.get_json().get('mission_id')
+        created_ids.append(neg_create_id)
+        neg_created = db.session.get(Mission, neg_create_id)
+        check('max_attempts: -5 ตอนสร้าง -> เก็บเป็น 0', neg_created is not None and neg_created.max_attempts == 0)
+
+        # ด่านตั้งต้นสำหรับทดสอบ PUT (เริ่มที่ 5 ครั้ง)
+        res = client.post(
+            url_list,
+            json={
+                'title': 'ด่านสำหรับทดสอบ PUT', 'description': '',
+                'mission_type': 'mcq', 'points': 100, 'difficulty_level': 1,
+                'max_attempts': 5,
+            },
+            headers=auth(f['teacher_token']),
+        )
+        put_id = res.get_json().get('mission_id')
+        created_ids.append(put_id)
+        put_mission = db.session.get(Mission, put_id)
+        check('ด่านตั้งต้นสำหรับ PUT เริ่มที่ 5', put_mission is not None and put_mission.max_attempts == 5)
+
+        # PUT ด้วยค่าที่แปลงเป็นตัวเลขไม่ได้ ต้องไม่ 500 และไม่แตะค่าเดิม
+        res = client.put(
+            f'/api/v1/missions/{put_id}',
+            json={'max_attempts': 'abc'},
+            headers=auth(f['teacher_token']),
+        )
+        check('PUT max_attempts: "abc" ไม่ใช่ 500', res.status_code != 500)
+        db.session.refresh(put_mission)
+        check('PUT max_attempts: "abc" ไม่แตะค่าเดิม (ยัง 5)', put_mission.max_attempts == 5)
+
+        # PUT ด้วยค่าติดลบ ต้องถูกหักเหลือ 0
+        res = client.put(
+            f'/api/v1/missions/{put_id}',
+            json={'max_attempts': -1},
+            headers=auth(f['teacher_token']),
+        )
+        check('PUT max_attempts: -1 สำเร็จ', res.status_code == 200)
+        db.session.refresh(put_mission)
+        check('PUT max_attempts: -1 -> เก็บเป็น 0', put_mission.max_attempts == 0)
+
+        # PUT ด้วยสตริงตัวเลข (เช่นจาก input ตัวเลขในหน้าเว็บ) ต้องเก็บเป็น int
+        res = client.put(
+            f'/api/v1/missions/{put_id}',
+            json={'max_attempts': '3'},
+            headers=auth(f['teacher_token']),
+        )
+        check('PUT max_attempts: "3" สำเร็จ', res.status_code == 200)
+        db.session.refresh(put_mission)
+        check('PUT max_attempts: "3" -> เก็บเป็นเลข 3', put_mission.max_attempts == 3)
+    finally:
+        for mid in created_ids:
+            m = db.session.get(Mission, mid)
+            if m:
+                db.session.delete(m)
+        db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -203,6 +294,7 @@ def main():
         f = setup_fixtures()
         try:
             test_max_attempts_crud(client, f)
+            test_max_attempts_edge_cases(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)

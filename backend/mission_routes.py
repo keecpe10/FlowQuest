@@ -21,6 +21,21 @@ def get_current_user_id():
     return None
 
 
+def _parse_max_attempts(value, fallback=0):
+    """แปลงค่า max_attempts ที่รับมาจาก client ให้เป็นจำนวนเต็มที่ปลอดภัยเสมอ
+
+    ค่าที่แปลงไม่ได้ ค่าว่าง หรือ None จะกลายเป็น fallback แทนที่จะโยน 500
+    ค่าติดลบถือว่าไม่จำกัด (0) เพราะโควตาติดลบไม่มีความหมาย
+    """
+    if value is None or value == '':
+        return fallback
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(0, parsed)
+
+
 @mission_bp.route('/course/<int:course_id>', methods=['GET'])
 def get_missions(course_id):
     user_id = get_current_user_id()
@@ -165,7 +180,13 @@ def get_mission(mission_id):
         'passing_percentage': mission.passing_percentage,
         'max_attempts': mission.max_attempts or 0
     }
-    
+
+    if mission.mission_type == 'sudoku':
+        # ด่านซูโดกุเก็บโควตาไว้ที่ SudokuPuzzle ไม่ใช่ที่ Mission
+        # ต้องรายงานให้ตรงกับ endpoint รายการด่าน ไม่งั้นสอง endpoint ให้ค่าต่างกัน
+        puzzle = SudokuPuzzle.query.filter_by(mission_id=mission.mission_id).first()
+        response_data['max_attempts'] = puzzle.max_attempts if puzzle else 0
+
     if mission.mission_type == 'brainstorm':
         board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
         if board:
@@ -362,7 +383,7 @@ def create_mission(course_id):
         randomize_choices=data.get('randomize_choices', True),
         passing_percentage=data.get('passing_percentage', 70),
         is_active=data.get('is_active', True),
-        max_attempts=data.get('max_attempts', 0)
+        max_attempts=_parse_max_attempts(data.get('max_attempts'))
     )
     
     db.session.add(new_mission)
@@ -423,7 +444,7 @@ def update_mission(mission_id):
     if 'is_active' in data:
         mission.is_active = bool(data.get('is_active'))
     if 'max_attempts' in data:
-        mission.max_attempts = int(data.get('max_attempts') or 0)
+        mission.max_attempts = _parse_max_attempts(data.get('max_attempts'), mission.max_attempts or 0)
 
     if mission.mission_type == 'brainstorm':
         board = BrainstormBoard.query.filter_by(mission_id=mission.mission_id).first()
