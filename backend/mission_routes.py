@@ -358,7 +358,8 @@ def create_mission(course_id):
         min_score=data.get('min_score', 0),
         randomize_questions=data.get('randomize_questions', False),
         randomize_choices=data.get('randomize_choices', True),
-        passing_percentage=data.get('passing_percentage', 70)
+        passing_percentage=data.get('passing_percentage', 70),
+        is_active=data.get('is_active', True)
     )
     
     db.session.add(new_mission)
@@ -416,7 +417,9 @@ def update_mission(mission_id):
         mission.randomize_choices = data.get('randomize_choices')
     if 'passing_percentage' in data:
         mission.passing_percentage = data.get('passing_percentage')
-    
+    if 'is_active' in data:
+        mission.is_active = bool(data.get('is_active'))
+
     if mission.mission_type == 'brainstorm':
         board = BrainstormBoard.query.filter_by(mission_id=mission.mission_id).first()
         if not board:
@@ -443,6 +446,37 @@ def update_mission(mission_id):
     db.session.commit()
     socketio.emit('missions_updated')
     return jsonify({'message': 'Mission updated successfully'}), 200
+
+@mission_bp.route('/<int:mission_id>/visibility', methods=['PATCH'])
+def toggle_mission_visibility(mission_id):
+    """เปิด/ปิดการมองเห็นด่านสำหรับนักเรียน
+
+    แยกจาก PUT /<mission_id> เพราะ PUT มี side effect กับด่าน brainstorm
+    (ลบแล้วสร้าง question ใหม่ทุกครั้ง) ซึ่งไม่ควรเกิดตอนแค่กดเปิด/ปิด
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
+
+    mission = Mission.query.get(mission_id)
+    if not mission:
+        return jsonify({'message': 'Mission not found'}), 404
+
+    if not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'message': 'Forbidden. Only teacher can change visibility.'}), 403
+
+    data = request.get_json(silent=True) or {}
+    if 'is_active' in data:
+        mission.is_active = bool(data.get('is_active'))
+    else:
+        mission.is_active = not bool(mission.is_active)
+
+    db.session.commit()
+    socketio.emit('missions_updated')
+    return jsonify({
+        'mission_id': mission.mission_id,
+        'is_active': mission.is_active
+    }), 200
 
 @mission_bp.route('/<int:mission_id>', methods=['DELETE'])
 def delete_mission(mission_id):

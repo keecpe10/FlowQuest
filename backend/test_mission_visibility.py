@@ -151,6 +151,88 @@ def test_direct_link(client, f):
     check('นักเรียนเข้าด่านที่เปิดได้ 200', res.status_code == 200)
 
 
+def test_toggle_visibility(client, f):
+    print('\n[3] สลับสถานะผ่าน PATCH /visibility')
+    url = f"/api/v1/missions/{f['hidden'].mission_id}/visibility"
+
+    res = client.patch(url, json={'is_active': True}, headers=auth(f['teacher_token']))
+    check('ครูเปิดด่านได้ 200', res.status_code == 200)
+    check('response บอกว่าเปิดแล้ว', res.get_json().get('is_active') is True)
+
+    res = client.get(
+        f"/api/v1/missions/course/{f['course'].course_id}",
+        headers=auth(f['student_token']),
+    )
+    ids = [m['mission_id'] for m in res.get_json()]
+    check('นักเรียนเห็นด่านที่เพิ่งเปิด', f['hidden'].mission_id in ids)
+
+    res = client.patch(url, json={}, headers=auth(f['teacher_token']))
+    check('ไม่ส่ง is_active มา = สลับค่าเดิม', res.get_json().get('is_active') is False)
+
+    res = client.patch(url, json={'is_active': True}, headers=auth(f['student_token']))
+    check('นักเรียนสลับสถานะไม่ได้ 403', res.status_code == 403)
+
+    res = client.patch(
+        '/api/v1/missions/99999999/visibility',
+        json={'is_active': True}, headers=auth(f['teacher_token']),
+    )
+    check('ด่านที่ไม่มีอยู่ได้ 404', res.status_code == 404)
+
+
+def test_create_and_update_is_active(client, f):
+    print('\n[4] สร้าง/แก้ไขด่านพร้อมสถานะการมองเห็น')
+    res = client.post(
+        f"/api/v1/missions/course/{f['course'].course_id}",
+        json={
+            'title': 'ด่านสร้างใหม่แบบปิด', 'description': '',
+            'mission_type': 'flowchart', 'points': 100,
+            'difficulty_level': 1, 'is_active': False,
+        },
+        headers=auth(f['teacher_token']),
+    )
+    check('สร้างด่านได้ 201', res.status_code == 201)
+    new_id = res.get_json().get('mission_id')
+
+    created = db.session.get(Mission, new_id)
+    check('ด่านใหม่ถูกบันทึกเป็นปิด', created is not None and created.is_active is False)
+
+    res = client.post(
+        f"/api/v1/missions/course/{f['course'].course_id}",
+        json={
+            'title': 'ด่านสร้างใหม่แบบไม่ระบุ', 'description': '',
+            'mission_type': 'flowchart', 'points': 100, 'difficulty_level': 1,
+        },
+        headers=auth(f['teacher_token']),
+    )
+    default_id = res.get_json().get('mission_id')
+    default_mission = db.session.get(Mission, default_id)
+    check('ไม่ส่ง is_active มาตอนสร้าง = เปิดเป็นค่าเริ่มต้น',
+          default_mission is not None and default_mission.is_active is True)
+
+    res = client.put(
+        f'/api/v1/missions/{new_id}',
+        json={'title': 'ด่านสร้างใหม่แบบปิด', 'is_active': True},
+        headers=auth(f['teacher_token']),
+    )
+    check('แก้ไขด่านได้ 200', res.status_code == 200)
+    db.session.refresh(created)
+    check('PUT เปลี่ยน is_active ได้', created.is_active is True)
+
+    res = client.put(
+        f'/api/v1/missions/{new_id}',
+        json={'title': 'เปลี่ยนแค่ชื่อ'},
+        headers=auth(f['teacher_token']),
+    )
+    db.session.refresh(created)
+    check('PUT ที่ไม่ส่ง is_active ไม่แตะสถานะเดิม', created.is_active is True)
+
+    for mid in (new_id, default_id):
+        m = db.session.get(Mission, mid)
+        if m:
+            db.session.delete(m)
+    db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -159,6 +241,8 @@ def main():
         try:
             test_list_view(client, f)
             test_direct_link(client, f)
+            test_toggle_visibility(client, f)
+            test_create_and_update_is_active(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)
