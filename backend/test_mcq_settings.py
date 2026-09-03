@@ -196,6 +196,75 @@ def test_max_attempts_crud(client, f):
     db.session.commit()
 
 
+def test_attempt_counting(client, f):
+    print('\n[2] การนับจำนวนครั้งแบบ idempotent')
+    from mcq_routes import finalize_mcq, mcq_attempts_left, mcq_deadline_passed
+
+    reset_attempt(f)
+    mission = f['mission']
+    mission.max_attempts = 0
+    mission.time_limit_seconds = None
+    db.session.commit()
+
+    um = UserMission(
+        user_id=f['student'].user_id, mission_id=mission.mission_id,
+        status='pending', started_at=datetime.utcnow(),
+    )
+    db.session.add(um)
+    db.session.commit()
+
+    check('ยังไม่ส่ง attempt_count เป็น 0', (um.attempt_count or 0) == 0)
+
+    finalize_mcq(f['student'].user_id, mission, um)
+    check('ส่งครั้งแรก attempt_count เป็น 1', um.attempt_count == 1)
+    check('สถานะเป็น failed เพราะไม่ได้ตอบข้อไหนเลย', um.status == 'failed')
+
+    finalize_mcq(f['student'].user_id, mission, um)
+    check('เรียก finalize ซ้ำไม่นับเพิ่ม (idempotent)', um.attempt_count == 1)
+
+    check('max_attempts = 0 คืน attempts_left เป็น None',
+          mcq_attempts_left(mission, um) is None)
+
+    mission.max_attempts = 3
+    db.session.commit()
+    check('max_attempts = 3 ใช้ไป 1 เหลือ 2', mcq_attempts_left(mission, um) == 2)
+
+    um.attempt_count = 5
+    db.session.commit()
+    check('ใช้เกินโควตาแล้วไม่ติดลบ', mcq_attempts_left(mission, um) == 0)
+
+    print('\n[3] การตัดสินว่าหมดเวลาหรือยัง')
+    mission.time_limit_seconds = None
+    db.session.commit()
+    check('ไม่ได้ตั้งเวลา ไม่มีวันหมดเวลา', mcq_deadline_passed(mission, um) is False)
+
+    mission.time_limit_seconds = 600
+    um.started_at = datetime.utcnow()
+    db.session.commit()
+    check('เพิ่งเริ่ม ยังไม่หมดเวลา', mcq_deadline_passed(mission, um) is False)
+
+    # ใช้ 604 แทน 605 เป๊ะๆ เพราะเวลาจริงระหว่างตั้ง started_at กับเรียกฟังก์ชัน
+    # กินไปสองสามมิลลิวินาทีเสมอ ถ้าตั้ง 605 พอดี elapsed ที่วัดจริงจะเกิน 605
+    # ทุกครั้ง ทำให้ test ล้มแบบ deterministic ที่ค่าเป๊ะกับ threshold ไม่ควรทดสอบด้วยเวลาจริง
+    um.started_at = datetime.utcnow() - timedelta(seconds=604)
+    db.session.commit()
+    check('เลยเวลาไป 604 วิ จาก 600 ยังไม่หมด เพราะเผื่อ 5 วิ',
+          mcq_deadline_passed(mission, um) is False)
+
+    um.started_at = datetime.utcnow() - timedelta(seconds=700)
+    db.session.commit()
+    check('เลยเวลาไป 700 วิ ถือว่าหมดเวลา', mcq_deadline_passed(mission, um) is True)
+
+    um.started_at = None
+    db.session.commit()
+    check('ไม่มี started_at ไม่ถือว่าหมดเวลา', mcq_deadline_passed(mission, um) is False)
+
+    mission.time_limit_seconds = None
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
 def test_max_attempts_edge_cases(client, f):
     print('\n[2] max_attempts กับค่าอินพุตแปลกๆ')
     url_list = f"/api/v1/missions/course/{f['course'].course_id}"
@@ -294,6 +363,7 @@ def main():
         f = setup_fixtures()
         try:
             test_max_attempts_crud(client, f)
+            test_attempt_counting(client, f)
             test_max_attempts_edge_cases(client, f)
         finally:
             db.session.rollback()

@@ -21,6 +21,43 @@ def get_current_user_id():
     return None
 
 
+# เผื่อเวลาให้ 5 วินาที สำหรับ network lag ตอนกดส่งพอดีเส้นตาย
+DEADLINE_GRACE_SECONDS = 5
+
+
+def mcq_deadline_passed(mission, user_mission):
+    """attempt นี้เลยเวลาที่ครูกำหนดไปแล้วหรือยัง
+
+    คิดจาก started_at ฝั่ง server เสมอ ไม่เชื่อเวลาที่ client ส่งมา
+    """
+    from datetime import datetime
+
+    if not mission.time_limit_seconds:
+        return False
+    if not user_mission or not user_mission.started_at:
+        return False
+    elapsed = (datetime.utcnow() - user_mission.started_at).total_seconds()
+    return elapsed > (mission.time_limit_seconds + DEADLINE_GRACE_SECONDS)
+
+
+def mcq_attempts_left(mission, user_mission):
+    """เหลือสิทธิ์ส่งคำตอบอีกกี่ครั้ง คืน None เมื่อครูไม่ได้จำกัด"""
+    max_attempts = mission.max_attempts or 0
+    if max_attempts <= 0:
+        return None
+    used = (user_mission.attempt_count or 0) if user_mission else 0
+    return max(0, max_attempts - used)
+
+
+def mcq_can_start_attempt(mission, user_mission):
+    """เริ่มทำรอบใหม่ได้ไหม
+
+    ยังไม่เคยทำ หรือครูไม่ได้จำกัดจำนวนครั้ง ก็เริ่มได้เสมอ
+    """
+    left = mcq_attempts_left(mission, user_mission)
+    return left is None or left > 0
+
+
 def finalize_mcq(user_id, mission, user_mission):
     """Compute pass/fail, set mission status, and award XP idempotently.
 
@@ -40,7 +77,13 @@ def finalize_mcq(user_id, mission, user_mission):
     passing_percentage = mission.passing_percentage or 70
     is_passed = percentage >= passing_percentage
 
+    # นับครั้งเฉพาะตอนที่ attempt เปลี่ยนจาก pending ไปเป็นสถานะจบเท่านั้น
+    # ฟังก์ชันนี้ถูกเรียกซ้ำได้ (เช่น นักเรียนกดจบพร้อมกับที่นาฬิกาหมดพอดี)
+    # ถ้านับตรงๆ นักเรียนจะเสียสิทธิ์สองครั้งจากการสอบครั้งเดียว
+    was_pending = user_mission.status == 'pending'
     user_mission.status = 'completed' if is_passed else 'failed'
+    if was_pending:
+        user_mission.attempt_count = (user_mission.attempt_count or 0) + 1
 
     if is_passed:
         if user_mission.started_at and not user_mission.time_spent_seconds:
