@@ -3,7 +3,7 @@ import jwt
 from flask import Blueprint, request, jsonify
 from app import db, socketio
 from models import Mission, UserMission, User, PointHistory, MCQQuestion, MCQChoice, MCQUserAnswer
-from auth_utils import has_course_access, is_course_teacher
+from auth_utils import has_course_access, is_course_teacher, can_play_mission
 import random
 
 mcq_bp = Blueprint('mcq', __name__, url_prefix='/api/v1/mcq')
@@ -95,8 +95,8 @@ def get_mcq_questions(mission_id):
     if not mission or mission.mission_type != 'mcq':
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     is_user_teacher = is_course_teacher(user_id, mission.course_id)
@@ -237,8 +237,8 @@ def submit_mcq(mission_id):
     if not mission or mission.mission_type != 'mcq':
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     data = request.get_json()
     answers = data.get('answers', []) # format: [{"question_id": 1, "choice_id": 2}, ...]
@@ -486,8 +486,8 @@ def submit_mcq_single(mission_id):
     if not mission or mission.mission_type != 'mcq':
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     data = request.get_json()
     ans = data.get('answer', {})
@@ -616,7 +616,10 @@ def complete_mcq(mission_id):
     mission = Mission.query.get(mission_id)
     if not mission or mission.mission_type != 'mcq':
         return jsonify({'message': 'MCQ Mission not found'}), 404
-        
+
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
+
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     if not user_mission:
         return jsonify({'message': 'Mission not started'}), 400

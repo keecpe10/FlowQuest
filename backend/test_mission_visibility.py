@@ -251,6 +251,72 @@ def test_create_and_update_is_active(client, f):
     db.session.commit()
 
 
+def test_type_specific_guards(client, f):
+    print('\n[5] ทางเข้าของแต่ละประเภทด่านถูกกันด้วย')
+    f['hidden'].is_active = False
+    db.session.commit()
+    hidden_id = f['hidden'].mission_id
+    student = auth(f['student_token'])
+
+    # ด่าน flowchart ที่ปิดอยู่ (f['hidden'] เป็น flowchart)
+    res = client.put(
+        '/api/v1/game/save-progress',
+        json={'mission_id': hidden_id, 'nodes': [], 'edges': []}, headers=student,
+    )
+    check('game/save-progress ถูกกัน 403', res.status_code == 403)
+
+    res = client.post(
+        '/api/v1/game/submit',
+        json={'mission_id': hidden_id, 'nodes': [], 'edges': []}, headers=student,
+    )
+    check('game/submit ถูกกัน 403', res.status_code == 403)
+
+    res = client.delete(
+        f'/api/v1/game/save-progress?mission_id={hidden_id}', headers=student
+    )
+    check('game/save-progress DELETE ถูกกัน 403', res.status_code == 403)
+
+    # ครูยังต้องเข้าได้
+    res = client.put(
+        '/api/v1/game/save-progress',
+        json={'mission_id': hidden_id, 'nodes': [], 'edges': []},
+        headers=auth(f['teacher_token']),
+    )
+    check('ครูยัง save-progress ด่านที่ปิดได้', res.status_code == 200)
+
+    # เปลี่ยนด่านที่ปิดเป็น mcq ชั่วคราวเพื่อทดสอบ guard ฝั่ง mcq
+    f['hidden'].mission_type = 'mcq'
+    db.session.commit()
+    res = client.get(f'/api/v1/mcq/{hidden_id}/questions', headers=student)
+    check('mcq/questions ถูกกัน 403', res.status_code == 403)
+    res = client.post(f'/api/v1/mcq/{hidden_id}/submit', json={'answers': []}, headers=student)
+    check('mcq/submit ถูกกัน 403', res.status_code == 403)
+    res = client.post(f'/api/v1/mcq/{hidden_id}/submit-single', json={'answer': {}}, headers=student)
+    check('mcq/submit-single ถูกกัน 403', res.status_code == 403)
+    res = client.post(f'/api/v1/mcq/{hidden_id}/complete', json={}, headers=student)
+    check('mcq/complete ถูกกัน 403', res.status_code == 403)
+
+    # เปลี่ยนเป็น sudoku
+    f['hidden'].mission_type = 'sudoku'
+    db.session.commit()
+    res = client.get(f'/api/v1/sudoku/{hidden_id}/puzzle', headers=student)
+    check('sudoku/puzzle ถูกกัน 403', res.status_code == 403)
+    res = client.post(f'/api/v1/sudoku/{hidden_id}/submit', json={'grid': []}, headers=student)
+    check('sudoku/submit ถูกกัน 403', res.status_code == 403)
+    res = client.post(f'/api/v1/sudoku/{hidden_id}/retry', json={}, headers=student)
+    check('sudoku/retry ถูกกัน 403', res.status_code == 403)
+
+    # เปลี่ยนเป็น brainstorm
+    f['hidden'].mission_type = 'brainstorm'
+    db.session.commit()
+    res = client.get(f'/api/v1/brainstorm/mission/{hidden_id}', headers=student)
+    check('brainstorm/mission ถูกกัน 403', res.status_code == 403)
+
+    # คืนค่าเดิม
+    f['hidden'].mission_type = 'flowchart'
+    db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -261,6 +327,7 @@ def main():
             test_direct_link(client, f)
             test_toggle_visibility(client, f)
             test_create_and_update_is_active(client, f)
+            test_type_specific_guards(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)

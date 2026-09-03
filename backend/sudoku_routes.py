@@ -5,7 +5,7 @@ from datetime import datetime
 from math import ceil
 from app import db, socketio
 from models import Mission, UserMission, User, PointHistory, SudokuPuzzle, SudokuEvent
-from auth_utils import has_course_access, is_course_teacher
+from auth_utils import has_course_access, is_course_teacher, can_play_mission
 from sudoku_solver import validate_board, generate_sudoku
 
 sudoku_bp = Blueprint('sudoku', __name__, url_prefix='/api/v1/sudoku')
@@ -32,8 +32,8 @@ def get_puzzle(mission_id):
     if not mission or mission.mission_type != 'sudoku':
         return jsonify({'error': 'Sudoku mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'error': 'No access to this course'}), 403
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()
     
@@ -201,9 +201,12 @@ def submit_puzzle(mission_id):
         return jsonify({'error': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
+
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
     puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()
-    
+
     if not mission or not puzzle:
         return jsonify({'error': 'Data not found'}), 404
         
@@ -362,9 +365,13 @@ def retry_puzzle(mission_id):
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
         
+    mission = Mission.query.get(mission_id)
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
+
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
     puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()
-    
+
     if not user_mission or not puzzle:
         return jsonify({'error': 'Not found'}), 404
         

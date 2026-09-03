@@ -3,7 +3,7 @@ import os
 from flask import Blueprint, request, jsonify
 from app import db
 from models import User, PointHistory, LeaderboardSnapshot, Mission, UserMission, Role
-from auth_utils import has_course_access
+from auth_utils import has_course_access, can_play_mission
 from datetime import datetime
 from engine import validate_flowchart
 
@@ -36,8 +36,8 @@ def save_progress():
         return jsonify({'message': 'Missing mission_id'}), 400
         
     mission = Mission.query.get(mission_id)
-    if mission and not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if mission and not can_play_mission(user_id, mission):
+        return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
     if not um:
@@ -61,8 +61,8 @@ def clear_progress():
         return jsonify({'message': 'Missing mission_id'}), 400
         
     mission = Mission.query.get(mission_id)
-    if mission and not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if mission and not can_play_mission(user_id, mission):
+        return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
     if um:
@@ -87,8 +87,8 @@ def submit_flowchart():
     if not mission:
         return jsonify({'status': 'failed', 'message': 'Mission not found.'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
+    if not can_play_mission(user_id, mission):
+        return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
         
     is_valid, message = validate_flowchart(edges, mission.solution_edges)
     

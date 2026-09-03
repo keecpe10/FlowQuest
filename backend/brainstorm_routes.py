@@ -5,7 +5,7 @@ from flask_socketio import emit, join_room, leave_room
 import json
 import os
 import requests
-from auth_utils import get_current_user_id
+from auth_utils import get_current_user_id, can_play_mission
 
 brainstorm_bp = Blueprint('brainstorm', __name__, url_prefix='/api/v1/brainstorm')
 
@@ -619,7 +619,14 @@ def get_board_by_mission(mission_id):
     mission = Mission.query.get_or_404(mission_id)
     if mission.mission_type != 'brainstorm':
         return jsonify({"error": "Mission is not a brainstorm mission"}), 400
-        
+
+    # endpoint นี้เดิมไม่เช็คสิทธิ์เลย ใครล็อกอินอยู่ก็เปิดกระดานของรายวิชาอื่นได้
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"message": "Unauthorized"}), 401
+    if not can_play_mission(user_id, mission):
+        return jsonify({"message": "ครูยังไม่เปิดด่านนี้"}), 403
+
     board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
     if not board:
         # Auto-create if it doesn't exist
@@ -633,22 +640,20 @@ def get_board_by_mission(mission_id):
         )
         db.session.add(board)
         db.session.commit()
-        
-    user_id = get_current_user_id()
-    if user_id:
-        from auth_utils import is_course_teacher
-        is_teacher = is_course_teacher(user_id, mission.course_id)
-        if not is_teacher:
-            from datetime import datetime
-            um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
-            if not um:
-                um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
-                db.session.add(um)
-                db.session.commit()
-            elif um.status == 'pending' and not um.started_at:
-                um.started_at = datetime.utcnow()
-                db.session.commit()
-        
+
+    from auth_utils import is_course_teacher
+    is_teacher = is_course_teacher(user_id, mission.course_id)
+    if not is_teacher:
+        from datetime import datetime
+        um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).first()
+        if not um:
+            um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
+            db.session.add(um)
+            db.session.commit()
+        elif um.status == 'pending' and not um.started_at:
+            um.started_at = datetime.utcnow()
+            db.session.commit()
+
     # Return same format as get_board
     return get_board(board.board_id)
 
