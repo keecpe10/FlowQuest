@@ -69,6 +69,7 @@ interface SudokuState {
   // UI
   isLoading: boolean;
   isSolved: boolean;
+  accessDenied: boolean;
 
   // History for undo/redo
   history: number[][][];
@@ -131,6 +132,7 @@ const initialState = {
 
   isLoading: false,
   isSolved: false,
+  accessDenied: false,
 
   history: [emptyGrid(DEFAULT_SIZE)] as number[][][],
   historyIndex: 0,
@@ -221,6 +223,11 @@ export const useSudokuStore = create<SudokuState>((set, get) => ({
         isLoading: false,
       });
     } catch (error) {
+      // store เรียก navigate เองไม่ได้ จึงตั้ง flag ให้หน้าจอเป็นคนพากลับ
+      if (axios.isAxiosError(error) && error.response?.status === 403) {
+        set({ isLoading: false, accessDenied: true });
+        return;
+      }
       console.error('Failed to fetch sudoku puzzle:', error);
       set({ isLoading: false });
       throw error;

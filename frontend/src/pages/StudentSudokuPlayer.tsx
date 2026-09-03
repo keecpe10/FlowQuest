@@ -6,6 +6,7 @@ import SudokuBoard from '../components/Sudoku/SudokuBoard';
 import SymbolPalette from '../components/Sudoku/SymbolPalette';
 import { ArrowLeft, Clock, Send, CheckCircle, Undo2, Redo2, Zap, Trophy, Sparkles, ShieldCheck, AlertTriangle, BookOpen, Target, Minus, X, Info, Timer, RotateCcw } from 'lucide-react';
 import Confetti from 'react-confetti';
+import { handleMissionAccessStatus } from '../utils/missionAccess';
 
 const StudentSudokuPlayer: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -20,7 +21,7 @@ const StudentSudokuPlayer: React.FC = () => {
     history, historyIndex, enableGuidance,
     fetchPuzzle, setSelectedCell, placeValue, clearCell,
     undo, redo, validateBoard, submitPuzzle, autoSave, reset, logEvent, retryPuzzle, clearAllUserCells,
-    maxAttempts, minXpToPass,
+    maxAttempts, minXpToPass, accessDenied,
   } = useSudokuStore();
   const user = useAuthStore(state => state.user);
 
@@ -47,6 +48,12 @@ const StudentSudokuPlayer: React.FC = () => {
       reset();
     };
   }, [missionId]);
+
+  useEffect(() => {
+    if (accessDenied) {
+      handleMissionAccessStatus(403, navigate);
+    }
+  }, [accessDenied, navigate]);
 
   // Show intro modal once puzzle is loaded and not yet completed
   useEffect(() => {

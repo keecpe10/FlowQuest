@@ -7,6 +7,7 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { Card } from './Card';
 import { MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search, MessageCircle } from 'lucide-react';
 import LiveTimer from '../LiveTimer';
+import { handleMissionAccessStatus } from '../../utils/missionAccess';
 
 interface BrainstormBoardProps {
   boardId?: number;
@@ -71,6 +72,10 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
       });
     } else if (missionId) {
       fetchBoardByMission(missionId).then((realBoardId) => {
+        if (realBoardId === 'forbidden') {
+          handleMissionAccessStatus(403, navigate);
+          return;
+        }
         if (realBoardId) {
           initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
         }
