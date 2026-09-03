@@ -76,7 +76,7 @@ interface BrainstormState {
   
   initSocket: (boardId: number, userId: number | null) => void;
   disconnectSocket: () => void;
-  fetchBoard: (boardId: number) => Promise<number | void>;
+  fetchBoard: (boardId: number) => Promise<number | 'forbidden' | void>;
   fetchBoardByMission: (missionId: number) => Promise<number | 'forbidden' | void>;
   
   addCard: (card: Partial<CardData>) => Promise<void>;
@@ -254,6 +254,8 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       const res = await fetch(`${API_URL}/brainstorm/boards/${boardId}`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
+      // ครูยังไม่เปิดด่านนี้ (หรือยังไม่ล็อกอิน) — ให้คอมโพเนนต์เป็นคนแจ้งและพากลับ
+      if (res.status === 403) return 'forbidden';
       if (!res.ok) throw new Error('Failed to load board');
       const data = await res.json();
       set({ board: data, cards: data.cards || [] });

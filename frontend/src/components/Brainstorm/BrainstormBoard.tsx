@@ -66,6 +66,10 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   useEffect(() => {
     if (boardId) {
       fetchBoard(boardId).then((realBoardId) => {
+        if (realBoardId === 'forbidden') {
+          handleMissionAccessStatus(403, navigate);
+          return;
+        }
         if (realBoardId) {
           initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
         }

@@ -8,7 +8,7 @@ import uuid
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
-from models import User, Role, Course, CourseEnrollment, Mission, UserMission
+from models import User, Role, Course, CourseEnrollment, Mission, UserMission, BrainstormBoard
 from routes import generate_token
 
 FAILURES = []
@@ -317,6 +317,43 @@ def test_type_specific_guards(client, f):
     db.session.commit()
 
 
+def test_brainstorm_board_scoped_route(client, f):
+    print('\n[6] ทางเข้าแบบ board-scoped ของ brainstorm ถูกกันด้วย')
+    # ทำให้ f['hidden'] เป็นด่าน brainstorm ที่ปิดอยู่ชั่วคราว แล้วผูกกระดานเข้ากับมัน
+    f['hidden'].mission_type = 'brainstorm'
+    f['hidden'].is_active = False
+    db.session.commit()
+
+    board = BrainstormBoard(
+        mission_id=f['hidden'].mission_id,
+        title='กระดานทดสอบด่านปิด',
+        layout_type='wall',
+        is_anonymous=False,
+        status='active',
+        created_by=f['teacher'].user_id,
+    )
+    db.session.add(board)
+    db.session.commit()
+    board_id = board.board_id
+
+    try:
+        url = f'/api/v1/brainstorm/boards/{board_id}'
+
+        res = client.get(url, headers=auth(f['student_token']))
+        check('นักเรียนเข้ากระดานของด่านที่ปิดได้ 403', res.status_code == 403)
+
+        res = client.get(url, headers=auth(f['teacher_token']))
+        check('ครูเข้ากระดานของด่านที่ปิดได้ 200', res.status_code == 200)
+
+        res = client.get(url)
+        check('ไม่ล็อกอินเข้ากระดานได้ 401', res.status_code == 401)
+    finally:
+        # ลบข้อมูลทดสอบและคืนสถานะด่านให้เหมือนเดิมเพื่อให้รันซ้ำได้
+        db.session.delete(board)
+        f['hidden'].mission_type = 'flowchart'
+        db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -328,6 +365,7 @@ def main():
             test_toggle_visibility(client, f)
             test_create_and_update_is_active(client, f)
             test_type_specific_guards(client, f)
+            test_brainstorm_board_scoped_route(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)

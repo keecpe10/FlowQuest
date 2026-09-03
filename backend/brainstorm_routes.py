@@ -98,8 +98,19 @@ def delete_board(board_id):
 
 @brainstorm_bp.route('/boards/<int:board_id>', methods=['GET'])
 def get_board(board_id):
+    # endpoint นี้เดิมไม่เช็คสิทธิ์เลย เข้าได้แม้ไม่ล็อกอิน และเข้าด่านที่ครูปิดไว้ได้
     board = BrainstormBoard.query.get_or_404(board_id)
     current_user_id = get_current_user_id()
+    if not current_user_id:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    # กระดานที่ผูกกับด่าน (mission_id ไม่ใช่ NULL) ต้องเช็คสิทธิ์การเข้าด่านด้วย
+    # กระดานเดี่ยวที่ครูสร้างนอกด่าน (mission_id เป็น NULL) ไม่อยู่ในฟีเจอร์นี้
+    if board.mission_id is not None:
+        mission = Mission.query.get(board.mission_id)
+        if not can_play_mission(current_user_id, mission):
+            return jsonify({"message": "ครูยังไม่เปิดด่านนี้"}), 403
+
     requester = User.query.get(current_user_id) if current_user_id else None
     is_teacher = bool(requester and requester.role and requester.role.role_name == 'teacher')
     
