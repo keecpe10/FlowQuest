@@ -87,7 +87,7 @@ def setup_fixtures():
 
     except Exception:
         # ถ้ามีข้อผิดพลาด ให้ลบสิ่งที่ commit ไปแล้วเพื่อป้องกันการเสียข้อมูลค้าง
-        for obj in committed_objects:
+        for obj in reversed(committed_objects):
             db.session.delete(obj)
         db.session.commit()
         raise
