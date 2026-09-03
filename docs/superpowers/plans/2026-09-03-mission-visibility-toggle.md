@@ -17,7 +17,8 @@
 - **ห้ามตัดนักเรียนที่กำลังเล่นอยู่กลางคัน** — request ถัดไปค่อยได้ 403 ความคืบหน้าใน `UserMission` ที่บันทึกไว้แล้วต้องไม่ถูกลบ
 - ทุก endpoint ที่แก้ ให้คงรูปแบบ response เดิม — ฝั่ง mcq/sudoku ใช้คีย์ `'error'`, ฝั่ง missions/game ใช้คีย์ `'message'`
 - โค้ดคอมเมนต์และข้อความที่ผู้ใช้เห็น เขียนภาษาไทย ตามที่ repo นี้ใช้อยู่
-- ทุกคำสั่ง backend รันผ่าน Docker: `docker compose exec backend python <script>` (working dir ใน container คือ `/app` ซึ่ง map มาจาก `backend/`)
+- ทุกคำสั่ง backend รันผ่าน Docker: `docker compose exec backend python <script>` (working dir ใน container คือ `/app`)
+- **container ของ backend ไม่มี bind mount ของซอร์ส** (Dockerfile ใช้ `COPY . .` และ compose mount แค่ `./backend/uploads`) — หลังแก้ไฟล์ backend ต้อง `docker compose up -d --build backend` เท่านั้น `docker compose restart backend` จะไม่เห็นการแก้ไข
 
 ---
 
@@ -330,7 +331,7 @@ from auth_utils import has_course_access, is_course_teacher, can_play_mission
 - [ ] **Step 7: รัน test ให้ผ่าน**
 
 ```bash
-docker compose restart backend && docker compose exec backend python test_mission_visibility.py
+docker compose up -d --build backend && docker compose exec backend python test_mission_visibility.py
 ```
 
 Expected: `ผ่านทั้งหมด` และ exit code 0
@@ -535,7 +536,7 @@ def toggle_mission_visibility(mission_id):
 - [ ] **Step 6: รัน test ให้ผ่าน**
 
 ```bash
-docker compose restart backend && docker compose exec backend python test_mission_visibility.py
+docker compose up -d --build backend && docker compose exec backend python test_mission_visibility.py
 ```
 
 Expected: `ผ่านทั้งหมด` และ exit code 0
@@ -886,7 +887,7 @@ from auth_utils import has_course_access, can_play_mission
 - [ ] **Step 7: รัน test ให้ผ่าน**
 
 ```bash
-docker compose restart backend && docker compose exec backend python test_mission_visibility.py
+docker compose up -d --build backend && docker compose exec backend python test_mission_visibility.py
 ```
 
 Expected: `ผ่านทั้งหมด` และ exit code 0
