@@ -43,6 +43,7 @@ interface Mission {
   passing_percentage?: number;
   time_limit_seconds?: number;
   min_score?: number;
+  is_active: boolean;
 }
 
 const difficultyColor = (level: number) => {
@@ -226,7 +227,8 @@ const TeacherDashboard = () => {
     questions: [''],
     passing_percentage: 70,
     time_limit_seconds: undefined as number | undefined,
-    min_score: 0
+    min_score: 0,
+    is_active: true
   });
 
   const fetchData = async () => {
@@ -297,7 +299,7 @@ const TeacherDashboard = () => {
 
   const openCreateModal = () => {
     setEditingMission(null);
-    setFormData({ title: '', description: '', mission_type: 'flowchart', points: 100, difficulty_level: 1, questions: [''], passing_percentage: 70, time_limit_seconds: undefined, min_score: 0 });
+    setFormData({ title: '', description: '', mission_type: 'flowchart', points: 100, difficulty_level: 1, questions: [''], passing_percentage: 70, time_limit_seconds: undefined, min_score: 0, is_active: true });
     setIsModalOpen(true);
   };
 
@@ -312,7 +314,8 @@ const TeacherDashboard = () => {
       questions: mission.questions || [''],
       passing_percentage: mission.passing_percentage || 70,
       time_limit_seconds: mission.time_limit_seconds,
-      min_score: mission.min_score || 0
+      min_score: mission.min_score || 0,
+      is_active: mission.is_active !== false
     });
     setIsModalOpen(true);
   };
@@ -1226,6 +1229,21 @@ const TeacherDashboard = () => {
                   </div>
                 </div>
               </div>
+
+              <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={formData.is_active}
+                  onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                  className="mt-0.5 w-5 h-5 accent-violet-600 cursor-pointer"
+                />
+                <span className="flex-1">
+                  <span className="block text-sm font-bold text-slate-700">เปิดให้นักเรียนเห็นด่านนี้</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    ถ้าปิด ด่านจะไม่ปรากฏในหน้าเลือกด่านของนักเรียน และเข้าเล่นผ่านลิงก์ตรงไม่ได้
+                  </span>
+                </span>
+              </label>
 
               <div className="pt-2 flex gap-3">
                 <button
