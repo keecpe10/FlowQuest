@@ -354,6 +354,53 @@ def test_brainstorm_board_scoped_route(client, f):
         db.session.commit()
 
 
+def test_mcq_progress_guard(client, f):
+    print('\n[7] PUT /api/v1/mcq/<id>/progress ถูกกันด้วย visibility guard')
+    student = auth(f['student_token'])
+
+    # กรณี 1: ด่านเป็น mcq แต่ครูยังไม่เปิด -> ต้องได้ 403
+    # และที่สำคัญที่สุด: ห้ามสร้าง UserMission ทิ้งไว้เป็นผลข้างเคียงของการถูกปฏิเสธ
+    f['hidden'].mission_type = 'mcq'
+    f['hidden'].is_active = False
+    db.session.commit()
+    hidden_id = f['hidden'].mission_id
+
+    try:
+        res = client.put(f'/api/v1/mcq/{hidden_id}/progress', json={'foo': 'bar'}, headers=student)
+        check('progress ด่านที่ปิดถูกกัน 403', res.status_code == 403)
+
+        um = UserMission.query.filter_by(
+            user_id=f['student'].user_id, mission_id=hidden_id
+        ).first()
+        check('ไม่มี UserMission ถูกสร้างจากการถูกปฏิเสธ (progress)', um is None)
+    finally:
+        f['hidden'].mission_type = 'flowchart'
+        db.session.commit()
+
+    # กรณี 2: mission_id ไม่มีอยู่จริงเลย -> ต้องได้ 404 (ไม่ใช่ 403 หรือ 200)
+    res = client.put('/api/v1/mcq/99999999/progress', json={'foo': 'bar'}, headers=student)
+    check('progress ด่านที่ไม่มีอยู่จริงได้ 404', res.status_code == 404)
+
+    # กรณี 3: ด่านเป็น mcq และครูเปิดอยู่ -> นักเรียนต้องยังเขียน progress ได้ตามปกติ
+    f['shown'].mission_type = 'mcq'
+    f['shown'].is_active = True
+    db.session.commit()
+    shown_id = f['shown'].mission_id
+
+    try:
+        res = client.put(f'/api/v1/mcq/{shown_id}/progress', json={'foo': 'bar'}, headers=student)
+        check('progress ด่านที่เปิดยังเขียนได้ปกติ 200', res.status_code == 200)
+    finally:
+        um2 = UserMission.query.filter_by(
+            user_id=f['student'].user_id, mission_id=shown_id
+        ).first()
+        if um2:
+            db.session.delete(um2)
+            db.session.commit()
+        f['shown'].mission_type = 'flowchart'
+        db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -366,6 +413,7 @@ def main():
             test_create_and_update_is_active(client, f)
             test_type_specific_guards(client, f)
             test_brainstorm_board_scoped_route(client, f)
+            test_mcq_progress_guard(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)

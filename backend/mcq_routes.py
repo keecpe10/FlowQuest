@@ -396,9 +396,19 @@ def update_mcq_progress(mission_id):
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({'message': 'Unauthorized'}), 401
-        
+
+    mission = Mission.query.get(mission_id)
+    if not mission or mission.mission_type != 'mcq':
+        return jsonify({'message': 'MCQ Mission not found'}), 404
+
+    # ต้องตรวจสิทธิ์เข้าถึง/การมองเห็นด่านก่อนแตะ UserMission เสมอ มิฉะนั้นนักเรียนคนใดก็ได้
+    # จะยิง mission_id ของด่านคนละวิชา หรือด่านที่ครูยังไม่เปิด แล้วสร้าง UserMission
+    # พร้อมเขียน current_nodes ทับได้ตามใจชอบ
+    if not can_play_mission(user_id, mission):
+        return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
+
     data = request.get_json()
-    
+
     um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     if not um:
         um = UserMission(user_id=user_id, mission_id=mission_id, status='pending')
