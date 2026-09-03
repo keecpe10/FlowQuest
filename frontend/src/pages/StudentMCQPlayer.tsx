@@ -9,6 +9,7 @@ import Swal from 'sweetalert2';
 import { GlobalStudentProfile } from '../App';
 import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import LiveTimer from '../components/LiveTimer';
+import { handleMissionAccessError } from '../utils/missionAccess';
 
 interface Choice {
   choice_id: number;
@@ -175,6 +176,10 @@ const StudentMCQPlayer = () => {
         }
         
       } catch (error) {
+        if (handleMissionAccessError(error, navigate)) {
+          setLoading(false);
+          return;
+        }
         console.error('Failed to fetch questions', error);
         Swal.fire({ icon: 'error', text: 'โหลดข้อมูลคำถามไม่สำเร็จ' });
       } finally {

@@ -1,9 +1,10 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import FlowBuilder from './FlowBuilder';
 import Leaderboard from './Leaderboard';
 import LiveTimer from './components/LiveTimer';
+import { handleMissionAccessError } from './utils/missionAccess';
 import Toolbox from './components/Toolbox';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
@@ -335,6 +336,7 @@ const GameView = () => {
   const user = useAuthStore(state => state.user);
   const token = useAuthStore(state => state.token);
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [startedAt, setStartedAt] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -347,7 +349,10 @@ const GameView = () => {
           setStartedAt(res.data.started_at);
         }
       })
-      .catch(console.error);
+      .catch((error) => {
+        if (handleMissionAccessError(error, navigate)) return;
+        console.error(error);
+      });
     }
   }, [id, user, token]);
 

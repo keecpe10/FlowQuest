@@ -22,6 +22,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './store/useAuthStore';
 import { useHistory } from './hooks/useHistory';
 import LiveTimer from './components/LiveTimer';
+import { handleMissionAccessError } from './utils/missionAccess';
 
 
 
@@ -107,6 +108,7 @@ const FlowBuilderCore: React.FC = () => {
           }).catch(console.error);
         }
       } catch (error) {
+        if (handleMissionAccessError(error, navigate)) return;
         console.error("Failed to fetch mission", error);
       }
     };
@@ -291,6 +293,7 @@ const FlowBuilderCore: React.FC = () => {
           setEdges([]);
         }
       } catch (e) {
+        if (handleMissionAccessError(e, navigate)) return;
         console.error(e);
       }
     }
