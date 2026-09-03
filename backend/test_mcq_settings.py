@@ -464,6 +464,59 @@ def test_teacher_sees_original_order(client, f):
     reset_attempt(f)
 
 
+def test_status_exposed_to_frontend(client, f):
+    print('\n[10] ฟิลด์สถานะสิทธิ์ที่ frontend ต้องใช้')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 2
+    db.session.commit()
+
+    detail_url = f"/api/v1/missions/{mission.mission_id}"
+    list_url = f"/api/v1/missions/course/{f['course'].course_id}"
+
+    res = client.get(detail_url, headers=auth(f['student_token']))
+    body = res.get_json()
+    check('รายละเอียดด่านมี attempts_left', 'attempts_left' in body)
+    check('รายละเอียดด่านมี locked', 'locked' in body)
+    check('ยังไม่เคยส่ง เหลือ 2 ครั้ง', body.get('attempts_left') == 2)
+    check('ยังไม่ล็อก', body.get('locked') is False)
+
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+
+    res = client.get(detail_url, headers=auth(f['student_token']))
+    body = res.get_json()
+    check('ใช้ครบ 2 ครั้งแล้วเหลือ 0', body.get('attempts_left') == 0)
+    check('ใช้ครบแล้วถูกล็อก', body.get('locked') is True)
+
+    res = client.get(list_url, headers=auth(f['student_token']))
+    by_id = {m['mission_id']: m for m in res.get_json()}
+    row = by_id.get(mission.mission_id, {})
+    check('รายการด่านมี can_retry', 'can_retry' in row)
+    check('ใช้ครบแล้ว can_retry เป็น False', row.get('can_retry') is False)
+    check('รายการด่านมี attempts_left', row.get('attempts_left') == 0)
+
+    res = client.get(detail_url, headers=auth(f['teacher_token']))
+    check('ครูไม่ถูกล็อก', res.get_json().get('locked') is False)
+    res = client.get(list_url, headers=auth(f['teacher_token']))
+    by_id = {m['mission_id']: m for m in res.get_json()}
+    check('ครู can_retry เป็น True เสมอ',
+          by_id.get(mission.mission_id, {}).get('can_retry') is True)
+
+    mission.max_attempts = 0
+    db.session.commit()
+    res = client.get(detail_url, headers=auth(f['student_token']))
+    check('ไม่จำกัดครั้ง attempts_left เป็น None',
+          res.get_json().get('attempts_left') is None)
+
+    reset_attempt(f)
+
+
 def test_max_attempts_edge_cases(client, f):
     print('\n[2] max_attempts กับค่าอินพุตแปลกๆ')
     url_list = f"/api/v1/missions/course/{f['course'].course_id}"
@@ -611,6 +664,7 @@ def main():
             test_passed_cannot_retry(client, f)
             test_started_at_resets_each_attempt(client, f)
             test_teacher_sees_original_order(client, f)
+            test_status_exposed_to_frontend(client, f)
             test_max_attempts_edge_cases(client, f)
             test_submit_single_cannot_bypass_quota(client, f)
         finally:

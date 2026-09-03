@@ -119,6 +119,14 @@ def get_missions(course_id):
             mission_data['is_passed'] = is_passed
             mission_data['is_completed'] = is_completed  # submitted (status==completed)
             mission_data['min_xp_to_pass'] = min_xp
+        if m.mission_type == 'mcq':
+            from mcq_routes import mcq_attempts_left, mcq_can_start_attempt
+            mission_data['attempts_left'] = mcq_attempts_left(m, um)
+            # ครูต้องเข้าไปทดสอบด่านได้เสมอ
+            if viewer_is_teacher:
+                mission_data['can_retry'] = True
+            else:
+                mission_data['can_retry'] = mcq_can_start_attempt(m, um)
         if m.mission_type == 'brainstorm':
             board = BrainstormBoard.query.filter_by(mission_id=m.mission_id).first()
             if board:
@@ -195,8 +203,15 @@ def get_mission(mission_id):
             response_data['questions'] = [q.content for q in questions] if questions else ['']
     
     um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
-    if not is_course_teacher(user_id, mission.course_id):
-        if not um:
+    viewer_is_teacher = is_course_teacher(user_id, mission.course_id)
+    if not viewer_is_teacher:
+        if mission.mission_type == 'mcq':
+            # ตรรกะเริ่ม/รีเซ็ต/ปิดจ๊อบของ mcq อยู่ที่เดียวใน mcq_routes
+            # หน้าเดียวกันเรียก endpoint นี้คู่กับ /mcq/<id>/questions
+            # ถ้าต่างคนต่างรีเซ็ต ตัวนับจำนวนครั้งจะเพี้ยน
+            from mcq_routes import ensure_mcq_attempt
+            um = ensure_mcq_attempt(user_id, mission, um)
+        elif not um:
             um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
             db.session.add(um)
             db.session.commit()
@@ -205,9 +220,6 @@ def get_mission(mission_id):
             um.started_at = datetime.utcnow()
             um.score_awarded = 0
             um.current_nodes = {}
-            if mission.mission_type == 'mcq':
-                from models import MCQUserAnswer
-                MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).delete()
             db.session.commit()
         elif um.status == 'pending' and not um.started_at:
             um.started_at = datetime.utcnow()
@@ -242,7 +254,19 @@ def get_mission(mission_id):
 
     if is_course_teacher(user_id, mission.course_id):
         response_data['solution_edges'] = mission.solution_edges
-        
+
+    if mission.mission_type == 'mcq':
+        from mcq_routes import mcq_attempts_left, mcq_can_start_attempt
+        attempts_left = mcq_attempts_left(mission, um)
+        response_data['attempts_left'] = attempts_left
+        response_data['max_attempts'] = mission.max_attempts or 0
+        # ครูต้องเข้าไปทดสอบด่านได้เสมอ ไม่ถูกจำกัดด้วยโควตาของนักเรียน
+        if viewer_is_teacher:
+            response_data['locked'] = False
+        else:
+            already_passed = bool(um and um.status == 'completed')
+            response_data['locked'] = already_passed or not mcq_can_start_attempt(mission, um)
+
     return jsonify(response_data), 200
 
 @mission_bp.route('/<int:mission_id>/students-progress', methods=['GET'])
