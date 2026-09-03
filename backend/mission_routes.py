@@ -83,7 +83,8 @@ def get_missions(course_id):
             'passing_percentage': m.passing_percentage,
             'time_limit_seconds': m.time_limit_seconds,
             'min_score': m.min_score,
-            'is_active': bool(m.is_active)
+            'is_active': bool(m.is_active),
+            'max_attempts': m.max_attempts or 0
         }
         if m.mission_type == 'sudoku':
             puzzle = SudokuPuzzle.query.filter_by(mission_id=m.mission_id).first()
@@ -161,7 +162,8 @@ def get_mission(mission_id):
         'min_score': mission.min_score,
         'randomize_questions': mission.randomize_questions,
         'randomize_choices': mission.randomize_choices,
-        'passing_percentage': mission.passing_percentage
+        'passing_percentage': mission.passing_percentage,
+        'max_attempts': mission.max_attempts or 0
     }
     
     if mission.mission_type == 'brainstorm':
@@ -359,7 +361,8 @@ def create_mission(course_id):
         randomize_questions=data.get('randomize_questions', False),
         randomize_choices=data.get('randomize_choices', True),
         passing_percentage=data.get('passing_percentage', 70),
-        is_active=data.get('is_active', True)
+        is_active=data.get('is_active', True),
+        max_attempts=data.get('max_attempts', 0)
     )
     
     db.session.add(new_mission)
@@ -419,6 +422,8 @@ def update_mission(mission_id):
         mission.passing_percentage = data.get('passing_percentage')
     if 'is_active' in data:
         mission.is_active = bool(data.get('is_active'))
+    if 'max_attempts' in data:
+        mission.max_attempts = int(data.get('max_attempts') or 0)
 
     if mission.mission_type == 'brainstorm':
         board = BrainstormBoard.query.filter_by(mission_id=mission.mission_id).first()

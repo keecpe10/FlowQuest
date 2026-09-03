@@ -92,7 +92,9 @@ class Mission(db.Model):
     randomize_questions = db.Column(db.Boolean, default=False)
     randomize_choices = db.Column(db.Boolean, default=True)
     passing_percentage = db.Column(db.Integer, default=70)
-    
+    # จำนวนครั้งที่นักเรียนส่งคำตอบได้ 0 = ไม่จำกัด (ใช้ convention เดียวกับ SudokuPuzzle.max_attempts)
+    max_attempts = db.Column(db.Integer, default=0)
+
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
     
