@@ -68,7 +68,7 @@ const missionTypeColor: Record<string, string> = {
 };
 
 // Sortable card component for reordering
-const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFirst, isLast, openEditModal, handleDelete, handleToggleVisibility }: any) => {
+const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFirst, isLast, openEditModal, handleDelete, handleToggleVisibility, isTogglingVisibility }: any) => {
   const isHidden = mission.is_active === false;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: mission.mission_id });
   
@@ -150,8 +150,9 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
           <div className="absolute top-2 right-2 flex flex-col gap-1">
             <button
               onClick={() => handleToggleVisibility(mission)}
+              disabled={isTogglingVisibility}
               title={isHidden ? 'เปิดให้นักเรียนเห็นด่านนี้' : 'ซ่อนด่านนี้จากนักเรียน'}
-              className={`p-2 backdrop-blur-sm rounded-lg shadow-sm border transition-colors ${
+              className={`p-2 backdrop-blur-sm rounded-lg shadow-sm border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 isHidden
                   ? 'bg-slate-200/90 text-slate-600 border-slate-300 hover:bg-slate-300'
                   : 'bg-emerald-50/90 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
@@ -208,6 +209,8 @@ const TeacherDashboard = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [orderedMissions, setOrderedMissions] = useState<Mission[]>([]);
+  // เก็บ mission_id ที่กำลังส่งคำขอเปลี่ยนการมองเห็นอยู่ ป้องกันการกดซ้ำซ้อนจนข้อมูลหน้าจอกับฐานข้อมูลไม่ตรงกัน
+  const [togglingVisibilityIds, setTogglingVisibilityIds] = useState<Set<number>>(new Set());
   const [isReordering, setIsReordering] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -342,6 +345,10 @@ const TeacherDashboard = () => {
   };
 
   const handleToggleVisibility = async (mission: Mission) => {
+    // กันไม่ให้กดซ้ำระหว่างที่คำขอก่อนหน้ายังไม่เสร็จ เพราะการยิงสองคำขอพร้อมกัน
+    // อาจตอบกลับไม่เรียงตามลำดับที่ส่ง ทำให้ค่าที่ถูกบันทึกจริงไม่ตรงกับที่แสดงบนจอ
+    if (togglingVisibilityIds.has(mission.mission_id)) return;
+
     const next = !mission.is_active;
     // อัปเดตหน้าจอทันทีเพื่อให้กดแล้วตอบสนองทันตอนสอน แล้วค่อยย้อนกลับถ้า API ล้มเหลว
     const apply = (value: boolean) => {
@@ -350,6 +357,9 @@ const TeacherDashboard = () => {
       setMissions(prev => patch(prev));
       setOrderedMissions(prev => patch(prev));
     };
+
+    // ต้องสร้าง Set ใหม่เสมอ เพราะ React state ห้ามแก้ไขของเดิมตรงๆ
+    setTogglingVisibilityIds(prev => new Set(prev).add(mission.mission_id));
 
     apply(next);
     try {
@@ -362,6 +372,13 @@ const TeacherDashboard = () => {
       console.error('Failed to toggle mission visibility', error);
       apply(!next);
       Swal.fire({ icon: 'error', text: 'เปลี่ยนสถานะการมองเห็นไม่สำเร็จ' });
+    } finally {
+      // เคลียร์สถานะ "กำลังส่งคำขอ" ไม่ว่าจะสำเร็จหรือล้มเหลว เพื่อให้กดใหม่ได้
+      setTogglingVisibilityIds(prev => {
+        const nextSet = new Set(prev);
+        nextSet.delete(mission.mission_id);
+        return nextSet;
+      });
     }
   };
 
@@ -1070,6 +1087,7 @@ const TeacherDashboard = () => {
                       openEditModal={openEditModal}
                       handleDelete={handleDelete}
                       handleToggleVisibility={handleToggleVisibility}
+                      isTogglingVisibility={togglingVisibilityIds.has(mission.mission_id)}
                     />
                   ))}
                 </div>
