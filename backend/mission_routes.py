@@ -3,7 +3,7 @@ import os
 from flask import Blueprint, request, jsonify
 from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
-from auth_utils import has_course_access, is_course_teacher
+from auth_utils import has_course_access, is_course_teacher, can_play_mission
 from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
@@ -30,7 +30,12 @@ def get_missions(course_id):
     if not has_course_access(user_id, course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
-    missions = Mission.query.filter_by(course_id=course_id, is_active=True).order_by(Mission.order_index.asc(), Mission.difficulty_level.asc()).all()
+    # ครูของรายวิชาเห็นทุกด่านรวมด่านที่ปิดอยู่ นักเรียนเห็นเฉพาะด่านที่เปิด
+    viewer_is_teacher = is_course_teacher(user_id, course_id)
+    mission_query = Mission.query.filter_by(course_id=course_id)
+    if not viewer_is_teacher:
+        mission_query = mission_query.filter_by(is_active=True)
+    missions = mission_query.order_by(Mission.order_index.asc(), Mission.difficulty_level.asc()).all()
     
     # Get user's missions, ordered by updated_at ascending so we process oldest to newest
     user_missions = UserMission.query.filter_by(user_id=user_id).order_by(UserMission.updated_at.asc()).all()
@@ -77,7 +82,8 @@ def get_missions(course_id):
             'score_text': score_text,
             'passing_percentage': m.passing_percentage,
             'time_limit_seconds': m.time_limit_seconds,
-            'min_score': m.min_score
+            'min_score': m.min_score,
+            'is_active': bool(m.is_active)
         }
         if m.mission_type == 'sudoku':
             puzzle = SudokuPuzzle.query.filter_by(mission_id=m.mission_id).first()
@@ -140,9 +146,9 @@ def get_mission(mission_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
-        return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
-        
+    if not can_play_mission(user_id, mission):
+        return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
+
     response_data = {
         'mission_id': mission.mission_id,
         'course_id': mission.course_id,

@@ -34,3 +34,17 @@ def is_course_teacher(user_id, course_id):
     if not user or user.role.role_name != 'teacher': return False
     course = Course.query.get(course_id)
     return course is not None and course.teacher_id == user_id
+
+def can_play_mission(user_id, mission):
+    """ผู้ใช้คนนี้เข้าถึงด่านนี้ได้ไหม
+
+    ครูของรายวิชาเข้าได้เสมอ แม้ด่านจะถูกปิดอยู่ (ต้องทดสอบด่านก่อนเปิดให้นักเรียน)
+    นักเรียนต้องอยู่ในรายวิชา และด่านต้องถูกเปิดไว้
+    """
+    if mission is None:
+        return False
+    if is_course_teacher(user_id, mission.course_id):
+        return True
+    if not has_course_access(user_id, mission.course_id):
+        return False
+    return bool(mission.is_active)
