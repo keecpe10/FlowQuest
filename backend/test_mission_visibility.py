@@ -401,6 +401,61 @@ def test_mcq_progress_guard(client, f):
         db.session.commit()
 
 
+def test_sudoku_progress_guard(client, f):
+    print('\n[8] PUT /api/v1/sudoku/<id>/progress ถูกกันด้วย visibility guard')
+    student = auth(f['student_token'])
+
+    # กรณี 1: ด่านเป็น sudoku แต่ครูยังไม่เปิด -> ต้องได้ 403
+    f['hidden'].mission_type = 'sudoku'
+    f['hidden'].is_active = False
+    db.session.commit()
+    hidden_id = f['hidden'].mission_id
+
+    try:
+        res = client.put(f'/api/v1/sudoku/{hidden_id}/progress', json={'current_grid': []}, headers=student)
+        check('progress ด่านที่ปิดถูกกัน 403', res.status_code == 403)
+    finally:
+        f['hidden'].mission_type = 'flowchart'
+        db.session.commit()
+
+    # กรณี 2: mission_id ไม่มีอยู่จริงเลย -> ต้องได้ 404 (ไม่ใช่ 403 หรือ 200)
+    res = client.put('/api/v1/sudoku/99999999/progress', json={'current_grid': []}, headers=student)
+    check('progress ด่านที่ไม่มีอยู่จริงได้ 404', res.status_code == 404)
+
+    # กรณี 3: ด่านเป็น sudoku และครูเปิดอยู่ -> นักเรียนต้องยังเขียน progress ได้ตามปกติ
+    # endpoint นี้อัปเดตเฉพาะ UserMission ที่มีอยู่แล้วเท่านั้น (ไม่สร้างใหม่) จึงต้องสร้างแถวไว้ก่อน
+    # มิฉะนั้นการตรวจ 200 จะผ่านแบบไม่มีความหมาย (vacuously)
+    f['shown'].mission_type = 'sudoku'
+    f['shown'].is_active = True
+    db.session.commit()
+    shown_id = f['shown'].mission_id
+
+    um = UserMission(user_id=f['student'].user_id, mission_id=shown_id, status='in_progress')
+    db.session.add(um)
+    db.session.commit()
+
+    try:
+        sent_grid = [[1, 2], [3, 4]]
+        res = client.put(
+            f'/api/v1/sudoku/{shown_id}/progress',
+            json={'current_grid': sent_grid, 'time_spent_seconds': 5},
+            headers=student,
+        )
+        check('progress ด่านที่เปิดยังเขียนได้ปกติ 200', res.status_code == 200)
+
+        db.session.refresh(um)
+        check('current_nodes ถูกอัปเดตด้วยกริดที่ส่งไปจริง', um.current_nodes == sent_grid)
+    finally:
+        um2 = UserMission.query.filter_by(
+            user_id=f['student'].user_id, mission_id=shown_id
+        ).first()
+        if um2:
+            db.session.delete(um2)
+            db.session.commit()
+        f['shown'].mission_type = 'flowchart'
+        db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -414,6 +469,7 @@ def main():
             test_type_specific_guards(client, f)
             test_brainstorm_board_scoped_route(client, f)
             test_mcq_progress_guard(client, f)
+            test_sudoku_progress_guard(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)
