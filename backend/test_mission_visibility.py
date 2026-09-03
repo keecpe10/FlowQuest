@@ -181,6 +181,7 @@ def test_toggle_visibility(client, f):
 
 def test_create_and_update_is_active(client, f):
     print('\n[4] สร้าง/แก้ไขด่านพร้อมสถานะการมองเห็น')
+    # สร้างด่านใหม่ เริ่มต้นเป็นปิด
     res = client.post(
         f"/api/v1/missions/course/{f['course'].course_id}",
         json={
@@ -196,6 +197,7 @@ def test_create_and_update_is_active(client, f):
     created = db.session.get(Mission, new_id)
     check('ด่านใหม่ถูกบันทึกเป็นปิด', created is not None and created.is_active is False)
 
+    # ทดสอบส่ง is_active แบบไม่ระบุตอนสร้าง
     res = client.post(
         f"/api/v1/missions/course/{f['course'].course_id}",
         json={
@@ -209,23 +211,39 @@ def test_create_and_update_is_active(client, f):
     check('ไม่ส่ง is_active มาตอนสร้าง = เปิดเป็นค่าเริ่มต้น',
           default_mission is not None and default_mission.is_active is True)
 
+    # ทดสอบ PUT ที่ส่ง is_active มา: เปลี่ยนจากปิดเป็นเปิด
     res = client.put(
         f'/api/v1/missions/{new_id}',
         json={'title': 'ด่านสร้างใหม่แบบปิด', 'is_active': True},
         headers=auth(f['teacher_token']),
     )
-    check('แก้ไขด่านได้ 200', res.status_code == 200)
+    check('PUT ที่ส่ง is_active=True ได้ 200', res.status_code == 200)
     db.session.refresh(created)
-    check('PUT เปลี่ยน is_active ได้', created.is_active is True)
+    check('PUT เปลี่ยน is_active จากปิดเป็นเปิด', created.is_active is True)
 
+    # ทดสอบ PUT ที่ส่ง is_active มา: เปลี่ยนจากเปิดเป็นปิด
+    res = client.put(
+        f'/api/v1/missions/{new_id}',
+        json={'title': 'ด่านสร้างใหม่แบบปิด', 'is_active': False},
+        headers=auth(f['teacher_token']),
+    )
+    check('PUT ที่ส่ง is_active=False ได้ 200', res.status_code == 200)
+    db.session.refresh(created)
+    check('PUT เปลี่ยน is_active จากเปิดเป็นปิด', created.is_active is False)
+
+    # ทดสอบ PUT ที่ไม่ส่ง is_active: ต้องรักษาสถานะเดิม (ปิด)
+    # นี่คือการทดสอบสำคัญ — ครูแก้ไขชื่อเพียงอย่างเดียวจะไม่ทำให้ด่านเปิดขึ้นมา
     res = client.put(
         f'/api/v1/missions/{new_id}',
         json={'title': 'เปลี่ยนแค่ชื่อ'},
         headers=auth(f['teacher_token']),
     )
+    check('PUT ที่ไม่ส่ง is_active ได้ 200', res.status_code == 200)
     db.session.refresh(created)
-    check('PUT ที่ไม่ส่ง is_active ไม่แตะสถานะเดิม', created.is_active is True)
+    check('PUT ที่ไม่ส่ง is_active ไม่แตะสถานะเดิม (ยังปิด)',
+          created.is_active is False)
 
+    # ลบข้อมูลทดสอบ
     for mid in (new_id, default_id):
         m = db.session.get(Mission, mid)
         if m:
