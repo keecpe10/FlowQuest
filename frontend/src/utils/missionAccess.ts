@@ -22,8 +22,15 @@ export const handleMissionAccessStatus = (
     confirmButtonText: 'กลับไปเลือกด่าน',
     allowOutsideClick: false,
   }).then(() => {
-    if (fallbackPath) navigate(fallbackPath);
-    else navigate(-1);
+    if (fallbackPath) {
+      navigate(fallbackPath, { replace: true });
+    } else if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      // เปิดลิงก์ตรงในแท็บใหม่จะไม่มีประวัติให้ย้อนกลับ navigate(-1) จะไม่ทำอะไรเลย
+      // และนักเรียนจะค้างอยู่หน้าว่าง จึงต้องพากลับหน้าแรกแทน
+      navigate('/', { replace: true });
+    }
   });
   return true;
 };
