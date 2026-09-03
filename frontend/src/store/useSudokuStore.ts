@@ -140,12 +140,19 @@ const initialState = {
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
+// ตัวนับคำขอ fetchPuzzle แบบ monotonic เก็บไว้นอก state ของ store
+// (ไม่ใช่ข้อมูลที่ต้อง render จึงไม่ใส่ไว้ใน SudokuState/initialState)
+// ใช้ตรวจว่า response ที่เพิ่ง await เสร็จ ยังเป็นคำขอล่าสุดอยู่หรือไม่
+let fetchPuzzleRequestId = 0;
+
 export const useSudokuStore = create<SudokuState>((set, get) => ({
   ...initialState,
 
   // ── Fetch puzzle ─────────────────────────────────────────────────────────
 
   fetchPuzzle: async (missionId: number) => {
+    // เพิ่มตัวนับและจดค่าปัจจุบันไว้ในตัวแปร local เพื่อระบุคำขอนี้โดยเฉพาะ
+    const requestId = ++fetchPuzzleRequestId;
     set({ isLoading: true });
     try {
       const { data } = await axios.get(`${API_BASE}/${missionId}/puzzle`, {
@@ -194,6 +201,12 @@ export const useSudokuStore = create<SudokuState>((set, get) => ({
       // Deduplicate
       const uniqueConflicts = initialConflicts.filter((v, i, a) => a.findIndex(t => (t.row === v.row && t.col === v.col)) === i);
 
+      // ถ้ามีการเรียก fetchPuzzle ครั้งใหม่เกิดขึ้นระหว่างรอ response นี้
+      // ให้ทิ้งผลลัพธ์เก่าไปเลย ไม่เขียนทับ state ของคำขอที่ใหม่กว่า
+      if (requestId !== fetchPuzzleRequestId) {
+        return;
+      }
+
       set({
         missionId,
         title: data.title ?? '',
@@ -223,6 +236,11 @@ export const useSudokuStore = create<SudokuState>((set, get) => ({
         isLoading: false,
       });
     } catch (error) {
+      // ถ้าคำขอนี้ถูกคำขอใหม่กว่าแซงไปแล้ว ไม่ต้องเขียน state และไม่ต้อง throw
+      // ให้ผู้เรียกได้ยิน เพราะคำขอที่ถูกแซงไม่ใช่ error ที่มีความหมายอีกต่อไป
+      if (requestId !== fetchPuzzleRequestId) {
+        return;
+      }
       // store เรียก navigate เองไม่ได้ จึงตั้ง flag ให้หน้าจอเป็นคนพากลับ
       if (axios.isAxiosError(error) && error.response?.status === 403) {
         set({ isLoading: false, accessDenied: true });
