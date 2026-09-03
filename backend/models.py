@@ -103,6 +103,10 @@ class Mission(db.Model):
 
 class UserMission(db.Model):
     __tablename__ = 'user_missions'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'mission_id',
+                            name='uq_user_missions_user_id_mission_id'),
+    )
     user_mission_id = db.Column(db.Integer, primary_key=True)
     
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id', ondelete='CASCADE'), nullable=False)

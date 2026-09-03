@@ -429,7 +429,7 @@ def get_student_sudoku(mission_id, student_id):
     if not mission or mission.mission_type != 'sudoku':
         return jsonify({'message': 'Sudoku mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden'}), 403
         
     puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()

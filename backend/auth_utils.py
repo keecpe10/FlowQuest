@@ -27,7 +27,9 @@ def has_course_access(user_id, course_id):
     return enrollment is not None
 
 def is_course_teacher(user_id, course_id):
-    if not course_id: return True
+    # ด่านที่ไม่ผูกรายวิชาไม่มีเจ้าของ จึงไม่มีใครเป็น "ครูของรายวิชานี้" ได้
+    # ต้องปฏิเสธไว้ก่อน (fail-closed) ไม่งั้นผู้ใช้ทุกคนจะถูกนับเป็นครู
+    if not course_id: return False
     user = User.query.get(user_id)
     if not user or user.role.role_name != 'teacher': return False
     course = Course.query.get(course_id)

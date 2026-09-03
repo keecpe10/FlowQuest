@@ -390,7 +390,7 @@ def update_mission(mission_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     data = request.get_json()
@@ -448,7 +448,7 @@ def delete_mission(mission_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     db.session.delete(mission)
@@ -466,7 +466,7 @@ def update_mission_solution(mission_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     data = request.get_json()
@@ -486,7 +486,7 @@ def reset_mission_progress(mission_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     if mission.mission_type == 'brainstorm':
@@ -519,7 +519,7 @@ def give_xp_all(mission_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     data = request.get_json()
@@ -556,7 +556,7 @@ def reset_student_progress(mission_id, student_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     if mission.mission_type == 'brainstorm':
@@ -590,7 +590,7 @@ def give_student_xp(mission_id, student_id):
     if not mission:
         return jsonify({'message': 'Mission not found'}), 404
         
-    if not has_course_access(user_id, mission.course_id):
+    if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     student = User.query.get(student_id)
