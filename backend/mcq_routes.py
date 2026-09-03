@@ -565,17 +565,17 @@ def submit_mcq_single(mission_id):
     if not can_play_mission(user_id, mission):
         return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
 
-    um_for_check = UserMission.query.filter_by(
+    user_mission = UserMission.query.filter_by(
         user_id=user_id, mission_id=mission_id
     ).order_by(UserMission.user_mission_id.asc()).first()
     # กันการแก้นาฬิกาเครื่องตัวเองแล้วตอบต่อหลังหมดเวลา
-    if mcq_deadline_passed(mission, um_for_check):
+    # ต้องเช็คก่อนเรียก ensure_mcq_attempt เสมอ ไม่งั้น attempt ที่ pending
+    # แต่เลยเวลาแล้วจะถูก ensure_mcq_attempt ปิดจ๊อบให้ก่อน กลายเป็นสถานะอื่นไป
+    if mcq_deadline_passed(mission, user_mission):
         return jsonify({'error': 'หมดเวลาทำข้อสอบแล้ว'}), 403
 
     data = request.get_json()
     ans = data.get('answer', {})
-
-    user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
 
     if user_mission and user_mission.status == 'completed':
         return jsonify({
@@ -583,19 +583,16 @@ def submit_mcq_single(mission_id):
             'xp_awarded': 0,
             'is_correct': False
         }), 200
-        
-    if user_mission and user_mission.status == 'failed':
-        # Reset the attempt
-        MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id).delete()
-        user_mission.status = 'pending'
-        user_mission.score = 0
-        db.session.commit()
-    from datetime import datetime
-    if not user_mission:
-        user_mission = UserMission(user_id=user_id, mission_id=mission_id, status='pending')
-        db.session.add(user_mission)
-        db.session.flush()
-        
+
+    # ทางเข้าเดียวสำหรับเริ่ม/รีเซ็ต/ปิดจ๊อบ attempt เพื่อไม่ให้มีตรรกะโควตาซ้ำซ้อน
+    # กับ get_mcq_questions — ที่นี่จะรีเซ็ต attempt ที่ failed ให้เป็น pending
+    # ก็ต่อเมื่อยังเหลือสิทธิ์เท่านั้น (ดู mcq_can_start_attempt)
+    user_mission = ensure_mcq_attempt(user_id, mission, user_mission)
+
+    if user_mission.status == 'failed':
+        # เหลือ failed อยู่หลัง ensure_mcq_attempt แปลว่าใช้สิทธิ์ครบแล้ว
+        return jsonify({'error': 'ใช้สิทธิ์ทำแบบทดสอบครบแล้ว'}), 403
+
     q_id = ans.get('question_id')
     c_id = ans.get('choice_id')
     answer_data = ans.get('answer_data')

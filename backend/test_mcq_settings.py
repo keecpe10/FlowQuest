@@ -555,6 +555,48 @@ def test_max_attempts_edge_cases(client, f):
         db.session.commit()
 
 
+def test_submit_single_cannot_bypass_quota(client, f):
+    print('\n[10] submit-single ต้องไม่ข้ามการตรวจโควตา (บั๊ก quota bypass)')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 1
+    db.session.commit()
+
+    # ครั้งที่ 1: เปิดด่านผ่าน /questions ตามปกติ แล้วจบโดยไม่ตอบเลย -> failed, ใช้สิทธิ์ครบ
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+    um = current_um(f)
+    check('ครั้งที่ 1 จบแล้วสถานะเป็น failed', um.status == 'failed')
+    check('ครั้งที่ 1 นับ attempt_count เป็น 1', um.attempt_count == 1)
+
+    # หมดสิทธิ์แล้ว ยิงตรงไปที่ /submit-single โดยไม่ผ่าน /questions เลย
+    res = answer_question(client, f, 0)
+    check('หมดสิทธิ์แล้ว ยิง submit-single ตรงๆ ต้องถูกกัน 403',
+          res.status_code == 403)
+
+    um = current_um(f)
+    check('หมดสิทธิ์แล้ว สถานะยังคงเป็น failed (ไม่ถูกเด้งกลับเป็น pending)',
+          um.status == 'failed')
+    check('หมดสิทธิ์แล้ว attempt_count ยังคงเป็น 1 (ไม่ถูกเพิ่มเวียนซ้ำ)',
+          um.attempt_count == 1)
+
+    # ปลดโควตาเป็นไม่จำกัด -> ต้องกลับมาทำต่อได้ตามปกติ (ไม่ทำลาย flow เดิม)
+    mission.max_attempts = 0
+    db.session.commit()
+    res = answer_question(client, f, 0)
+    check('ปลดโควตาแล้ว submit-single กลับมาใช้ได้ 200', res.status_code == 200)
+
+    um = current_um(f)
+    check('ปลดโควตาแล้ว attempt ถูกรีเซ็ตเป็น pending', um.status == 'pending')
+
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -570,6 +612,7 @@ def main():
             test_started_at_resets_each_attempt(client, f)
             test_teacher_sees_original_order(client, f)
             test_max_attempts_edge_cases(client, f)
+            test_submit_single_cannot_bypass_quota(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)
