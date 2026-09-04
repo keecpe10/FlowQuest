@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash
 from app import create_app, db
 from models import (
     User, Role, Course, CourseEnrollment, Mission, UserMission,
-    MCQQuestion, MCQChoice, MCQUserAnswer,
+    MCQQuestion, MCQChoice, MCQUserAnswer, PointHistory,
 )
 from routes import generate_token
 
@@ -663,6 +663,197 @@ def test_submit_single_cannot_bypass_quota(client, f):
     reset_attempt(f)
 
 
+def test_submit_endpoint_cannot_bypass_quota(client, f):
+    """Finding 1: /mcq/<id>/submit ต้องไม่ข้ามการตรวจโควตา
+
+    ยิงตรงไปที่ endpoint /submit เดิม (ไม่ผ่าน /submit-single) หลังใช้สิทธิ์ครบแล้ว
+    พร้อมคำตอบถูกทั้งหมด ต้องถูกกัน 403 เหมือน /submit-single ไม่ใช่ปล่อยให้สอบผ่าน
+    """
+    print('\n[11] /submit ต้องไม่ข้ามการตรวจโควตา (Finding 1)')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 1
+    db.session.commit()
+
+    # ครั้งที่ 1: เปิดด่านตามปกติแล้วจบโดยไม่ตอบเลย -> failed ใช้สิทธิ์ครบ
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                headers=auth(f['student_token']))
+    um = current_um(f)
+    check('ครั้งที่ 1 จบแล้วสถานะเป็น failed', um.status == 'failed')
+    check('ครั้งที่ 1 นับ attempt_count เป็น 1', um.attempt_count == 1)
+
+    # หมดสิทธิ์แล้ว ยิงตรงไปที่ /submit (endpoint เก่า) พร้อมคำตอบถูกหมดทุกข้อ
+    answers = [
+        {'question_id': q['question'].question_id, 'choice_id': q['right'].choice_id}
+        for q in f['questions']
+    ]
+    res = client.post(
+        f"/api/v1/mcq/{mission.mission_id}/submit",
+        json={'answers': answers},
+        headers=auth(f['student_token']),
+    )
+    check('หมดสิทธิ์แล้วยิง /submit ตรงๆ พร้อมคำตอบถูกหมด ต้องถูกกัน 403',
+          res.status_code == 403)
+
+    um = current_um(f)
+    check('หมดสิทธิ์แล้ว /submit สถานะยังคงเป็น failed (ไม่ถูกเด้งเป็น completed)',
+          um.status == 'failed')
+    check('หมดสิทธิ์แล้ว /submit attempt_count ยังคงเป็น 1 (ไม่ถูกข้ามการนับ)',
+          um.attempt_count == 1)
+
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_submit_endpoint_xp_source_dedup(client, f):
+    """Finding 1 (XP source): /submit ต้องให้ XP ผ่าน source='mcq_mission' เท่านั้น
+
+    เดิม endpoint นี้เขียน PointHistory ด้วย source='mission' ซึ่ง finalize_mcq
+    (ใช้ dedupe XP ทุกที่อื่น) มองไม่เห็น จึงให้ XP ซ้ำได้ถ้าผสมสองทางเข้า
+    """
+    print('\n[12] /submit ให้ XP ผ่าน source=mcq_mission เท่านั้น (Finding 1)')
+    reset_attempt(f)
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 0
+    db.session.commit()
+
+    client.get(f"/api/v1/mcq/{mission.mission_id}/questions",
+               headers=auth(f['student_token']))
+    answers = [
+        {'question_id': q['question'].question_id, 'choice_id': q['right'].choice_id}
+        for q in f['questions']
+    ]
+    res = client.post(
+        f"/api/v1/mcq/{mission.mission_id}/submit",
+        json={'answers': answers},
+        headers=auth(f['student_token']),
+    )
+    check('ตอบถูกหมดผ่าน /submit สำเร็จ 200', res.status_code == 200)
+    check('ตอบถูกหมดผ่าน /submit ผ่านด่าน', res.get_json().get('is_passed') is True)
+
+    rows = PointHistory.query.filter_by(
+        user_id=f['student'].user_id, source_id=mission.mission_id
+    ).filter(PointHistory.source.in_(['mission', 'mcq_mission'])).all()
+    sources = {r.source for r in rows}
+    check('มี PointHistory source=mcq_mission ให้ XP', 'mcq_mission' in sources)
+    check('ไม่มี PointHistory source=mission (บั๊ก endpoint เก่าเขียนผิดคีย์)',
+          'mission' not in sources)
+
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_teacher_not_subject_to_quota(client, f):
+    """Finding 2: ครูเข้าไปทดสอบด่านของตัวเองได้เสมอ ไม่ติดโควตา/เดดไลน์
+
+    ตั้ง max_attempts=1 แล้วให้ครูยิง submit-single + complete สองรอบติดกัน
+    ต้องไม่ถูกบล็อก และต้องไม่มี UserMission แถวไหนของครูที่ attempt_count > 0
+    หรือมี PointHistory ให้ครูจากด่านนี้เลย
+    """
+    print('\n[13] ครูไม่ติดโควตา/เดดไลน์ตอนทดสอบด่านของตัวเอง (Finding 2)')
+    mission = f['mission']
+    mission.time_limit_seconds = None
+    mission.max_attempts = 1
+    db.session.commit()
+
+    def _clear_teacher_attempts():
+        for um in UserMission.query.filter_by(
+            user_id=f['teacher'].user_id, mission_id=mission.mission_id
+        ).all():
+            MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).delete()
+            db.session.delete(um)
+        db.session.commit()
+
+    def _teacher_um():
+        return UserMission.query.filter_by(
+            user_id=f['teacher'].user_id, mission_id=mission.mission_id
+        ).order_by(UserMission.user_mission_id.asc()).first()
+
+    def _submit_single_as_teacher(idx):
+        q = f['questions'][idx]
+        return client.post(
+            f"/api/v1/mcq/{mission.mission_id}/submit-single",
+            json={'answer': {
+                'question_id': q['question'].question_id,
+                'choice_id': q['right'].choice_id,
+            }},
+            headers=auth(f['teacher_token']),
+        )
+
+    _clear_teacher_attempts()
+
+    # รอบที่ 1
+    res = _submit_single_as_teacher(0)
+    check('ครูตอบ submit-single รอบที่ 1 ได้ 200', res.status_code == 200)
+    res = client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                       headers=auth(f['teacher_token']))
+    check('ครู complete รอบที่ 1 ได้ 200', res.status_code == 200)
+
+    # รอบที่ 2: max_attempts=1 ใช้ไปแล้วสมมติเป็นนักเรียนจะถูกล็อก แต่ครูต้องไม่ถูกล็อก
+    res = _submit_single_as_teacher(0)
+    check('ครูตอบ submit-single รอบที่ 2 ได้ 200 (ไม่ติดโควตา)', res.status_code == 200)
+    res = client.post(f"/api/v1/mcq/{mission.mission_id}/complete", json={},
+                       headers=auth(f['teacher_token']))
+    check('ครู complete รอบที่ 2 ได้ 200 (ไม่ติดโควตา)', res.status_code == 200)
+
+    um = _teacher_um()
+    check('ไม่มี UserMission ของครู หรือมีแต่ attempt_count เป็น 0',
+          um is None or (um.attempt_count or 0) == 0)
+
+    xp_rows = PointHistory.query.filter_by(
+        user_id=f['teacher'].user_id, source='mcq_mission', source_id=mission.mission_id
+    ).all()
+    check('ครูไม่ได้รับ PointHistory (XP) จากการทดสอบด่านของตัวเอง', len(xp_rows) == 0)
+
+    _clear_teacher_attempts()
+    mission.max_attempts = 0
+    db.session.commit()
+    reset_attempt(f)
+
+
+def test_time_limit_clear_via_explicit_null(client, f):
+    """Finding 3: PUT /missions/<id> ล้างเวลาจำกัดได้ด้วย time_limit_seconds: null
+
+    ส่ง null ตรงๆ ต้องล้างค่าเป็น None ส่วนไม่ส่งคีย์นี้มาเลยต้องไม่แตะค่าเดิม
+    (บั๊กจริงอยู่ฝั่ง frontend ที่เคยส่ง undefined จน JSON.stringify ตัดคีย์ทิ้ง —
+    เทสนี้ตรึงสัญญาของฝั่ง backend ไว้ไม่ให้ใครทำพังซ้ำอีก)
+    """
+    print('\n[14] PUT missions ล้างเวลาจำกัดด้วย time_limit_seconds: null (Finding 3)')
+    mission = f['mission']
+    mission.time_limit_seconds = 600
+    db.session.commit()
+
+    res = client.put(
+        f"/api/v1/missions/{mission.mission_id}",
+        json={'time_limit_seconds': None},
+        headers=auth(f['teacher_token']),
+    )
+    check('PUT time_limit_seconds: null สำเร็จ 200', res.status_code == 200)
+    db.session.refresh(mission)
+    check('PUT time_limit_seconds: null ล้างค่าเป็น None', mission.time_limit_seconds is None)
+
+    mission.time_limit_seconds = 900
+    db.session.commit()
+    res = client.put(
+        f"/api/v1/missions/{mission.mission_id}",
+        json={'title': mission.title},
+        headers=auth(f['teacher_token']),
+    )
+    check('PUT ที่ไม่ส่ง time_limit_seconds สำเร็จ 200', res.status_code == 200)
+    db.session.refresh(mission)
+    check('PUT ที่ไม่ส่ง time_limit_seconds ไม่แตะค่าเดิม (ยัง 900)',
+          mission.time_limit_seconds == 900)
+
+    mission.time_limit_seconds = None
+    db.session.commit()
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -680,6 +871,10 @@ def main():
             test_status_exposed_to_frontend(client, f)
             test_max_attempts_edge_cases(client, f)
             test_submit_single_cannot_bypass_quota(client, f)
+            test_submit_endpoint_cannot_bypass_quota(client, f)
+            test_submit_endpoint_xp_source_dedup(client, f)
+            test_teacher_not_subject_to_quota(client, f)
+            test_time_limit_clear_via_explicit_null(client, f)
         finally:
             db.session.rollback()
             teardown_fixtures(f)

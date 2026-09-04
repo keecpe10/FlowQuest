@@ -42,7 +42,7 @@ interface Mission {
   difficulty_level: number;
   questions?: string[];
   passing_percentage?: number;
-  time_limit_seconds?: number;
+  time_limit_seconds?: number | null;
   min_score?: number;
   is_active: boolean;
   max_attempts?: number;
@@ -253,7 +253,7 @@ const TeacherDashboard = () => {
     difficulty_level: 1,
     questions: [''],
     passing_percentage: 70,
-    time_limit_seconds: undefined as number | undefined,
+    time_limit_seconds: undefined as number | null | undefined,
     min_score: 0,
     is_active: true,
     max_attempts: 0,
@@ -1206,7 +1206,10 @@ const TeacherDashboard = () => {
                           if (!isNaN(val) && val > 0) {
                             setFormData({ ...formData, time_limit_seconds: val * 60 });
                           } else if (e.target.value === '') {
-                            setFormData({ ...formData, time_limit_seconds: undefined });
+                            // ต้องส่ง null แบบชัดเจน ไม่ใช่ undefined เพราะ JSON.stringify
+                            // จะตัดคีย์ที่เป็น undefined ทิ้ง ทำให้ PUT ไม่ส่ง time_limit_seconds
+                            // ไปเลย แล้วค่าจับเวลาเดิมที่ตั้งไว้จะไม่ถูกล้าง
+                            setFormData({ ...formData, time_limit_seconds: null });
                           }
                         }}
                         className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
@@ -1311,7 +1314,10 @@ const TeacherDashboard = () => {
                         if (!isNaN(val) && val > 0) {
                           setFormData({ ...formData, time_limit_seconds: val * 60 });
                         } else if (e.target.value === '') {
-                          setFormData({ ...formData, time_limit_seconds: undefined });
+                          // ต้องส่ง null แบบชัดเจน ไม่ใช่ undefined เพราะ JSON.stringify
+                          // จะตัดคีย์ที่เป็น undefined ทิ้ง ทำให้ PUT ไม่ส่ง time_limit_seconds
+                          // ไปเลย แล้วค่าจับเวลาเดิมที่ตั้งไว้จะไม่ถูกล้าง
+                          setFormData({ ...formData, time_limit_seconds: null });
                         }
                       }}
                       className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"

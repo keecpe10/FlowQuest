@@ -100,11 +100,16 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
     return user_mission
 
 
-def finalize_mcq(user_id, mission, user_mission):
+def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=True):
     """Compute pass/fail, set mission status, and award XP idempotently.
 
     Safe to call multiple times: XP is only credited once (guarded by
     PointHistory). Returns a summary dict.
+
+    count_attempt / award_xp exist so a teacher previewing their own mission
+    can go through the exact same grading path as a student without the
+    quota counter or XP ledger ever being touched (see is_course_teacher
+    short-circuits in submit_mcq / submit_mcq_single / complete_mcq).
     """
     from datetime import datetime
 
@@ -124,7 +129,7 @@ def finalize_mcq(user_id, mission, user_mission):
     # ถ้านับตรงๆ นักเรียนจะเสียสิทธิ์สองครั้งจากการสอบครั้งเดียว
     was_pending = user_mission.status == 'pending'
     user_mission.status = 'completed' if is_passed else 'failed'
-    if was_pending:
+    if was_pending and count_attempt:
         user_mission.attempt_count = (user_mission.attempt_count or 0) + 1
 
     if is_passed:
@@ -135,26 +140,30 @@ def finalize_mcq(user_id, mission, user_mission):
 
         total_xp = sum(a.xp_awarded or 0 for a in mcq_answers)
 
-        # Only credit points once per mission to prevent double dipping.
-        existing_history = PointHistory.query.filter_by(
-            user_id=user_id, source='mcq_mission', source_id=mission_id
-        ).first()
-        if not existing_history and total_xp > 0:
+        if not award_xp:
+            # ครูดูตัวเลขที่ตัวเองน่าจะได้ได้ แต่ไม่มีการบันทึกลง PointHistory จริง
             user_mission.score_awarded = total_xp
-            history = PointHistory(
-                user_id=user_id,
-                source='mcq_mission',
-                source_id=mission_id,
-                points=total_xp,
-                description=f'Completed MCQ: {mission.title}'
-            )
-            db.session.add(history)
-            socketio.emit('points_awarded', {
-                'user_id': user_id, 'mission_id': mission_id, 'points': total_xp
-            })
         else:
-            # Already credited (or nothing to credit); keep score in sync.
-            user_mission.score_awarded = existing_history.points if existing_history else total_xp
+            # Only credit points once per mission to prevent double dipping.
+            existing_history = PointHistory.query.filter_by(
+                user_id=user_id, source='mcq_mission', source_id=mission_id
+            ).first()
+            if not existing_history and total_xp > 0:
+                user_mission.score_awarded = total_xp
+                history = PointHistory(
+                    user_id=user_id,
+                    source='mcq_mission',
+                    source_id=mission_id,
+                    points=total_xp,
+                    description=f'Completed MCQ: {mission.title}'
+                )
+                db.session.add(history)
+                socketio.emit('points_awarded', {
+                    'user_id': user_id, 'mission_id': mission_id, 'points': total_xp
+                })
+            else:
+                # Already credited (or nothing to credit); keep score in sync.
+                user_mission.score_awarded = existing_history.points if existing_history else total_xp
     else:
         user_mission.score_awarded = 0
 
@@ -303,36 +312,58 @@ def submit_mcq(mission_id):
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({'message': 'Unauthorized'}), 401
-        
+
     mission = Mission.query.get(mission_id)
     if not mission or mission.mission_type != 'mcq':
         return jsonify({'message': 'MCQ Mission not found'}), 404
-        
+
     if not can_play_mission(user_id, mission):
         return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
-        
+
     data = request.get_json()
     answers = data.get('answers', []) # format: [{"question_id": 1, "choice_id": 2}, ...]
-    
+
+    from datetime import datetime
+
+    is_teacher = is_course_teacher(user_id, mission.course_id)
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
-    
-    if user_mission and user_mission.status == 'completed':
+
+    # ครูต้องเข้าไปทดสอบด่านของตัวเองได้เสมอ ไม่ติดโควตา/เดดไลน์/สถานะ completed เก่า
+    if not is_teacher and user_mission and user_mission.status == 'completed':
         return jsonify({
             'message': 'Mission already completed! No new points awarded.',
             'total_xp_awarded': 0,
             'results': []
         }), 200
 
-    from datetime import datetime
-    if not user_mission:
-        user_mission = UserMission(user_id=user_id, mission_id=mission_id, status='pending')
-        db.session.add(user_mission)
-        db.session.flush()
+    if is_teacher:
+        if not user_mission:
+            user_mission = UserMission(
+                user_id=user_id, mission_id=mission_id,
+                status='pending', started_at=datetime.utcnow(),
+            )
+            db.session.add(user_mission)
+            db.session.commit()
+        elif user_mission.status != 'pending':
+            user_mission.status = 'pending'
+            user_mission.started_at = datetime.utcnow()
+            user_mission.score_awarded = 0
+            db.session.commit()
+    else:
+        # ใช้ทางเข้าเดียวกับ submit_mcq_single/get_mcq_questions ทุกครั้ง เพื่อไม่ให้
+        # endpoint นี้กลายเป็นช่องทางข้ามการตรวจโควตา/เดดไลน์ (ดู mcq_can_start_attempt)
+        if mcq_deadline_passed(mission, user_mission):
+            return jsonify({'error': 'หมดเวลาทำข้อสอบแล้ว'}), 403
+
+        user_mission = ensure_mcq_attempt(user_id, mission, user_mission)
+
+        if user_mission.status == 'failed':
+            # เหลือ failed อยู่หลัง ensure_mcq_attempt แปลว่าใช้สิทธิ์ครบแล้ว
+            return jsonify({'error': 'ใช้สิทธิ์ทำแบบทดสอบครบแล้ว'}), 403
 
     # Delete previous answers if re-submitting (for non-completed missions like failed ones)
     MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id).delete()
-    
-    total_xp = 0
+
     results = []
     
     for ans in answers:
@@ -397,9 +428,7 @@ def submit_mcq(mission_id):
             xp_awarded=xp_awarded
         )
         db.session.add(user_ans)
-        
-        total_xp += xp_awarded
-        
+
         results.append({
             'question_id': q_id,
             'is_correct': is_correct,
@@ -408,53 +437,27 @@ def submit_mcq(mission_id):
             'correct_answer_data': question.question_metadata,
             'explanation': question.explanation
         })
-        
-    # Calculate pass/fail
-    total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
-    correct_answers = sum(1 for r in results if r['is_correct'])
-    percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
-    
-    passing_percentage = mission.passing_percentage or 70
-    is_passed = percentage >= passing_percentage
-    
-    # Update UserMission
-    user_mission.status = 'completed' if is_passed else 'failed'
-    
-    if is_passed and user_mission.started_at and not user_mission.time_spent_seconds:
-        user_mission.time_spent_seconds = int((datetime.utcnow() - user_mission.started_at).total_seconds())
-    
-    # Zero out XP if failed, else calculate proportional XP
-    if not is_passed:
-        total_xp = 0
+
+    # ให้ finalize_mcq เห็นคำตอบที่เพิ่ง add ก่อนไปคำนวณคะแนน/ให้ XP/ปิดสถานะ
+    db.session.commit()
+
+    # ใช้ finalize_mcq ตัวเดียวกับ submit_mcq_single/complete_mcq เพื่อไม่ให้ endpoint นี้
+    # กลายเป็นเส้นทางที่ตัดจบ/ให้ XP เองแยกต่างหาก (แหล่งบั๊กเดิม: source='mission' ผิดคีย์
+    # จาก finalize_mcq ที่ใช้ source='mcq_mission' ทำให้กันการให้ XP ซ้ำไม่ได้)
+    result = finalize_mcq(user_id, mission, user_mission, count_attempt=not is_teacher, award_xp=not is_teacher)
+
+    # Zero out per-question XP shown to the client if failed, to match finalize_mcq's total
+    if not result['is_passed']:
         for r in results:
             r['xp_awarded'] = 0
-    else:
-        total_xp = int((correct_answers / total_questions) * mission.points) if total_questions > 0 else 0
-            
-    user_mission.score_awarded = total_xp
-    
-    # Give Points
-    if total_xp > 0:
-        history = PointHistory(
-            user_id=user_id,
-            source='mission',
-            source_id=mission_id,
-            points=total_xp,
-            description=f'Completed MCQ: {mission.title}'
-        )
-        db.session.add(history)
-        
-    db.session.commit()
-    socketio.emit('points_awarded', {'user_id': user_id, 'mission_id': mission_id, 'points': total_xp})
-    socketio.emit('missions_updated')
-    
+
     return jsonify({
         'message': 'Submission successful',
-        'total_xp_awarded': total_xp,
+        'total_xp_awarded': result['total_xp'],
         'results': results,
-        'is_passed': is_passed,
-        'score_text': f"{correct_answers}/{total_questions}",
-        'passing_percentage': passing_percentage
+        'is_passed': result['is_passed'],
+        'score_text': f"{result['correct_answers']}/{result['total_questions']}",
+        'passing_percentage': mission.passing_percentage or 70
     }), 200
 
 @mcq_bp.route('/<int:mission_id>/progress', methods=['PUT'])
@@ -565,33 +568,57 @@ def submit_mcq_single(mission_id):
     if not can_play_mission(user_id, mission):
         return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
 
+    is_teacher = is_course_teacher(user_id, mission.course_id)
     user_mission = UserMission.query.filter_by(
         user_id=user_id, mission_id=mission_id
     ).order_by(UserMission.user_mission_id.asc()).first()
-    # กันการแก้นาฬิกาเครื่องตัวเองแล้วตอบต่อหลังหมดเวลา
-    # ต้องเช็คก่อนเรียก ensure_mcq_attempt เสมอ ไม่งั้น attempt ที่ pending
-    # แต่เลยเวลาแล้วจะถูก ensure_mcq_attempt ปิดจ๊อบให้ก่อน กลายเป็นสถานะอื่นไป
-    if mcq_deadline_passed(mission, user_mission):
-        return jsonify({'error': 'หมดเวลาทำข้อสอบแล้ว'}), 403
+
+    # ครูต้องเข้าไปทดสอบด่านของตัวเองได้เสมอ ไม่ติดเดดไลน์ของนักเรียน
+    if not is_teacher:
+        # กันการแก้นาฬิกาเครื่องตัวเองแล้วตอบต่อหลังหมดเวลา
+        # ต้องเช็คก่อนเรียก ensure_mcq_attempt เสมอ ไม่งั้น attempt ที่ pending
+        # แต่เลยเวลาแล้วจะถูก ensure_mcq_attempt ปิดจ๊อบให้ก่อน กลายเป็นสถานะอื่นไป
+        if mcq_deadline_passed(mission, user_mission):
+            return jsonify({'error': 'หมดเวลาทำข้อสอบแล้ว'}), 403
 
     data = request.get_json()
     ans = data.get('answer', {})
 
-    if user_mission and user_mission.status == 'completed':
+    if not is_teacher and user_mission and user_mission.status == 'completed':
         return jsonify({
             'message': 'Mission already finished!',
             'xp_awarded': 0,
             'is_correct': False
         }), 200
 
-    # ทางเข้าเดียวสำหรับเริ่ม/รีเซ็ต/ปิดจ๊อบ attempt เพื่อไม่ให้มีตรรกะโควตาซ้ำซ้อน
-    # กับ get_mcq_questions — ที่นี่จะรีเซ็ต attempt ที่ failed ให้เป็น pending
-    # ก็ต่อเมื่อยังเหลือสิทธิ์เท่านั้น (ดู mcq_can_start_attempt)
-    user_mission = ensure_mcq_attempt(user_id, mission, user_mission)
+    from datetime import datetime
+    if is_teacher:
+        # ครูไม่ติดโควตา/เดดไลน์ และไม่ถูกนับ attempt_count — ให้เริ่ม/รีเซ็ตรอบทดสอบ
+        # ของตัวเองได้เสมอ โดยไม่ผ่าน ensure_mcq_attempt ซึ่งมีตรรกะล็อกโควตาของนักเรียน
+        if not user_mission:
+            user_mission = UserMission(
+                user_id=user_id, mission_id=mission_id,
+                status='pending', started_at=datetime.utcnow(),
+            )
+            db.session.add(user_mission)
+            db.session.commit()
+        elif user_mission.status != 'pending':
+            MCQUserAnswer.query.filter_by(
+                user_mission_id=user_mission.user_mission_id
+            ).delete()
+            user_mission.status = 'pending'
+            user_mission.started_at = datetime.utcnow()
+            user_mission.score_awarded = 0
+            db.session.commit()
+    else:
+        # ทางเข้าเดียวสำหรับเริ่ม/รีเซ็ต/ปิดจ๊อบ attempt เพื่อไม่ให้มีตรรกะโควตาซ้ำซ้อน
+        # กับ get_mcq_questions — ที่นี่จะรีเซ็ต attempt ที่ failed ให้เป็น pending
+        # ก็ต่อเมื่อยังเหลือสิทธิ์เท่านั้น (ดู mcq_can_start_attempt)
+        user_mission = ensure_mcq_attempt(user_id, mission, user_mission)
 
-    if user_mission.status == 'failed':
-        # เหลือ failed อยู่หลัง ensure_mcq_attempt แปลว่าใช้สิทธิ์ครบแล้ว
-        return jsonify({'error': 'ใช้สิทธิ์ทำแบบทดสอบครบแล้ว'}), 403
+        if user_mission.status == 'failed':
+            # เหลือ failed อยู่หลัง ensure_mcq_attempt แปลว่าใช้สิทธิ์ครบแล้ว
+            return jsonify({'error': 'ใช้สิทธิ์ทำแบบทดสอบครบแล้ว'}), 403
 
     q_id = ans.get('question_id')
     c_id = ans.get('choice_id')
@@ -675,7 +702,7 @@ def submit_mcq_single(mission_id):
         user_mission_id=user_mission.user_mission_id
     ).count()
     if total_questions > 0 and answered_count >= total_questions:
-        finalize_mcq(user_id, mission, user_mission)
+        finalize_mcq(user_id, mission, user_mission, count_attempt=not is_teacher, award_xp=not is_teacher)
         auto_completed = True
 
     return jsonify({
@@ -700,14 +727,26 @@ def complete_mcq(mission_id):
     if not can_play_mission(user_id, mission):
         return jsonify({'error': 'ครูยังไม่เปิดด่านนี้'}), 403
 
+    is_teacher = is_course_teacher(user_id, mission.course_id)
     user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     if not user_mission:
-        return jsonify({'message': 'Mission not started'}), 400
+        if not is_teacher:
+            return jsonify({'message': 'Mission not started'}), 400
+        # ครูอาจกด complete โดยไม่เคยเรียก submit-single มาก่อน (เช่นทดสอบด่านว่าง)
+        # ต้องไม่ถูกบล็อก จึงเปิด attempt ให้เองแทนที่จะ 400
+        from datetime import datetime
+        user_mission = UserMission(
+            user_id=user_id, mission_id=mission_id,
+            status='pending', started_at=datetime.utcnow(),
+        )
+        db.session.add(user_mission)
+        db.session.commit()
 
     # endpoint นี้เป็นทางออกของ attempt ที่เริ่มไปแล้ว รวมถึงการส่งอัตโนมัติเมื่อหมดเวลา
     # จึงต้องผ่านเสมอ ห้ามกันด้วยโควตา — การกันโควตาอยู่ที่ ensure_mcq_attempt (ทางเข้า)
     # เรียกซ้ำเมื่อสถานะจบไปแล้ว finalize_mcq จะไม่นับครั้งเพิ่มให้เอง
-    result = finalize_mcq(user_id, mission, user_mission)
+    # ครูไม่ถูกนับ attempt_count และไม่ได้ XP จากการทดสอบด่านของตัวเอง
+    result = finalize_mcq(user_id, mission, user_mission, count_attempt=not is_teacher, award_xp=not is_teacher)
 
     return jsonify({
         'message': 'Mission completed',
