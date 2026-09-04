@@ -45,6 +45,9 @@ interface Mission {
   time_limit_seconds?: number;
   min_score?: number;
   is_active: boolean;
+  max_attempts?: number;
+  randomize_questions?: boolean;
+  randomize_choices?: boolean;
 }
 
 const difficultyColor = (level: number) => {
@@ -252,7 +255,10 @@ const TeacherDashboard = () => {
     passing_percentage: 70,
     time_limit_seconds: undefined as number | undefined,
     min_score: 0,
-    is_active: true
+    is_active: true,
+    max_attempts: 0,
+    randomize_questions: false,
+    randomize_choices: true
   });
 
   const fetchData = async () => {
@@ -323,7 +329,7 @@ const TeacherDashboard = () => {
 
   const openCreateModal = () => {
     setEditingMission(null);
-    setFormData({ title: '', description: '', mission_type: 'flowchart', points: 100, difficulty_level: 1, questions: [''], passing_percentage: 70, time_limit_seconds: undefined, min_score: 0, is_active: true });
+    setFormData({ title: '', description: '', mission_type: 'flowchart', points: 100, difficulty_level: 1, questions: [''], passing_percentage: 70, time_limit_seconds: undefined, min_score: 0, is_active: true, max_attempts: 0, randomize_questions: false, randomize_choices: true });
     setIsModalOpen(true);
   };
 
@@ -339,7 +345,12 @@ const TeacherDashboard = () => {
       passing_percentage: mission.passing_percentage || 70,
       time_limit_seconds: mission.time_limit_seconds,
       min_score: mission.min_score || 0,
-      is_active: mission.is_active !== false
+      is_active: mission.is_active !== false,
+      max_attempts: mission.max_attempts ?? 0,
+      // ต้องอ่านค่าเดิมมาใส่ ไม่งั้นครูเปิดฟอร์มไปแก้แค่ชื่อด่านแล้วบันทึก
+      // จะเผลอรีเซ็ตการสลับข้อกลับเป็นค่าเริ่มต้น
+      randomize_questions: mission.randomize_questions === true,
+      randomize_choices: mission.randomize_choices !== false
     });
     setIsModalOpen(true);
   };
@@ -1169,18 +1180,74 @@ const TeacherDashboard = () => {
               </div>
 
               {formData.mission_type === 'mcq' && (
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">เกณฑ์การผ่าน (%)</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    max="100"
-                    value={formData.passing_percentage}
-                    onChange={(e) => setFormData({ ...formData, passing_percentage: parseInt(e.target.value) || 70 })}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">ถ้านักเรียนทำได้เปอร์เซ็นต์ต่ำกว่านี้ จะถือว่าไม่ผ่านและจะไม่ได้ XP จนกว่าจะสอบผ่าน</p>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1.5">เกณฑ์การผ่าน (%)</label>
+                      <input
+                        type="number"
+                        required
+                        min="1"
+                        max="100"
+                        value={formData.passing_percentage}
+                        onChange={(e) => setFormData({ ...formData, passing_percentage: parseInt(e.target.value) || 70 })}
+                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1.5">เวลาที่กำหนด (นาที)</label>
+                      <input
+                        type="number"
+                        min={1} step={1}
+                        placeholder="เว้นว่างถ้าไม่จับเวลา"
+                        value={formData.time_limit_seconds ? Math.floor(formData.time_limit_seconds / 60) : ''}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val) && val > 0) {
+                            setFormData({ ...formData, time_limit_seconds: val * 60 });
+                          } else if (e.target.value === '') {
+                            setFormData({ ...formData, time_limit_seconds: undefined });
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 -mt-2">ถ้านักเรียนทำได้เปอร์เซ็นต์ต่ำกว่าเกณฑ์ จะถือว่าไม่ผ่านและจะไม่ได้ XP จนกว่าจะสอบผ่าน ถ้าตั้งเวลาไว้ ระบบจะตรวจให้อัตโนมัติเมื่อหมดเวลา และข้อที่ทำไม่ทันจะนับเป็นข้อที่ตอบผิด</p>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">จำนวนครั้งที่ทำได้</label>
+                    <input
+                      type="number"
+                      min={0} step={1}
+                      value={formData.max_attempts}
+                      onChange={(e) => setFormData({ ...formData, max_attempts: parseInt(e.target.value) || 0 })}
+                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">ใส่ 0 = ทำได้ไม่จำกัด นับเฉพาะตอนส่งคำตอบ เปิดดูแล้วออกไม่เสียสิทธิ์ และถ้าสอบผ่านแล้วจะทำซ้ำไม่ได้แม้ยังเหลือสิทธิ์</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={formData.randomize_questions}
+                        onChange={(e) => setFormData({ ...formData, randomize_questions: e.target.checked })}
+                        className="w-5 h-5 accent-violet-600 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700">สลับลำดับคำถาม</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={formData.randomize_choices}
+                        onChange={(e) => setFormData({ ...formData, randomize_choices: e.target.checked })}
+                        className="w-5 h-5 accent-violet-600 cursor-pointer"
+                      />
+                      <span className="text-sm font-bold text-slate-700">สลับลำดับตัวเลือก</span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-500 -mt-2">การสลับมีผลกับนักเรียนเท่านั้น ครูจะเห็นเรียงตามลำดับที่สร้างไว้เสมอ</p>
                 </div>
               )}
 
