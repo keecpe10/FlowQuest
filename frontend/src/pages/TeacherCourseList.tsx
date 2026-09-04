@@ -231,8 +231,8 @@ const TeacherCourseList = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-blue-600">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-full">
+            <div className="shrink-0 px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-blue-600">
               <div>
                 <h3 className="text-xl font-bold text-white">{editingCourseId ? 'แก้ไขรายวิชา' : 'สร้างรายวิชาใหม่'}</h3>
                 <p className="text-violet-200 text-xs mt-0.5">{editingCourseId ? 'แก้ไขรายละเอียดรายวิชา' : 'กรอกรายละเอียดรายวิชา'}</p>
@@ -245,31 +245,34 @@ const TeacherCourseList = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmitCourse} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">ชื่อรายวิชา</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="เช่น วิทยาการคำนวณ ม.1"
-                  value={formData.course_name}
-                  onChange={(e) => setFormData({ ...formData, course_name: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
-                />
+            <form onSubmit={handleSubmitCourse} className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">ชื่อรายวิชา</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="เช่น วิทยาการคำนวณ ม.1"
+                    value={formData.course_name}
+                    onChange={(e) => setFormData({ ...formData, course_name: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">คำอธิบาย (ไม่บังคับ)</label>
+                  <textarea
+                    rows={3}
+                    placeholder="อธิบายเกี่ยวกับรายวิชานี้..."
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none resize-none text-sm"
+                  />
+                </div>
+
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">คำอธิบาย (ไม่บังคับ)</label>
-                <textarea
-                  rows={3}
-                  placeholder="อธิบายเกี่ยวกับรายวิชานี้..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none resize-none text-sm"
-                />
-              </div>
-
-              <div className="pt-4 flex gap-3">
+              <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-slate-100 bg-white">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}

@@ -249,7 +249,7 @@ const TeacherFlowBuilderCore: React.FC = () => {
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm"
+              className="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm max-h-full overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-slate-800">

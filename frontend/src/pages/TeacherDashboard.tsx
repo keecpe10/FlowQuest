@@ -1123,9 +1123,9 @@ const TeacherDashboard = () => {
       {/* Mission Form Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-full">
             {/* Modal header */}
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-blue-600">
+            <div className="shrink-0 px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-600 to-blue-600">
               <div>
                 <h3 className="text-xl font-bold text-white">
                   {editingMission ? 'แก้ไขด่าน' : 'สร้างด่านใหม่'}
@@ -1140,60 +1140,169 @@ const TeacherDashboard = () => {
               </button>
             </div>
 
-            <form onSubmit={handleModalSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">ชื่อด่าน</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="เช่น ด่านที่ 1: เริ่มต้นการเขียนโปรแกรม"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
-                />
-              </div>
+            <form onSubmit={handleModalSubmit} className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">ชื่อด่าน</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="เช่น ด่านที่ 1: เริ่มต้นการเขียนโปรแกรม"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">คำอธิบาย</label>
-                <textarea
-                  required
-                  rows={3}
-                  placeholder="อธิบายสิ่งที่นักเรียนต้องทำในด่านนี้..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none resize-none text-sm"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">คำอธิบาย</label>
+                  <textarea
+                    required
+                    rows={3}
+                    placeholder="อธิบายสิ่งที่นักเรียนต้องทำในด่านนี้..."
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none resize-none text-sm"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">ประเภทด่าน</label>
-                <select
-                  value={formData.mission_type}
-                  onChange={(e) => setFormData({ ...formData, mission_type: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none bg-white text-sm"
-                >
-                  <option value="flowchart">Flowchart — ผังงาน</option>
-                  <option value="brainstorm">Brainstorm — ระดมความคิด</option>
-                  <option value="mcq">MCQ — แบบทดสอบ 4 ตัวเลือก</option>
-                  <option value="sudoku">ซูโดกุ — เกมซูโดกุสัญลักษณ์</option>
-                </select>
-              </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">ประเภทด่าน</label>
+                  <select
+                    value={formData.mission_type}
+                    onChange={(e) => setFormData({ ...formData, mission_type: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none bg-white text-sm"
+                  >
+                    <option value="flowchart">Flowchart — ผังงาน</option>
+                    <option value="brainstorm">Brainstorm — ระดมความคิด</option>
+                    <option value="mcq">MCQ — แบบทดสอบ 4 ตัวเลือก</option>
+                    <option value="sudoku">ซูโดกุ — เกมซูโดกุสัญลักษณ์</option>
+                  </select>
+                </div>
 
-              {formData.mission_type === 'mcq' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                {formData.mission_type === 'mcq' && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1.5">เกณฑ์การผ่าน (%)</label>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          max="100"
+                          value={formData.passing_percentage}
+                          onChange={(e) => setFormData({ ...formData, passing_percentage: parseInt(e.target.value) || 70 })}
+                          className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1.5">เวลาที่กำหนด (นาที)</label>
+                        <input
+                          type="number"
+                          min={1} step={1}
+                          placeholder="เว้นว่างถ้าไม่จับเวลา"
+                          value={formData.time_limit_seconds ? Math.floor(formData.time_limit_seconds / 60) : ''}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val) && val > 0) {
+                              setFormData({ ...formData, time_limit_seconds: val * 60 });
+                            } else if (e.target.value === '') {
+                              // ต้องส่ง null แบบชัดเจน ไม่ใช่ undefined เพราะ JSON.stringify
+                              // จะตัดคีย์ที่เป็น undefined ทิ้ง ทำให้ PUT ไม่ส่ง time_limit_seconds
+                              // ไปเลย แล้วค่าจับเวลาเดิมที่ตั้งไว้จะไม่ถูกล้าง
+                              setFormData({ ...formData, time_limit_seconds: null });
+                            }
+                          }}
+                          className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 -mt-2">ถ้านักเรียนทำได้เปอร์เซ็นต์ต่ำกว่าเกณฑ์ จะถือว่าไม่ผ่านและจะไม่ได้ XP จนกว่าจะสอบผ่าน ถ้าตั้งเวลาไว้ ระบบจะตรวจให้อัตโนมัติเมื่อหมดเวลา และข้อที่ทำไม่ทันจะนับเป็นข้อที่ตอบผิด</p>
+
                     <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-1.5">เกณฑ์การผ่าน (%)</label>
+                      <label className="block text-sm font-bold text-slate-700 mb-1.5">จำนวนครั้งที่ทำได้</label>
                       <input
                         type="number"
-                        required
-                        min="1"
-                        max="100"
-                        value={formData.passing_percentage}
-                        onChange={(e) => setFormData({ ...formData, passing_percentage: parseInt(e.target.value) || 70 })}
+                        min={0} step={1}
+                        value={formData.max_attempts}
+                        onChange={(e) => setFormData({ ...formData, max_attempts: parseInt(e.target.value) || 0 })}
                         className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
                       />
+                      <p className="text-xs text-slate-500 mt-1">ใส่ 0 = ทำได้ไม่จำกัด นับเฉพาะตอนส่งคำตอบ เปิดดูแล้วออกไม่เสียสิทธิ์ และถ้าสอบผ่านแล้วจะทำซ้ำไม่ได้แม้ยังเหลือสิทธิ์</p>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formData.randomize_questions}
+                          onChange={(e) => setFormData({ ...formData, randomize_questions: e.target.checked })}
+                          className="w-5 h-5 accent-violet-600 cursor-pointer"
+                        />
+                        <span className="text-sm font-bold text-slate-700">สลับลำดับคำถาม</span>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formData.randomize_choices}
+                          onChange={(e) => setFormData({ ...formData, randomize_choices: e.target.checked })}
+                          className="w-5 h-5 accent-violet-600 cursor-pointer"
+                        />
+                        <span className="text-sm font-bold text-slate-700">สลับลำดับตัวเลือก</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500 -mt-2">การสลับมีผลกับนักเรียนเท่านั้น ครูจะเห็นเรียงตามลำดับที่สร้างไว้เสมอ</p>
+                  </div>
+                )}
+
+                {formData.mission_type === 'brainstorm' && (
+                  <div className="bg-violet-50/50 p-4 rounded-xl border border-violet-100 mb-4">
+                    <label className="block text-sm font-bold text-violet-900 mb-2 flex justify-between items-center">
+                      <span>คำถามสำหรับนักเรียน (ระดมความคิด)</span>
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({ ...formData, questions: [...formData.questions, ''] })}
+                        className="text-violet-600 hover:text-violet-700 flex items-center gap-1 text-xs bg-violet-100 px-2 py-1.5 rounded-lg font-semibold transition-colors"
+                      >
+                        <Plus size={14} /> เพิ่มคำถาม
+                      </button>
+                    </label>
+                    <div className="space-y-3 mt-3">
+                      {formData.questions.map((q, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <span className="font-bold text-violet-400 text-sm w-6">Q{idx+1}</span>
+                          <input 
+                            type="text"
+                            required
+                            value={q}
+                            onChange={e => {
+                              const newQ = [...formData.questions];
+                              newQ[idx] = e.target.value;
+                              setFormData({ ...formData, questions: newQ });
+                            }}
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm bg-white"
+                            placeholder="เช่น ส่วนที่สำคัญที่สุดของผังงานคืออะไร?"
+                          />
+                          {formData.questions.length > 1 && (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newQ = [...formData.questions];
+                                newQ.splice(idx, 1);
+                                setFormData({ ...formData, questions: newQ });
+                              }}
+                              className="text-rose-400 hover:text-rose-600 p-1.5 hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {formData.mission_type === 'flowchart' && (
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-slate-700 mb-1.5">เวลาที่กำหนด (นาที)</label>
                       <input
@@ -1215,174 +1324,67 @@ const TeacherDashboard = () => {
                         className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
                       />
                     </div>
-                  </div>
-                  <p className="text-xs text-slate-500 -mt-2">ถ้านักเรียนทำได้เปอร์เซ็นต์ต่ำกว่าเกณฑ์ จะถือว่าไม่ผ่านและจะไม่ได้ XP จนกว่าจะสอบผ่าน ถ้าตั้งเวลาไว้ ระบบจะตรวจให้อัตโนมัติเมื่อหมดเวลา และข้อที่ทำไม่ทันจะนับเป็นข้อที่ตอบผิด</p>
-
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">จำนวนครั้งที่ทำได้</label>
-                    <input
-                      type="number"
-                      min={0} step={1}
-                      value={formData.max_attempts}
-                      onChange={(e) => setFormData({ ...formData, max_attempts: parseInt(e.target.value) || 0 })}
-                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">ใส่ 0 = ทำได้ไม่จำกัด นับเฉพาะตอนส่งคำตอบ เปิดดูแล้วออกไม่เสียสิทธิ์ และถ้าสอบผ่านแล้วจะทำซ้ำไม่ได้แม้ยังเหลือสิทธิ์</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนนต่ำสุด (XP)</label>
                       <input
-                        type="checkbox"
-                        checked={formData.randomize_questions}
-                        onChange={(e) => setFormData({ ...formData, randomize_questions: e.target.checked })}
-                        className="w-5 h-5 accent-violet-600 cursor-pointer"
+                        type="number"
+                        min={0} step={1}
+                        value={formData.min_score}
+                        onChange={(e) => setFormData({ ...formData, min_score: parseInt(e.target.value) || 0 })}
+                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
                       />
-                      <span className="text-sm font-bold text-slate-700">สลับลำดับคำถาม</span>
-                    </label>
-                    <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={formData.randomize_choices}
-                        onChange={(e) => setFormData({ ...formData, randomize_choices: e.target.checked })}
-                        className="w-5 h-5 accent-violet-600 cursor-pointer"
-                      />
-                      <span className="text-sm font-bold text-slate-700">สลับลำดับตัวเลือก</span>
-                    </label>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500 -mt-2">การสลับมีผลกับนักเรียนเท่านั้น ครูจะเห็นเรียงตามลำดับที่สร้างไว้เสมอ</p>
-                </div>
-              )}
-
-              {formData.mission_type === 'brainstorm' && (
-                <div className="bg-violet-50/50 p-4 rounded-xl border border-violet-100 mb-4">
-                  <label className="block text-sm font-bold text-violet-900 mb-2 flex justify-between items-center">
-                    <span>คำถามสำหรับนักเรียน (ระดมความคิด)</span>
-                    <button 
-                      type="button"
-                      onClick={() => setFormData({ ...formData, questions: [...formData.questions, ''] })}
-                      className="text-violet-600 hover:text-violet-700 flex items-center gap-1 text-xs bg-violet-100 px-2 py-1.5 rounded-lg font-semibold transition-colors"
-                    >
-                      <Plus size={14} /> เพิ่มคำถาม
-                    </button>
-                  </label>
-                  <div className="space-y-3 mt-3">
-                    {formData.questions.map((q, idx) => (
-                      <div key={idx} className="flex gap-2 items-center">
-                        <span className="font-bold text-violet-400 text-sm w-6">Q{idx+1}</span>
-                        <input 
-                          type="text"
-                          required
-                          value={q}
-                          onChange={e => {
-                            const newQ = [...formData.questions];
-                            newQ[idx] = e.target.value;
-                            setFormData({ ...formData, questions: newQ });
-                          }}
-                          className="flex-1 px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm bg-white"
-                          placeholder="เช่น ส่วนที่สำคัญที่สุดของผังงานคืออะไร?"
-                        />
-                        {formData.questions.length > 1 && (
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              const newQ = [...formData.questions];
-                              newQ.splice(idx, 1);
-                              setFormData({ ...formData, questions: newQ });
-                            }}
-                            className="text-rose-400 hover:text-rose-600 p-1.5 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {formData.mission_type === 'flowchart' && (
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">เวลาที่กำหนด (นาที)</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนน XP</label>
                     <input
                       type="number"
-                      min={1} step={1}
-                      placeholder="เว้นว่างถ้าไม่จับเวลา"
-                      value={formData.time_limit_seconds ? Math.floor(formData.time_limit_seconds / 60) : ''}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val) && val > 0) {
-                          setFormData({ ...formData, time_limit_seconds: val * 60 });
-                        } else if (e.target.value === '') {
-                          // ต้องส่ง null แบบชัดเจน ไม่ใช่ undefined เพราะ JSON.stringify
-                          // จะตัดคีย์ที่เป็น undefined ทิ้ง ทำให้ PUT ไม่ส่ง time_limit_seconds
-                          // ไปเลย แล้วค่าจับเวลาเดิมที่ตั้งไว้จะไม่ถูกล้าง
-                          setFormData({ ...formData, time_limit_seconds: null });
-                        }
-                      }}
+                      required min={10} max={1000} step={10}
+                      value={formData.points}
+                      onChange={(e) => setFormData({ ...formData, points: parseInt(e.target.value) })}
                       className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนนต่ำสุด (XP)</label>
-                    <input
-                      type="number"
-                      min={0} step={1}
-                      value={formData.min_score}
-                      onChange={(e) => setFormData({ ...formData, min_score: parseInt(e.target.value) || 0 })}
-                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
-                    />
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">ความยาก (1–3 ดาว)</label>
+                    <div className="flex gap-2 mt-1">
+                      {[1, 2, 3].map(level => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, difficulty_level: level })}
+                          className={`flex-1 py-2 rounded-xl border-2 font-bold text-sm transition-all ${
+                            formData.difficulty_level === level
+                              ? 'border-amber-400 bg-amber-50 text-amber-600'
+                              : 'border-slate-200 text-slate-400 hover:border-amber-300'
+                          }`}
+                        >
+                          {'★'.repeat(level)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนน XP</label>
+
+                <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
                   <input
-                    type="number"
-                    required min={10} max={1000} step={10}
-                    value={formData.points}
-                    onChange={(e) => setFormData({ ...formData, points: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none text-sm"
+                    type="checkbox"
+                    checked={formData.is_active}
+                    onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                    className="mt-0.5 w-5 h-5 accent-violet-600 cursor-pointer"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">ความยาก (1–3 ดาว)</label>
-                  <div className="flex gap-2 mt-1">
-                    {[1, 2, 3].map(level => (
-                      <button
-                        key={level}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, difficulty_level: level })}
-                        className={`flex-1 py-2 rounded-xl border-2 font-bold text-sm transition-all ${
-                          formData.difficulty_level === level
-                            ? 'border-amber-400 bg-amber-50 text-amber-600'
-                            : 'border-slate-200 text-slate-400 hover:border-amber-300'
-                        }`}
-                      >
-                        {'★'.repeat(level)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  <span className="flex-1">
+                    <span className="block text-sm font-bold text-slate-700">เปิดให้นักเรียนเห็นด่านนี้</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      ถ้าปิด ด่านจะไม่ปรากฏในหน้าเลือกด่านของนักเรียน และเข้าเล่นผ่านลิงก์ตรงไม่ได้
+                    </span>
+                  </span>
+                </label>
               </div>
 
-              <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={formData.is_active}
-                  onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                  className="mt-0.5 w-5 h-5 accent-violet-600 cursor-pointer"
-                />
-                <span className="flex-1">
-                  <span className="block text-sm font-bold text-slate-700">เปิดให้นักเรียนเห็นด่านนี้</span>
-                  <span className="block text-xs text-slate-500 mt-0.5">
-                    ถ้าปิด ด่านจะไม่ปรากฏในหน้าเลือกด่านของนักเรียน และเข้าเล่นผ่านลิงก์ตรงไม่ได้
-                  </span>
-                </span>
-              </label>
-
-              <div className="pt-2 flex gap-3">
+              <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-slate-100 bg-white">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -1406,8 +1408,8 @@ const TeacherDashboard = () => {
       {/* Upload Students Modal */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-600 to-teal-600">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-full">
+            <div className="shrink-0 px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-600 to-teal-600">
               <div>
                 <h3 className="text-xl font-bold text-white">อัปโหลดรายชื่อนักเรียน</h3>
                 <p className="text-emerald-100 text-xs mt-0.5">รองรับไฟล์ .xlsx หรือ .csv</p>
@@ -1420,45 +1422,48 @@ const TeacherDashboard = () => {
               </button>
             </div>
 
-            <form onSubmit={handleUploadStudents} className="p-6 space-y-4">
-              <div 
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isDragging ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <div className="flex flex-col items-center justify-center gap-3">
-                  <div className={`p-3 rounded-full ${isDragging ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
-                    <Plus size={24} />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-700">
-                      ลากไฟล์มาวางที่นี่ หรือ <label className="text-emerald-600 hover:text-emerald-700 cursor-pointer underline">คลิกเพื่อเลือกไฟล์
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                          onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                        />
-                      </label>
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">รองรับไฟล์ .xlsx หรือ .csv</p>
-                  </div>
-                  {uploadFile && (
-                    <div className="mt-2 text-sm font-medium text-emerald-700 bg-emerald-100 px-4 py-2 rounded-lg">
-                      ไฟล์ที่เลือก: {uploadFile.name}
+            <form onSubmit={handleUploadStudents} className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div 
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isDragging ? 'border-emerald-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'}`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <div className="flex flex-col items-center justify-center gap-3">
+                    <div className={`p-3 rounded-full ${isDragging ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
+                      <Plus size={24} />
                     </div>
-                  )}
-                </div>
+                    <div>
+                      <p className="font-semibold text-slate-700">
+                        ลากไฟล์มาวางที่นี่ หรือ <label className="text-emerald-600 hover:text-emerald-700 cursor-pointer underline">คลิกเพื่อเลือกไฟล์
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                            onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">รองรับไฟล์ .xlsx หรือ .csv</p>
+                    </div>
+                    {uploadFile && (
+                      <div className="mt-2 text-sm font-medium text-emerald-700 bg-emerald-100 px-4 py-2 rounded-lg">
+                        ไฟล์ที่เลือก: {uploadFile.name}
+                      </div>
+                    )}
+                  </div>
                 
-                <p className="text-xs text-slate-500 mt-6 leading-relaxed border-t border-slate-200 pt-4">
-                  คอลัมน์ที่แนะนำ: รหัสนักเรียน (หรือ username), ชื่อ (first_name), นามสกุล (last_name)<br/>
-                  คอลัมน์เพิ่มเติม: ปีการศึกษา (academic_year), ชั้น (grade_level), ห้อง (class_name)<br/>
-                  <span className="text-emerald-600 font-medium">(นักเรียนที่มีอยู่แล้วจะถูกอัปเดตข้อมูล)</span>
-                </p>
+                  <p className="text-xs text-slate-500 mt-6 leading-relaxed border-t border-slate-200 pt-4">
+                    คอลัมน์ที่แนะนำ: รหัสนักเรียน (หรือ username), ชื่อ (first_name), นามสกุล (last_name)<br/>
+                    คอลัมน์เพิ่มเติม: ปีการศึกษา (academic_year), ชั้น (grade_level), ห้อง (class_name)<br/>
+                    <span className="text-emerald-600 font-medium">(นักเรียนที่มีอยู่แล้วจะถูกอัปเดตข้อมูล)</span>
+                  </p>
+                </div>
+
               </div>
 
-              <div className="pt-2 flex gap-3">
+              <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-slate-100 bg-white">
                 <button
                   type="button"
                   onClick={() => setIsUploadModalOpen(false)}
@@ -1621,8 +1626,8 @@ const TeacherDashboard = () => {
       {/* ---- EDIT STUDENT MODAL ---- */}
       {isEditStudentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-full">
+            <div className="shrink-0 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-800">แก้ไขข้อมูลนักเรียน</h3>
               <button
                 onClick={() => setIsEditStudentModalOpen(false)}
@@ -1631,66 +1636,69 @@ const TeacherDashboard = () => {
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleEditStudentSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">รหัสประจำตัว (Username)</label>
-                <input
-                  type="text"
-                  required
-                  value={editStudentData.username}
-                  onChange={(e) => setEditStudentData({ ...editStudentData, username: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
-                  placeholder="เช่น 12345"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleEditStudentSubmit} className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">ชื่อ</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">รหัสประจำตัว (Username)</label>
                   <input
                     type="text"
-                    value={editStudentData.first_name}
-                    onChange={(e) => setEditStudentData({ ...editStudentData, first_name: e.target.value })}
+                    required
+                    value={editStudentData.username}
+                    onChange={(e) => setEditStudentData({ ...editStudentData, username: e.target.value })}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
-                    placeholder="ชื่อจริง"
+                    placeholder="เช่น 12345"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">ชื่อ</label>
+                    <input
+                      type="text"
+                      value={editStudentData.first_name}
+                      onChange={(e) => setEditStudentData({ ...editStudentData, first_name: e.target.value })}
+                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
+                      placeholder="ชื่อจริง"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">นามสกุล</label>
+                    <input
+                      type="text"
+                      value={editStudentData.last_name}
+                      onChange={(e) => setEditStudentData({ ...editStudentData, last_name: e.target.value })}
+                      className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
+                      placeholder="นามสกุล"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">นามสกุล</label>
-                  <input
-                    type="text"
-                    value={editStudentData.last_name}
-                    onChange={(e) => setEditStudentData({ ...editStudentData, last_name: e.target.value })}
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">ระดับชั้น/ห้อง</label>
+                  <select
+                    value={editStudentData.class_id}
+                    onChange={(e) => setEditStudentData({ ...editStudentData, class_id: e.target.value })}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
-                    placeholder="นามสกุล"
+                  >
+                    <option value="">-- ไม่ระบุ --</option>
+                    {classOptions.classes.map((c: any) => (
+                      <option key={c.class_id} value={c.class_id}>
+                        ชั้น {c.grade_level} ห้อง {c.class_name} ({c.academic_year})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">รหัสผ่านใหม่ (เว้นว่างได้)</label>
+                  <input
+                    type="password"
+                    value={editStudentData.password}
+                    onChange={(e) => setEditStudentData({ ...editStudentData, password: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
+                    placeholder="หากไม่ต้องการเปลี่ยนให้เว้นว่างไว้"
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">ระดับชั้น/ห้อง</label>
-                <select
-                  value={editStudentData.class_id}
-                  onChange={(e) => setEditStudentData({ ...editStudentData, class_id: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
-                >
-                  <option value="">-- ไม่ระบุ --</option>
-                  {classOptions.classes.map((c: any) => (
-                    <option key={c.class_id} value={c.class_id}>
-                      ชั้น {c.grade_level} ห้อง {c.class_name} ({c.academic_year})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">รหัสผ่านใหม่ (เว้นว่างได้)</label>
-                <input
-                  type="password"
-                  value={editStudentData.password}
-                  onChange={(e) => setEditStudentData({ ...editStudentData, password: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-400 outline-none transition-all text-sm"
-                  placeholder="หากไม่ต้องการเปลี่ยนให้เว้นว่างไว้"
-                />
-              </div>
-              <div className="pt-2 flex gap-3">
+
+              <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-slate-100 bg-white">
                 <button
                   type="button"
                   onClick={() => setIsEditStudentModalOpen(false)}

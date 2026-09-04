@@ -603,9 +603,9 @@ const MissionProgress = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-full"
           >
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <div className="shrink-0 px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <h3 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                 <Zap className="text-amber-500" size={20} />
                 {selectedStudent ? `แจก XP ให้ ${selectedStudent.name}` : 'แจก XP ให้ทุกคน'}
@@ -617,7 +617,7 @@ const MissionProgress = () => {
                 <X size={20} />
               </button>
             </div>
-            <div className="p-6">
+            <div className="flex-1 overflow-y-auto p-6">
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 จำนวน XP ที่ต้องการแจก
               </label>
@@ -641,7 +641,7 @@ const MissionProgress = () => {
                   : `แจกให้นักเรียนทั้งหมด ${students.length} คนในด่านนี้`}
               </p>
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+            <div className="shrink-0 px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
               <button
                 onClick={() => setShowXPModal(false)}
                 className="px-5 py-2.5 rounded-xl font-semibold text-slate-600 hover:bg-slate-200 transition-colors"
