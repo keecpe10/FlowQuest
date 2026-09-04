@@ -21,6 +21,73 @@ def get_current_user_id():
     return None
 
 
+# ---- content blocks ของคำถาม/ตัวเลือก ----
+
+# path ที่ /api/v1/upload คืนมาเท่านั้น กัน url ภายนอกหรือ javascript: ที่ยิงเข้ามา
+# ทาง API ตรง ๆ ไม่ให้กลายเป็น <img src> ในเบราว์เซอร์ของนักเรียน
+UPLOAD_URL_PREFIX = '/api/v1/uploads/'
+MAX_BLOCKS = 20
+MAX_TEXT_LEN = 5000
+# ใช้แทนข้อความว่าง เพราะสถิติรายข้อและ prompt ของ Gemini อ่านจาก question_text
+IMAGE_ONLY_TEXT = '[รูปภาพ]'
+
+
+def normalize_blocks(raw, where):
+    """ตรวจและทำความสะอาด content_blocks
+
+    คืน (blocks, plain_text) โดย blocks เป็น None แปลว่าไม่ได้ส่งมา ให้ใช้ฟิลด์เดิม
+    ถ้า payload ไม่ถูกต้องจะ raise ValueError พร้อมข้อความที่บอกว่าผิดตรงไหน
+    """
+    if raw is None:
+        return None, None
+
+    if not isinstance(raw, list):
+        raise ValueError(f'{where}: content_blocks ต้องเป็น list')
+
+    if len(raw) > MAX_BLOCKS:
+        raise ValueError(f'{where}: บล็อกเกิน {MAX_BLOCKS} บล็อก')
+
+    blocks = []
+    texts = []
+    for i, block in enumerate(raw):
+        at = f'{where} บล็อกที่ {i + 1}'
+        if not isinstance(block, dict):
+            raise ValueError(f'{at}: ต้องเป็น object')
+
+        block_type = block.get('type')
+        if block_type == 'text':
+            value = block.get('value')
+            if not isinstance(value, str):
+                raise ValueError(f'{at}: value ต้องเป็นข้อความ')
+            if len(value) > MAX_TEXT_LEN:
+                raise ValueError(f'{at}: ข้อความยาวเกิน {MAX_TEXT_LEN} ตัวอักษร')
+            value = value.strip()
+            if not value:
+                continue  # บล็อกข้อความว่างไม่ต้องเก็บ
+            blocks.append({'type': 'text', 'value': value})
+            texts.append(value)
+
+        elif block_type == 'image':
+            url = block.get('url')
+            if not isinstance(url, str) or not url.startswith(UPLOAD_URL_PREFIX) or '..' in url:
+                raise ValueError(f'{at}: url ต้องเป็นไฟล์ที่อัปโหลดผ่าน {UPLOAD_URL_PREFIX}')
+            alt = block.get('alt') or ''
+            if not isinstance(alt, str):
+                raise ValueError(f'{at}: alt ต้องเป็นข้อความ')
+            blocks.append({'type': 'image', 'url': url, 'alt': alt.strip()[:MAX_TEXT_LEN]})
+
+        else:
+            raise ValueError(f'{at}: type ต้องเป็น text หรือ image')
+
+    if not blocks:
+        # ว่างทั้งหมด (เช่น ตัวเลือกที่ครูเว้นไว้) ให้ถือว่าไม่ได้ใช้บล็อก
+        # จะได้เก็บเหมือนของเดิมคือข้อความว่าง ไม่ใช่ปฏิเสธการบันทึกทั้งชุด
+        return None, None
+
+    plain_text = '\n'.join(texts) if texts else IMAGE_ONLY_TEXT
+    return blocks, plain_text
+
+
 # เผื่อเวลาให้ 5 วินาที สำหรับ network lag ตอนกดส่งพอดีเส้นตาย
 DEADLINE_GRACE_SECONDS = 5
 
@@ -213,7 +280,8 @@ def get_mcq_questions(mission_id):
             choice_dict = {
                 'choice_id': c.choice_id,
                 'choice_text': c.choice_text,
-                'image_url': c.image_url
+                'image_url': c.image_url,
+                'content_blocks': c.content_blocks
             }
             if is_user_teacher:
                 choice_dict['is_correct'] = c.is_correct
@@ -224,6 +292,7 @@ def get_mcq_questions(mission_id):
             'question_text': q.question_text,
             'question_type': q.question_type,
             'image_url': q.image_url,
+            'content_blocks': q.content_blocks,
             'xp_points': q.xp_points,
             'order_index': q.order_index,
             'choices': c_data,
@@ -275,17 +344,40 @@ def update_mcq_questions(mission_id):
         
     data = request.get_json()
     questions_data = data.get('questions', [])
-    
+
+    # ตรวจ content_blocks ให้ครบทุกข้อก่อนแตะฐานข้อมูล เพราะขั้นต่อไปลบคำถามเดิม
+    # ทั้งชุดทิ้ง ถ้าไปล้มกลางทางแล้ว commit ข้อสอบทั้งด่านจะหาย
+    try:
+        normalized = []
+        for idx, q_data in enumerate(questions_data):
+            q_blocks, q_text = normalize_blocks(
+                q_data.get('content_blocks'), f'คำถามข้อที่ {idx + 1}'
+            )
+            c_normalized = []
+            for c_idx, c_data in enumerate(q_data.get('choices', [])):
+                c_blocks, c_text = normalize_blocks(
+                    c_data.get('content_blocks'),
+                    f'คำถามข้อที่ {idx + 1} ตัวเลือกที่ {c_idx + 1}',
+                )
+                c_normalized.append((c_blocks, c_text))
+            normalized.append((q_blocks, q_text, c_normalized))
+    except ValueError as e:
+        return jsonify({'message': str(e)}), 400
+
     # Delete existing questions and choices (cascade will handle choices)
     MCQQuestion.query.filter_by(mission_id=mission_id).delete()
     
     for idx, q_data in enumerate(questions_data):
+        q_blocks, q_text, c_normalized = normalized[idx]
         new_q = MCQQuestion(
             mission_id=mission_id,
-            question_text=q_data.get('question_text', ''),
+            # ใช้บล็อกเป็นแหล่งความจริงถ้ามี แล้ว derive ข้อความให้สถิติรายข้อ
+            # กับ prompt ของ Gemini อ่านต่อได้เหมือนเดิม
+            question_text=q_text if q_blocks else q_data.get('question_text', ''),
             question_type=q_data.get('question_type', 'multiple_choice'),
             question_metadata=q_data.get('question_metadata'),
-            image_url=q_data.get('image_url'),
+            image_url=None if q_blocks else q_data.get('image_url'),
+            content_blocks=q_blocks,
             xp_points=q_data.get('xp_points', 10),
             order_index=idx,
             explanation=q_data.get('explanation')
@@ -294,11 +386,13 @@ def update_mcq_questions(mission_id):
         db.session.flush() # get question_id
         
         choices_data = q_data.get('choices', [])
-        for c_data in choices_data:
+        for c_idx, c_data in enumerate(choices_data):
+            c_blocks, c_text = c_normalized[c_idx]
             new_c = MCQChoice(
                 question_id=new_q.question_id,
-                choice_text=c_data.get('choice_text', ''),
-                image_url=c_data.get('image_url'),
+                choice_text=c_text if c_blocks else c_data.get('choice_text', ''),
+                image_url=None if c_blocks else c_data.get('image_url'),
+                content_blocks=c_blocks,
                 is_correct=c_data.get('is_correct', False)
             )
             db.session.add(new_c)
@@ -514,8 +608,9 @@ def get_mcq_student_progress(mission_id, student_id):
             'question_type': q.question_type,
             'question_metadata': q.question_metadata,
             'image_url': q.image_url,
+            'content_blocks': q.content_blocks,
             'xp_points': q.xp_points,
-            'choices': [{'choice_id': c.choice_id, 'choice_text': c.choice_text, 'is_correct': c.is_correct, 'image_url': c.image_url} for c in choices]
+            'choices': [{'choice_id': c.choice_id, 'choice_text': c.choice_text, 'is_correct': c.is_correct, 'image_url': c.image_url, 'content_blocks': c.content_blocks} for c in choices]
         })
         
     # Get answers based on status

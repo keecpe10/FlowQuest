@@ -3,11 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, Plus, Save, Trash2, Image as ImageIcon, CheckCircle, GripVertical } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, CheckCircle } from 'lucide-react';
+import ContentBlockEditor from '../components/mcq/ContentBlockEditor';
+import { toBlocks, type ContentBlock } from '../components/mcq/blocks';
 
 interface Choice {
   choice_text: string;
   image_url?: string;
+  content_blocks?: ContentBlock[];
   is_correct: boolean;
 }
 
@@ -16,10 +19,15 @@ interface Question {
   question_type: string;
   question_metadata: any;
   image_url?: string;
+  content_blocks?: ContentBlock[];
   xp_points: number;
   explanation?: string;
   choices: Choice[];
 }
+
+/** ข้อนี้มีเนื้อหาให้นักเรียนอ่านหรือยัง (ข้อความที่ไม่ว่าง หรือมีรูป) */
+const hasContent = (blocks?: ContentBlock[]) =>
+  (blocks || []).some((b) => (b.type === 'text' ? b.value.trim() !== '' : true));
 
 const TeacherMCQBuilder = () => {
   const { id } = useParams<{ id: string }>();
@@ -49,9 +57,16 @@ const TeacherMCQBuilder = () => {
               question_type: q.question_type || 'multiple_choice',
               question_metadata: q.question_metadata || {},
               image_url: q.image_url || '',
+              // ข้อเก่าที่ยังไม่มีบล็อก ถูกแปลงเป็น [รูป, ข้อความ] ตามลำดับที่เคยแสดงผล
+              content_blocks: toBlocks(q.content_blocks, q.question_text, q.image_url),
               xp_points: q.xp_points || 10,
               explanation: q.explanation || '',
-              choices: choices.slice(0, q.question_type === 'multiple_choice' ? 4 : (q.question_type === 'true_false' ? 2 : 0))
+              choices: choices
+                .slice(0, q.question_type === 'multiple_choice' ? 4 : (q.question_type === 'true_false' ? 2 : 0))
+                .map((c: any) => ({
+                  ...c,
+                  content_blocks: toBlocks(c.content_blocks, c.choice_text, c.image_url),
+                })),
             };
           });
           setQuestions(qData);
@@ -69,25 +84,26 @@ const TeacherMCQBuilder = () => {
   }, [id, token]);
   
   const addQuestion = () => {
+    const emptyChoice = (is_correct: boolean): Choice => ({
+      choice_text: '',
+      is_correct,
+      content_blocks: [{ type: 'text', value: '' }],
+    });
     setQuestions([...questions, {
       question_text: '',
       question_type: 'multiple_choice',
       question_metadata: {},
+      content_blocks: [{ type: 'text', value: '' }],
       xp_points: 10,
       explanation: '',
-      choices: [
-        { choice_text: '', is_correct: true },
-        { choice_text: '', is_correct: false },
-        { choice_text: '', is_correct: false },
-        { choice_text: '', is_correct: false },
-      ]
+      choices: [emptyChoice(true), emptyChoice(false), emptyChoice(false), emptyChoice(false)]
     }]);
   };
   
   const handleSave = async () => {
     // Validate
     for (let i = 0; i < questions.length; i++) {
-      if (!questions[i].question_text.trim()) {
+      if (!hasContent(questions[i].content_blocks)) {
         Swal.fire({ icon: 'warning', text: `กรุณากรอกคำถามข้อที่ ${i+1}` });
         return;
       }
@@ -146,40 +162,16 @@ const TeacherMCQBuilder = () => {
     }
   };
   
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, qIndex: number, cIndex?: number) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/upload`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-      });
-      const newQuestions = [...questions];
-      if (cIndex !== undefined) {
-        newQuestions[qIndex].choices[cIndex].image_url = res.data.url;
-      } else {
-        newQuestions[qIndex].image_url = res.data.url;
-      }
-      setQuestions(newQuestions);
-    } catch (error) {
-      console.error('Upload failed', error);
-      Swal.fire({ icon: 'error', text: 'อัปโหลดรูปภาพไม่สำเร็จ' });
-    }
-  };
-
   const changeQuestionType = (qIndex: number, type: string) => {
       const newQ = [...questions];
       newQ[qIndex].question_type = type;
       newQ[qIndex].question_metadata = {};
       
       if (type === 'multiple_choice') {
-          newQ[qIndex].choices = [
-              { choice_text: '', is_correct: true },
-              { choice_text: '', is_correct: false },
-              { choice_text: '', is_correct: false },
-              { choice_text: '', is_correct: false },
-          ];
+          const blank = (is_correct: boolean): Choice => ({
+              choice_text: '', is_correct, content_blocks: [{ type: 'text', value: '' }],
+          });
+          newQ[qIndex].choices = [blank(true), blank(false), blank(false), blank(false)];
       } else if (type === 'true_false') {
           newQ[qIndex].choices = [
               { choice_text: 'True (จริง)', is_correct: true },
@@ -261,18 +253,17 @@ const TeacherMCQBuilder = () => {
             
             <div className="space-y-4">
               <div className="flex gap-4">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <label className="block text-sm font-bold text-slate-700 mb-1.5">คำถาม</label>
-                  <textarea
-                    value={q.question_text}
-                    onChange={(e) => {
+                  <ContentBlockEditor
+                    variant="question"
+                    placeholder="พิมพ์คำถามที่นี่..."
+                    blocks={q.content_blocks || []}
+                    onChange={(blocks) => {
                       const newQ = [...questions];
-                      newQ[qIndex].question_text = e.target.value;
+                      newQ[qIndex].content_blocks = blocks;
                       setQuestions(newQ);
                     }}
-                    placeholder="พิมพ์คำถามที่นี่..."
-                    rows={3}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none resize-none"
                   />
                 </div>
                 <div className="w-32">
@@ -287,27 +278,6 @@ const TeacherMCQBuilder = () => {
                     }}
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none"
                   />
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">รูปภาพประกอบคำถาม (ถ้ามี)</label>
-                <div className="flex items-center gap-4">
-                  {q.image_url && (
-                    <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + q.image_url : q.image_url} alt="Question" className="h-20 rounded-lg object-contain border border-slate-200 bg-slate-50" />
-                  )}
-                  <label className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold text-sm transition-colors">
-                    <ImageIcon size={16} />
-                    {q.image_url ? 'เปลี่ยนรูป' : 'อัปโหลดรูปภาพ'}
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, qIndex)} />
-                  </label>
-                  {q.image_url && (
-                    <button onClick={() => {
-                      const newQ = [...questions];
-                      newQ[qIndex].image_url = '';
-                      setQuestions(newQ);
-                    }} className="text-sm text-rose-500 font-semibold">ลบรูป</button>
-                  )}
                 </div>
               </div>
               
@@ -332,36 +302,31 @@ const TeacherMCQBuilder = () => {
                                 {choice.is_correct && <CheckCircle size={14} />}
                             </button>
                             
-                            <div className="flex-1 space-y-2">
-                                <input
-                                type="text"
-                                value={choice.choice_text}
-                                onChange={(e) => {
-                                    const newQ = [...questions];
-                                    newQ[qIndex].choices[cIndex].choice_text = e.target.value;
-                                    setQuestions(newQ);
-                                }}
-                                placeholder={`ตัวเลือกที่ ${cIndex + 1}`}
-                                className={`w-full px-3 py-1.5 border rounded-lg outline-none text-sm ${choice.is_correct ? 'border-emerald-200 bg-white' : 'border-slate-200'}`}
-                                />
-                                {q.question_type === 'multiple_choice' && (
-                                    <div className="flex items-center justify-between">
-                                        {choice.image_url ? (
-                                            <div className="flex items-center gap-2">
-                                            <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + choice.image_url : choice.image_url} alt="Choice" className="h-10 rounded border border-slate-200" />
-                                            <button onClick={() => {
-                                                const newQ = [...questions];
-                                                newQ[qIndex].choices[cIndex].image_url = '';
-                                                setQuestions(newQ);
-                                            }} className="text-xs text-rose-500">ลบ</button>
-                                            </div>
-                                        ) : (
-                                            <label className="cursor-pointer flex items-center gap-1 text-xs text-slate-500 hover:text-violet-600 transition-colors">
-                                            <ImageIcon size={14} /> เพิ่มรูป
-                                            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, qIndex, cIndex)} />
-                                            </label>
-                                        )}
-                                    </div>
+                            <div className="flex-1 min-w-0 space-y-2">
+                                {q.question_type === 'multiple_choice' ? (
+                                    <ContentBlockEditor
+                                        variant="choice"
+                                        placeholder={`ตัวเลือกที่ ${cIndex + 1}`}
+                                        blocks={choice.content_blocks || []}
+                                        onChange={(blocks) => {
+                                            const newQ = [...questions];
+                                            newQ[qIndex].choices[cIndex].content_blocks = blocks;
+                                            setQuestions(newQ);
+                                        }}
+                                    />
+                                ) : (
+                                    // ตัวเลือกของ true/false เป็นข้อความคงที่ "จริง/เท็จ" ไม่มีเหตุให้ใส่รูป
+                                    <input
+                                        type="text"
+                                        value={choice.choice_text}
+                                        onChange={(e) => {
+                                            const newQ = [...questions];
+                                            newQ[qIndex].choices[cIndex].choice_text = e.target.value;
+                                            setQuestions(newQ);
+                                        }}
+                                        placeholder={`ตัวเลือกที่ ${cIndex + 1}`}
+                                        className={`w-full px-3 py-1.5 border rounded-lg outline-none text-sm ${choice.is_correct ? 'border-emerald-200 bg-white' : 'border-slate-200'}`}
+                                    />
                                 )}
                             </div>
                             </div>

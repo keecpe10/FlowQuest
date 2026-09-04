@@ -10,11 +10,14 @@ import { GlobalStudentProfile } from '../App';
 import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import LiveTimer from '../components/LiveTimer';
 import { handleMissionAccessError } from '../utils/missionAccess';
+import ContentBlockView from '../components/mcq/ContentBlockView';
+import type { ContentBlock } from '../components/mcq/blocks';
 
 interface Choice {
   choice_id: number;
   choice_text: string;
   image_url?: string;
+  content_blocks?: ContentBlock[] | null;
 }
 
 interface Question {
@@ -23,6 +26,7 @@ interface Question {
   question_type: string;
   question_metadata: any;
   image_url?: string;
+  content_blocks?: ContentBlock[] | null;
   xp_points: number;
   choices: Choice[];
 }
@@ -626,12 +630,14 @@ const StudentMCQPlayer = () => {
               <span className="inline-block px-3 py-1 bg-violet-500/20 text-violet-300 text-xs font-bold rounded-full mb-4">
                 {currentQ.xp_points} XP
               </span>
-              <h2 className="text-xl sm:text-2xl font-bold text-white">{currentQ.question_text}</h2>
-              {currentQ.image_url && (
-                <div className="mt-6 flex justify-center">
-                  <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + currentQ.image_url : currentQ.image_url} alt="Question" className="max-h-64 rounded-xl border border-white/10" />
-                </div>
-              )}
+              <ContentBlockView
+                size="question"
+                blocks={currentQ.content_blocks}
+                text={currentQ.question_text}
+                imageUrl={currentQ.image_url}
+                className="items-center"
+                textClassName="text-xl sm:text-2xl font-bold text-white"
+              />
             </div>
             
             {['multiple_choice', 'true_false'].includes(currentQ.question_type) && (
@@ -656,13 +662,14 @@ const StudentMCQPlayer = () => {
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${isSelected && !isSubmitted ? 'bg-violet-500 text-white' : 'bg-slate-700 text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'bg-emerald-500 text-slate-900' : ''}`}>
                         {currentQ.question_type === 'multiple_choice' ? letters[i] : (i === 0 ? 'T' : 'F')}
                         </div>
-                        <div className="flex-1">
-                        {c.image_url && (
-                            <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + c.image_url : c.image_url} alt="Choice" className="h-16 mb-2 rounded object-contain border border-white/10 bg-black/20" />
-                        )}
-                        <span className={`text-sm sm:text-base font-semibold ${isSelected && !isSubmitted ? 'text-violet-100' : 'text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'text-emerald-300 font-bold' : ''}`}>
-                            {c.choice_text}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                        <ContentBlockView
+                            size="choice"
+                            blocks={c.content_blocks}
+                            text={c.choice_text}
+                            imageUrl={c.image_url}
+                            textClassName={`text-sm sm:text-base font-semibold ${isSelected && !isSubmitted ? 'text-violet-100' : 'text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'text-emerald-300 font-bold' : ''}`}
+                        />
                         </div>
                     </button>
                     );
