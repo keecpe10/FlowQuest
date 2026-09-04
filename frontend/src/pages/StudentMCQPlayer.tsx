@@ -420,26 +420,6 @@ const StudentMCQPlayer = () => {
     await handleComplete();
   };
 
-  if (!loading && isLocked && !isCompleted) {
-    return (
-      <div className="flex-1 min-h-screen flex items-center justify-center bg-slate-900 p-6">
-        <div className="max-w-md w-full bg-slate-800 rounded-3xl p-8 text-center border border-white/5">
-          <div className="text-5xl mb-4">🔒</div>
-          <h2 className="text-xl font-bold text-white mb-2">ทำแบบทดสอบนี้ไม่ได้แล้ว</h2>
-          <p className="text-slate-400 text-sm mb-6">
-            คุณใช้สิทธิ์ทำแบบทดสอบนี้ครบตามที่ครูกำหนดแล้ว หรือสอบผ่านไปแล้ว
-          </p>
-          <button
-            onClick={() => navigate(-1)}
-            className="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl transition-colors"
-          >
-            กลับไปเลือกด่าน
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (loading) return (
       <div className="flex-1 h-screen flex items-center justify-center bg-slate-900">
         <div className="w-12 h-12 rounded-full border-4 border-violet-400 border-t-transparent animate-spin" />
@@ -464,6 +444,13 @@ const StudentMCQPlayer = () => {
             {isTimeUp && (
               <div className="inline-block mb-4 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold text-sm">
                 หมดเวลา — ระบบตรวจให้จากข้อที่ทำไปแล้ว ข้อที่ทำไม่ทันนับเป็นข้อที่ตอบผิด
+              </div>
+            )}
+            {isLocked && (
+              <div className="inline-block mb-4 px-4 py-2 rounded-xl bg-slate-500/10 border border-slate-500/30 text-slate-300 font-bold text-sm">
+                {isPassed
+                  ? 'สอบผ่านแล้ว ทำแบบทดสอบนี้ซ้ำไม่ได้'
+                  : 'ใช้สิทธิ์ทำแบบทดสอบนี้ครบตามที่ครูกำหนดแล้ว'}
               </div>
             )}
             <h1 className="text-3xl font-black text-white mb-2">สรุปผลคะแนน</h1>
