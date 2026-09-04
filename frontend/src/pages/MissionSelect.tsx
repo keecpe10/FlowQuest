@@ -20,6 +20,8 @@ interface Mission {
   can_replay?: boolean;
   max_attempts?: number;
   min_xp_to_pass?: number;
+  can_retry?: boolean;
+  attempts_left?: number | null;
 }
 
 const missionTypeLabel: Record<string, string> = {
@@ -164,7 +166,10 @@ const MissionSelect = () => {
             const isUnlocked = isTeacher || idx === 0 || (missions[idx - 1]?.mission_type === 'sudoku'
               ? (missions[idx - 1]?.is_passed || missions[idx - 1]?.is_completed)
               : missions[idx - 1]?.is_completed) || mission.mission_type === 'brainstorm';
-            const canPlay = isUnlocked && (
+            // ด่าน mcq ที่สอบตกจะมี is_completed เป็นเท็จ จึงผ่านเงื่อนไข !effectiveCompleted
+            // ได้เสมอ ต้องกันด้วย can_retry แยกอีกชั้น ไม่งั้นโควตาที่ครูตั้งไว้ไม่มีผล
+            const mcqOutOfAttempts = mission.mission_type === 'mcq' && mission.can_retry === false;
+            const canPlay = isUnlocked && !mcqOutOfAttempts && (
               !effectiveCompleted ||
               isTeacher ||
               mission.mission_type === 'brainstorm' ||
@@ -286,6 +291,15 @@ const MissionSelect = () => {
                               >
                                 <Trophy size={16} />
                               </button>
+                            )}
+                            {mission.mission_type === 'mcq' && typeof mission.attempts_left === 'number' && !mission.is_completed && (
+                              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                                mission.attempts_left > 0
+                                  ? 'bg-amber-400/10 text-amber-400'
+                                  : 'bg-slate-500/20 text-slate-400'
+                              }`}>
+                                {mission.attempts_left > 0 ? `เหลืออีก ${mission.attempts_left} ครั้ง` : 'ใช้สิทธิ์ครบแล้ว'}
+                              </span>
                             )}
                             {canPlay ? (
                               <span className={`text-sm font-bold transition-transform group-hover:translate-x-1 ${
