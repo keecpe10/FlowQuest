@@ -412,6 +412,19 @@ def test_passed_cannot_retry(client, f):
     check('ผ่านแล้วเปิดด่านซ้ำ ไม่ถูกรีเซ็ตเป็น pending', um.status == 'completed')
     check('ผ่านแล้ว attempt_count ไม่เพิ่ม', um.attempt_count == 1)
 
+    res = client.get(f"/api/v1/missions/{mission.mission_id}",
+                     headers=auth(f['student_token']))
+    body = res.get_json()
+    check('นักเรียนผ่านแล้ว API locked เป็น True แม้เหลือสิทธิ์',
+          body.get('locked') is True)
+    check('นักเรียนผ่านแล้ว attempts_left เหลือ 4 ครั้ง (ใช้ไป 1 จาก 5)',
+          body.get('attempts_left') == 4)
+
+    res = client.get(f"/api/v1/missions/{mission.mission_id}",
+                     headers=auth(f['teacher_token']))
+    body = res.get_json()
+    check('ครูไม่ถูกล็อก แม้นักเรียนผ่านแล้ว', body.get('locked') is False)
+
     mission.max_attempts = 0
     db.session.commit()
     reset_attempt(f)
