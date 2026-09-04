@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Timer } from 'lucide-react';
 
 interface LiveTimerProps {
   startedAt?: string | null; // ISO string from backend
   className?: string;
   timeLimitSeconds?: number | null;
+  onExpire?: () => void;
 }
 
-const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLimitSeconds }) => {
+const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLimitSeconds, onExpire }) => {
   const [elapsed, setElapsed] = useState(0);
+  // ยิง onExpire ครั้งเดียวเท่านั้น ไม่งั้นจะยิงซ้ำทุกวินาทีหลังหมดเวลา
+  const hasExpiredRef = useRef(false);
 
   useEffect(() => {
     if (!startedAt) return;
@@ -24,6 +27,15 @@ const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLi
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, [startedAt]);
+
+  useEffect(() => {
+    if (!onExpire || !timeLimitSeconds || !startedAt) return;
+    if (hasExpiredRef.current) return;
+    if (elapsed >= timeLimitSeconds) {
+      hasExpiredRef.current = true;
+      onExpire();
+    }
+  }, [elapsed, timeLimitSeconds, startedAt, onExpire]);
 
   if (!startedAt) return null;
 

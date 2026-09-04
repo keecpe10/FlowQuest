@@ -91,7 +91,11 @@ const StudentMCQPlayer = () => {
   const [submittedAnswers, setSubmittedAnswers] = useState<Record<number, AnswerResult>>({});
   
   const [startedAt, setStartedAt] = useState<string | null>(null);
-  
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState<number | null>(null);
+  const [isTimeUp, setIsTimeUp] = useState(false);
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
+
   const [isCompleted, setIsCompleted] = useState(false);
   const [totalXp, setTotalXp] = useState(0);
   const [isPassed, setIsPassed] = useState(false);
@@ -124,7 +128,10 @@ const StudentMCQPlayer = () => {
         if (mRes.data.started_at) {
             setStartedAt(mRes.data.started_at);
         }
-        
+        setTimeLimitSeconds(mRes.data.time_limit_seconds ?? null);
+        setAttemptsLeft(mRes.data.attempts_left ?? null);
+        setIsLocked(mRes.data.locked === true);
+
         const initialAnswers: Answer[] = [];
         const pastAnswers = mRes.data.mcq_answers || [];
         const newSubmittedAnswers: Record<number, AnswerResult> = {};
@@ -406,7 +413,33 @@ const StudentMCQPlayer = () => {
       setIsSubmitting(false);
     }
   };
-  
+
+  const handleTimeUp = async () => {
+    if (isTimeUp || isCompleted) return;
+    setIsTimeUp(true);
+    await handleComplete();
+  };
+
+  if (!loading && isLocked && !isCompleted) {
+    return (
+      <div className="flex-1 min-h-screen flex items-center justify-center bg-slate-900 p-6">
+        <div className="max-w-md w-full bg-slate-800 rounded-3xl p-8 text-center border border-white/5">
+          <div className="text-5xl mb-4">🔒</div>
+          <h2 className="text-xl font-bold text-white mb-2">ทำแบบทดสอบนี้ไม่ได้แล้ว</h2>
+          <p className="text-slate-400 text-sm mb-6">
+            คุณใช้สิทธิ์ทำแบบทดสอบนี้ครบตามที่ครูกำหนดแล้ว หรือสอบผ่านไปแล้ว
+          </p>
+          <button
+            onClick={() => navigate(-1)}
+            className="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl transition-colors"
+          >
+            กลับไปเลือกด่าน
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) return (
       <div className="flex-1 h-screen flex items-center justify-center bg-slate-900">
         <div className="w-12 h-12 rounded-full border-4 border-violet-400 border-t-transparent animate-spin" />
@@ -428,6 +461,11 @@ const StudentMCQPlayer = () => {
         
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-8">
+            {isTimeUp && (
+              <div className="inline-block mb-4 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold text-sm">
+                หมดเวลา — ระบบตรวจให้จากข้อที่ทำไปแล้ว ข้อที่ทำไม่ทันนับเป็นข้อที่ตอบผิด
+              </div>
+            )}
             <h1 className="text-3xl font-black text-white mb-2">สรุปผลคะแนน</h1>
             <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
                 <div className={`inline-flex items-center gap-2 px-6 py-3 border rounded-2xl ${isPassed ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-rose-500/20 border-rose-500/30'}`}>
@@ -565,9 +603,21 @@ const StudentMCQPlayer = () => {
             <p className="text-xs text-slate-400">ข้อ {currentQIndex + 1} จาก {questions.length}</p>
           </div>
         </div>
-        {!isSubmitted && startedAt && (
-          <LiveTimer startedAt={startedAt} className="hidden sm:flex" />
-        )}
+        <div className="flex items-center gap-3">
+          {attemptsLeft !== null && !isCompleted && (
+            <span className="hidden sm:inline text-xs font-bold px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+              เหลืออีก {attemptsLeft} ครั้ง
+            </span>
+          )}
+          {!isCompleted && startedAt && (
+            <LiveTimer
+              startedAt={startedAt}
+              timeLimitSeconds={timeLimitSeconds}
+              onExpire={handleTimeUp}
+              className="hidden sm:flex"
+            />
+          )}
+        </div>
       </header>
       
       <div className="h-1 w-full bg-slate-800">
@@ -615,7 +665,7 @@ const StudentMCQPlayer = () => {
                     }
                     
                     return (
-                    <button key={c.choice_id} disabled={isSubmitted} onClick={() => handleSelectChoice(c.choice_id)} className={`p-4 rounded-2xl text-left border-2 transition-all flex items-center gap-4 ${bgClass}`}>
+                    <button key={c.choice_id} disabled={isSubmitted || isTimeUp} onClick={() => handleSelectChoice(c.choice_id)} className={`p-4 rounded-2xl text-left border-2 transition-all flex items-center gap-4 ${bgClass}`}>
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${isSelected && !isSubmitted ? 'bg-violet-500 text-white' : 'bg-slate-700 text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'bg-emerald-500 text-slate-900' : ''}`}>
                         {currentQ.question_type === 'multiple_choice' ? letters[i] : (i === 0 ? 'T' : 'F')}
                         </div>
@@ -635,7 +685,7 @@ const StudentMCQPlayer = () => {
 
             {currentQ.question_type === 'fill_blank' && (
                 <div className="mt-8">
-                    <input disabled={isSubmitted} type="text" value={ansRecord?.answer_data || ''} onChange={(e) => handleFillBlank(e.target.value)} placeholder="พิมพ์คำตอบของคุณที่นี่..." className={`w-full text-center px-6 py-4 bg-white/5 border-2 rounded-2xl text-lg font-bold focus:outline-none transition-all ${isSubmitted ? (qResult.is_correct ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10' : 'border-rose-500 text-rose-400 bg-rose-500/10') : 'border-white/10 text-white focus:border-violet-500 focus:bg-white/10'}`} />
+                    <input disabled={isSubmitted || isTimeUp} type="text" value={ansRecord?.answer_data || ''} onChange={(e) => handleFillBlank(e.target.value)} placeholder="พิมพ์คำตอบของคุณที่นี่..." className={`w-full text-center px-6 py-4 bg-white/5 border-2 rounded-2xl text-lg font-bold focus:outline-none transition-all ${isSubmitted ? (qResult.is_correct ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10' : 'border-rose-500 text-rose-400 bg-rose-500/10') : 'border-white/10 text-white focus:border-violet-500 focus:bg-white/10'}`} />
                     {isSubmitted && !qResult.is_correct && (
                         <p className="mt-3 text-emerald-400 text-center text-sm font-bold">คำตอบที่ถูกต้อง: {qResult.correct_answer_data?.correct_text}</p>
                     )}
@@ -651,7 +701,7 @@ const StudentMCQPlayer = () => {
                                 const catItems = (currentQ.question_metadata.items || []).filter((itemText: string) => (ansRecord?.answer_data || {})[itemText] === cat);
                                 return (
                                     <CategoryDropZone key={cat} id={cat} title={cat}>
-                                        {catItems.map((item: string) => <DraggableItem key={item} id={item} content={item} disabled={isSubmitted} />)}
+                                        {catItems.map((item: string) => <DraggableItem key={item} id={item} content={item} disabled={isSubmitted || isTimeUp} />)}
                                     </CategoryDropZone>
                                 );
                             })}
@@ -659,7 +709,7 @@ const StudentMCQPlayer = () => {
                         <div className="pt-6 border-t border-white/10">
                             <CategoryDropZone id="uncategorized">
                                 {(currentQ.question_metadata.items || []).filter((itemText: string) => !(ansRecord?.answer_data || {})[itemText]).map((item: string) => (
-                                    <DraggableItem key={item} id={item} content={item} disabled={isSubmitted} />
+                                    <DraggableItem key={item} id={item} content={item} disabled={isSubmitted || isTimeUp} />
                                 ))}
                             </CategoryDropZone>
                         </div>
@@ -707,7 +757,7 @@ const StudentMCQPlayer = () => {
                                     const isSelected = mState.selectedLeft === left;
                                     const isMatched = (ansRecord?.answer_data || []).find((p: any) => p.left === left);
                                     return (
-                                        <button ref={el => { leftRefs.current[left] = el; }} disabled={isSubmitted} key={`l-${left}`} onClick={() => handleMatchingClick('left', left)} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${isMatched ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200 opacity-60' : isSelected ? 'border-violet-500 bg-violet-500/20 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'} ${isSubmitted && 'cursor-not-allowed'}`}>
+                                        <button ref={el => { leftRefs.current[left] = el; }} disabled={isSubmitted || isTimeUp} key={`l-${left}`} onClick={() => handleMatchingClick('left', left)} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${isMatched ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200 opacity-60' : isSelected ? 'border-violet-500 bg-violet-500/20 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'} ${isSubmitted && 'cursor-not-allowed'}`}>
                                             {left} {isMatched && <CheckCircle size={16} className="inline ml-2" />}
                                         </button>
                                     );
@@ -719,7 +769,7 @@ const StudentMCQPlayer = () => {
                                     const isSelected = mState.selectedRight === right;
                                     const isMatched = (ansRecord?.answer_data || []).find((p: any) => p.right === right);
                                     return (
-                                        <button ref={el => { rightRefs.current[right] = el; }} disabled={isSubmitted} key={`r-${right}`} onClick={() => handleMatchingClick('right', right)} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${isMatched ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200 opacity-60' : isSelected ? 'border-pink-500 bg-pink-500/20 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'} ${isSubmitted && 'cursor-not-allowed'}`}>
+                                        <button ref={el => { rightRefs.current[right] = el; }} disabled={isSubmitted || isTimeUp} key={`r-${right}`} onClick={() => handleMatchingClick('right', right)} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${isMatched ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200 opacity-60' : isSelected ? 'border-pink-500 bg-pink-500/20 text-white' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'} ${isSubmitted && 'cursor-not-allowed'}`}>
                                             {right} {isMatched && <CheckCircle size={16} className="inline ml-2" />}
                                         </button>
                                     );
@@ -758,7 +808,7 @@ const StudentMCQPlayer = () => {
           
           <div className="mb-12 flex justify-end">
             {!isSubmitted ? (
-                <button onClick={handleSubmitSingle} disabled={isSubmitting} className="px-8 py-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50">
+                <button onClick={handleSubmitSingle} disabled={isSubmitting || isTimeUp} className="px-8 py-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50">
                     {isSubmitting ? 'กำลังตรวจ...' : 'ตรวจคำตอบ'} <Target size={18} />
                 </button>
             ) : (
@@ -767,7 +817,7 @@ const StudentMCQPlayer = () => {
                     {isSubmitting ? 'กำลังสรุปผล...' : 'จบแบบทดสอบ'} <CheckCircle size={18} />
                 </button>
                 ) : (
-                <button onClick={handleNext} className="px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-violet-600/20 transition-all">
+                <button onClick={handleNext} disabled={isTimeUp} className="px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-violet-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                     ข้อถัดไป <ChevronRight size={18} />
                 </button>
                 )
