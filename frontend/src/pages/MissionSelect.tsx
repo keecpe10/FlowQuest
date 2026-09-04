@@ -292,7 +292,7 @@ const MissionSelect = () => {
                                 <Trophy size={16} />
                               </button>
                             )}
-                            {mission.mission_type === 'mcq' && typeof mission.attempts_left === 'number' && !mission.is_completed && (
+                            {!isTeacher && mission.mission_type === 'mcq' && typeof mission.attempts_left === 'number' && !mission.is_completed && (
                               <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                                 mission.attempts_left > 0
                                   ? 'bg-amber-400/10 text-amber-400'
