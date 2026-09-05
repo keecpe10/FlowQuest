@@ -155,6 +155,10 @@ def manual_grade_url(f):
     return f"/api/v1/mcq/{f['mission'].mission_id}/grade-manual"
 
 
+def complete_url(f):
+    return f"/api/v1/mcq/{f['mission'].mission_id}/complete"
+
+
 # ผังงาน 3 บล็อก เฉลยลากเส้น n1->n2->n3 สองเส้น
 FLOWCHART_NODES = [
     {'id': 'n1', 'type': 'terminal', 'position': {'x': 0, 'y': 0}, 'data': {'label': 'เริ่ม'}},
@@ -326,6 +330,52 @@ def test_manual_grade_awards_question_xp_points(client, f):
     check('คะแนนรวมของ attempt ตรงกับ xp ที่ได้', um.score_awarded == 25)
 
 
+def test_pass_uses_xp_weight(client, f):
+    """ข้อ XP 90 ถูก + ข้อ XP 10 ผิด = 90% ต้องผ่านที่เกณฑ์ 70%
+
+    สูตรเดิมนับเป็นรายข้อจะได้ 50% แล้วตก
+    """
+    clear_questions(f)
+    clear_answers(f)
+    client.post(q_url(f), json=mc_question('ข้อใหญ่', xp=90),
+                headers=auth(f['teacher_token']))
+    client.post(q_url(f), json=mc_question('ข้อเล็ก', xp=10),
+                headers=auth(f['teacher_token']))
+    qs = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).order_by(MCQQuestion.order_index).all()
+
+    for q, want_correct in ((qs[0], True), (qs[1], False)):
+        choice = MCQChoice.query.filter_by(
+            question_id=q.question_id, is_correct=want_correct).first()
+        client.post(single_url(f), json={
+            'answer': {'question_id': q.question_id, 'choice_id': choice.choice_id},
+        }, headers=auth(f['student_token']))
+
+    res = client.post(complete_url(f), json={}, headers=auth(f['student_token']))
+    # /complete คืน status ไม่ใช่ is_passed — finalize_mcq เซ็ต completed เมื่อผ่าน
+    check('ข้อ XP สูงถ่วงน้ำหนักให้ผ่าน', res.get_json()['status'] == 'completed')
+
+
+def test_partial_credit_counts_toward_passing(client, f):
+    """ซูโดกุที่ทำถูกครึ่งต้องช่วยดันเปอร์เซ็นต์ ไม่ใช่นับเป็นศูนย์"""
+    clear_questions(f)
+    clear_answers(f)
+    client.post(q_url(f), json=puzzle_question('sudoku', sudoku_meta(), xp=100),
+                headers=auth(f['teacher_token']))
+    qid = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).first().question_id
+
+    grid = [row[:] for row in GIVEN_4]
+    grid[3][2] = SOLUTION_4[3][2]      # ถูก 1 จาก 2 ช่อง = 50 จาก 100
+    client.post(single_url(f), json={
+        'answer': {'question_id': qid, 'answer_data': grid},
+    }, headers=auth(f['student_token']))
+    res = client.post(complete_url(f), json={}, headers=auth(f['student_token']))
+    body = res.get_json()
+    check('ทำถูกครึ่งได้ 50% จึงไม่ผ่านเกณฑ์ 70%', body['status'] == 'failed')
+    check('แต่ยังได้ XP บางส่วนบันทึกไว้', body['total_xp'] == 50)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -342,6 +392,10 @@ def main():
             test_flowchart_partial_credit_end_to_end(client, f)
             clear_answers(f)
             test_manual_grade_awards_question_xp_points(client, f)
+            clear_answers(f)
+            test_pass_uses_xp_weight(client, f)
+            clear_answers(f)
+            test_partial_credit_counts_toward_passing(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

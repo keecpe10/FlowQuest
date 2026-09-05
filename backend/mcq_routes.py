@@ -555,12 +555,23 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     from datetime import datetime
 
     mission_id = mission.mission_id
-    total_questions = live_questions(mission_id).count()
-    mcq_answers = MCQUserAnswer.query.filter_by(
+    live = live_questions(mission_id).all()
+    total_questions = len(live)
+    live_ids = {q.question_id for q in live}
+    total_possible = sum(q.xp_points or 0 for q in live)
+
+    # นับเฉพาะคำตอบของข้อที่ยังไม่ใช่ร่าง ไม่งั้นคำตอบของข้อที่ครูเปลี่ยนเป็นร่าง
+    # ทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้นแล้ว
+    mcq_answers = [a for a in MCQUserAnswer.query.filter_by(
         user_mission_id=user_mission.user_mission_id
-    ).all()
+    ).all() if a.question_id in live_ids]
+
     correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-    percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+    total_xp = sum(a.xp_awarded or 0 for a in mcq_answers)
+
+    # คิดจาก XP ไม่ใช่จำนวนข้อ เพราะคะแนนบางส่วนจากข้อซูโดกุ/ผังงาน
+    # จะหายไปทั้งก้อนถ้านับเป็นรายข้อ และ XP รายข้อที่ครูตั้งไว้ก็ควรถ่วงน้ำหนักจริง
+    percentage = (total_xp / total_possible * 100) if total_possible > 0 else 0
 
     passing_percentage = mission.passing_percentage or 70
     is_passed = percentage >= passing_percentage
@@ -578,8 +589,6 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
             user_mission.time_spent_seconds = int(
                 (datetime.utcnow() - user_mission.started_at).total_seconds()
             )
-
-        total_xp = sum(a.xp_awarded or 0 for a in mcq_answers)
 
         if not award_xp:
             # ครูดูตัวเลขที่ตัวเองน่าจะได้ได้ แต่ไม่มีการบันทึกลง PointHistory จริง
@@ -614,7 +623,10 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     return {
         'status': user_mission.status,
         'is_passed': is_passed,
-        'total_xp': user_mission.score_awarded,
+        # total_xp คือ XP ที่ทำได้จริง (Σ xp_awarded) ไม่ใช่ user_mission.score_awarded
+        # เพราะ score_awarded ถูกริบเป็น 0 เมื่อสอบตก (ผูกกับการบันทึกลง ledger)
+        # แต่ตัวเลขที่ให้นักเรียนเห็นต้องสะท้อนคะแนนบางส่วนที่ทำได้จริงเสมอ
+        'total_xp': total_xp,
         'correct_answers': correct_answers,
         'total_questions': total_questions
     }
