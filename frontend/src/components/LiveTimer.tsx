@@ -6,9 +6,11 @@ interface LiveTimerProps {
   className?: string;
   timeLimitSeconds?: number | null;
   onExpire?: () => void;
+  /** ป้ายกำกับหน้าเวลา เช่น "ตัวอย่าง" ตอนครูทดลองเล่น */
+  label?: string;
 }
 
-const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLimitSeconds, onExpire }) => {
+const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLimitSeconds, onExpire, label }) => {
   const [elapsed, setElapsed] = useState(0);
   // ยิง onExpire ครั้งเดียวเท่านั้น ไม่งั้นจะยิงซ้ำทุกวินาทีหลังหมดเวลา
   const hasExpiredRef = useRef(false);
@@ -61,6 +63,7 @@ const LiveTimer: React.FC<LiveTimerProps> = ({ startedAt, className = '', timeLi
   return (
     <div className={`flex items-center gap-2 border px-3 py-1.5 rounded-full ${styleClass} ${className}`}>
       <Timer size={14} className="currentColor" />
+      {label && <span className="text-[10px] font-bold uppercase opacity-80">{label}</span>}
       <span className="text-sm font-mono font-bold tabular-nums tracking-wider">
         {timeStr} {timeLimitSeconds ? `/ ${pad(Math.floor(timeLimitSeconds/60))}:${pad(timeLimitSeconds%60)}` : ''}
       </span>
