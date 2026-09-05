@@ -5,6 +5,7 @@ from app import db, socketio
 from models import Mission, UserMission, User, PointHistory, MCQQuestion, MCQChoice, MCQUserAnswer
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
 import random
+from sudoku_solver import count_solutions
 
 mcq_bp = Blueprint('mcq', __name__, url_prefix='/api/v1/mcq')
 
@@ -236,6 +237,155 @@ def live_questions(mission_id):
     filter_by(is_draft=False) เองอีก เพื่อให้กฎนี้อยู่ที่เดียว
     """
     return MCQQuestion.query.filter_by(mission_id=mission_id, is_draft=False)
+
+
+# ---- โจทย์ซูโดกุ/ผังงานที่ฝังอยู่ในข้อสอบ ----
+#
+# เก็บใน question_metadata ไม่ใช้ตาราง sudoku_puzzles เพราะตารางนั้นผูกกับ
+# mission แบบหนึ่งด่านต่อหนึ่งปริศนา
+#
+# แยกเป็นสองระดับ: ผิดรูป = 400 (ตรงนี้) ส่วนกรอกไม่ครบ = ข้อร่าง (compute_is_draft)
+# ครูจึงบันทึกงานที่ทำค้างไว้ได้ แต่ส่งโครงสร้างพังเข้ามาไม่ได้
+
+MAX_SUDOKU_SIZE = 9
+MAX_FLOW_NODES = 50
+FLOW_NODE_TYPES = {'terminal', 'process', 'decision', 'io',
+                   'display', 'manual_input', 'connector'}
+FLOW_EDGE_LABELS = {'', 'จริง', 'เท็จ'}
+
+
+def _clean_grid(raw, size, where, field):
+    if not isinstance(raw, list) or len(raw) != size:
+        raise ValueError(f'{where}: {field} ต้องมี {size} แถว')
+    grid = []
+    for row in raw:
+        if not isinstance(row, list) or len(row) != size:
+            raise ValueError(f'{where}: {field} ต้องมี {size} ช่องในทุกแถว')
+        cleaned = []
+        for v in row:
+            if not isinstance(v, int) or isinstance(v, bool) or v < -1 or v >= size:
+                raise ValueError(f'{where}: {field} มีค่าที่ใช้ไม่ได้')
+            cleaned.append(v)
+        grid.append(cleaned)
+    return grid
+
+
+def sudoku_meta_complete(meta):
+    """โจทย์ซูโดกุพร้อมให้นักเรียนทำหรือยัง"""
+    solution = meta.get('solution_grid') or []
+    given = meta.get('given_grid') or []
+    if not solution or not given:
+        return False
+    if any(v == -1 for row in solution for v in row):
+        return False
+    return any(v == -1 for row in given for v in row)
+
+
+def flowchart_meta_complete(meta):
+    """โจทย์ผังงานพร้อมให้นักเรียนทำหรือยัง"""
+    return len(meta.get('nodes') or []) >= 2 and len(meta.get('edges') or []) >= 1
+
+
+def _clean_sudoku_metadata(meta, where):
+    box_rows = meta.get('box_rows')
+    box_cols = meta.get('box_cols')
+    size = meta.get('size')
+    for name, val in (('box_rows', box_rows), ('box_cols', box_cols), ('size', size)):
+        if not isinstance(val, int) or isinstance(val, bool) or val < 1:
+            raise ValueError(f'{where}: {name} ต้องเป็นจำนวนเต็มบวก')
+    if size != box_rows * box_cols:
+        raise ValueError(f'{where}: ขนาดกริดต้องเท่ากับ box_rows x box_cols')
+    if size > MAX_SUDOKU_SIZE:
+        raise ValueError(f'{where}: กริดใหญ่ได้ไม่เกิน {MAX_SUDOKU_SIZE}')
+
+    render_mode = meta.get('render_mode')
+    if render_mode not in ('icon', 'number'):
+        raise ValueError(f'{where}: render_mode ต้องเป็น icon หรือ number')
+
+    symbol_set = meta.get('symbol_set')
+    if (not isinstance(symbol_set, list) or len(symbol_set) != size
+            or not all(isinstance(s, str) and s.strip() for s in symbol_set)):
+        raise ValueError(f'{where}: symbol_set ต้องมีสัญลักษณ์ {size} ตัว')
+
+    given = _clean_grid(meta.get('given_grid'), size, where, 'given_grid')
+    solution = _clean_grid(meta.get('solution_grid'), size, where, 'solution_grid')
+
+    cleaned = {
+        'size': size, 'box_rows': box_rows, 'box_cols': box_cols,
+        'symbol_set': [s for s in symbol_set], 'render_mode': render_mode,
+        'given_grid': given, 'solution_grid': solution,
+    }
+
+    # ตรวจความเป็นคำตอบเดียวได้ต่อเมื่อโจทย์ครบแล้วเท่านั้น ไม่งั้นครูบันทึก
+    # งานที่ทำค้างไว้ไม่ได้เลย
+    if sudoku_meta_complete(cleaned):
+        for r in range(size):
+            for c in range(size):
+                if given[r][c] != -1 and given[r][c] != solution[r][c]:
+                    raise ValueError(f'{where}: ช่องที่เปิดเผยไม่ตรงกับเฉลย')
+        # count_solutions ต้องการ 0 สำหรับช่องว่าง ไม่ใช่ -1
+        given_for_solver = [[0 if v == -1 else v + 1 for v in row] for row in given]
+        if count_solutions(given_for_solver, box_cols, box_rows, limit=2) != 1:
+            raise ValueError(
+                f'{where}: ปริศนานี้มีคำตอบมากกว่าหนึ่งแบบ ให้เปิดเผยช่องเพิ่ม')
+
+    return cleaned
+
+
+def _clean_flowchart_metadata(meta, where):
+    nodes = meta.get('nodes')
+    edges = meta.get('edges')
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        raise ValueError(f'{where}: nodes และ edges ต้องเป็น list')
+    if len(nodes) > MAX_FLOW_NODES:
+        raise ValueError(f'{where}: ใช้บล็อกได้ไม่เกิน {MAX_FLOW_NODES} บล็อก')
+
+    cleaned_nodes = []
+    seen_ids = set()
+    for n in nodes:
+        if not isinstance(n, dict):
+            raise ValueError(f'{where}: บล็อกต้องเป็น object')
+        node_id = n.get('id')
+        if not isinstance(node_id, str) or not node_id or node_id in seen_ids:
+            raise ValueError(f'{where}: id ของบล็อกต้องเป็นข้อความและห้ามซ้ำ')
+        seen_ids.add(node_id)
+        if n.get('type') not in FLOW_NODE_TYPES:
+            raise ValueError(f'{where}: ชนิดบล็อกที่ไม่รองรับ ({n.get("type")})')
+        pos = n.get('position') or {}
+        try:
+            x, y = float(pos.get('x', 0)), float(pos.get('y', 0))
+        except (TypeError, ValueError):
+            raise ValueError(f'{where}: ตำแหน่งบล็อกต้องเป็นตัวเลข')
+        label = (n.get('data') or {}).get('label')
+        cleaned_nodes.append({
+            'id': node_id, 'type': n['type'],
+            'position': {'x': x, 'y': y},
+            'data': {'label': str(label)[:MAX_TEXT_LEN] if label is not None else ''},
+        })
+
+    cleaned_edges = []
+    for e in edges:
+        if not isinstance(e, dict):
+            raise ValueError(f'{where}: เส้นต้องเป็น object')
+        source, target = e.get('source'), e.get('target')
+        if source not in seen_ids or target not in seen_ids:
+            raise ValueError(f'{where}: เส้นเชื่อมไปยังบล็อกที่ไม่มีอยู่')
+        label = e.get('label') or ''
+        if label not in FLOW_EDGE_LABELS:
+            raise ValueError(f'{where}: ป้ายเส้นต้องเป็น จริง หรือ เท็จ เท่านั้น')
+        cleaned_edges.append({'source': source, 'target': target, 'label': label})
+
+    return {'nodes': cleaned_nodes, 'edges': cleaned_edges}
+
+
+def clean_puzzle_metadata(question_type, metadata, where):
+    """ตรวจ question_metadata ของชนิดที่เป็นปริศนา ชนิดอื่นคืนค่าเดิม"""
+    meta = metadata or {}
+    if question_type == 'sudoku':
+        return _clean_sudoku_metadata(meta, where)
+    if question_type == 'flowchart':
+        return _clean_flowchart_metadata(meta, where)
+    return metadata
 
 
 def _draft_choice_tuples(c_normalized, choices_data):
