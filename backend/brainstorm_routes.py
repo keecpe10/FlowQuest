@@ -5,6 +5,7 @@ from flask_socketio import emit, join_room, leave_room, disconnect
 import json
 import os
 import requests
+import shared_state
 from auth_utils import (get_current_user_id, can_play_mission, has_course_access,
                         is_course_teacher, user_id_from_token)
 
@@ -729,13 +730,24 @@ def get_board_by_mission(mission_id):
 # ส่งมาในแต่ละอีเวนต์ ไม่งั้นใครก็เข้าห้องของกระดานไหนก็ได้แล้วดักฟังการ์ดที่ครู
 # ตั้งค่าไม่ให้นักเรียนเห็นกัน
 #
-# เก็บ mapping ไว้ในหน่วยความจำของโปรเซส เพียงพอสำหรับการรันเครื่องเดียวแบบ
-# ปัจจุบัน ถ้าขยายเป็นหลายโปรเซสต้องย้ายไปเก็บใน Redis ที่มีอยู่แล้ว
-_socket_users = {}
+# เก็บ mapping ใน Redis จึงใช้ร่วมกันได้ทุก worker คำขอ polling รอบถัดไปที่ตกไป
+# อีกโปรเซสก็ยังรู้ว่า sid นี้เป็นของใคร (ถ้าต่อ Redis ไม่ได้จะถอยไปเก็บใน
+# หน่วยความจำของโปรเซสเอง ดู shared_state.py)
+#
+# ตั้งอายุไว้ 12 ชั่วโมงกันคีย์ค้างเมื่อ client หลุดไปแบบไม่ได้บอกลา
+SOCKET_SESSION_TTL = 12 * 60 * 60
+
+
+def _socket_key(sid):
+    return f'socket_user:{sid}'
 
 
 def _socket_user_id():
-    return _socket_users.get(request.sid)
+    raw = shared_state.get_value(_socket_key(request.sid))
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 @socketio.on('connect')
@@ -751,13 +763,13 @@ def on_connect(auth=None):
         token = request.args.get('token')
     user_id = user_id_from_token(token)
     if user_id:
-        _socket_users[request.sid] = user_id
+        shared_state.set_value(_socket_key(request.sid), user_id, SOCKET_SESSION_TTL)
     return True
 
 
 @socketio.on('disconnect')
 def on_disconnect(reason=None):
-    _socket_users.pop(request.sid, None)
+    shared_state.delete_value(_socket_key(request.sid))
 
 
 @socketio.on('join_board')

@@ -4,6 +4,7 @@ from app import db
 from models import User, Role
 import jwt
 from datetime import datetime, timedelta
+import shared_state
 import os
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
@@ -18,24 +19,22 @@ def generate_token(user_id):
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
 # จำกัดจำนวนครั้งที่ล็อกอินผิดต่อชื่อผู้ใช้ + ไอพี
-# เก็บในหน่วยความจำของโปรเซส พอสำหรับการใช้งานระดับโรงเรียนที่รันเครื่องเดียว
-# ถ้าวันหนึ่งขยายเป็นหลายโปรเซสต้องย้ายไปเก็บใน Redis ที่มีอยู่แล้วในระบบ
-_login_attempts = {}
+# เก็บตัวนับใน Redis จึงใช้ร่วมกันได้ทุก worker ถ้าต่อ Redis ไม่ได้จะถอยไปนับ
+# ในหน่วยความจำของโปรเซสเอง (ดู shared_state.py)
 LOGIN_MAX_ATTEMPTS = 10
 LOGIN_WINDOW_SECONDS = 300
 
 
+def _login_key(username, remote_addr):
+    return f'login_fail:{username}:{remote_addr}'
+
+
 def _login_throttled(key):
-    """คืน True ถ้าพยายามผิดถี่เกินกำหนด พร้อมล้างรายการที่หมดอายุไปด้วย"""
-    now = datetime.utcnow()
-    attempts = [t for t in _login_attempts.get(key, [])
-                if (now - t).total_seconds() < LOGIN_WINDOW_SECONDS]
-    _login_attempts[key] = attempts
-    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+    return shared_state.get_counter(key) >= LOGIN_MAX_ATTEMPTS
 
 
 def _record_login_failure(key):
-    _login_attempts.setdefault(key, []).append(datetime.utcnow())
+    shared_state.incr_counter(key, LOGIN_WINDOW_SECONDS)
 
 
 @auth_bp.route('/login', methods=['POST'])
@@ -45,7 +44,7 @@ def login():
     if not data or not data.get('username') or not data.get('password'):
         return jsonify({'message': 'Missing username or password'}), 400
         
-    throttle_key = f"{data['username']}|{request.remote_addr}"
+    throttle_key = _login_key(data['username'], request.remote_addr)
     if _login_throttled(throttle_key):
         return jsonify({
             'message': 'ลองเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่'
@@ -57,7 +56,7 @@ def login():
         _record_login_failure(throttle_key)
         return jsonify({'message': 'Invalid username or password'}), 401
 
-    _login_attempts.pop(throttle_key, None)  # ล็อกอินสำเร็จแล้วล้างประวัติ
+    shared_state.delete_value(throttle_key)  # ล็อกอินสำเร็จแล้วล้างประวัติ
         
     role_name = user.role.role_name if user.role else 'student'
     
