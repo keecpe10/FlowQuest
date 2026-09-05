@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -43,19 +43,29 @@ const ToolbarButton = ({
  * กลางบรรทัดได้ รูปเป็นโหนดแบบ inline จึงไหลไปกับข้อความ ไม่ตัดขึ้นบรรทัดใหม่
  *
  * ใส่รูปได้ 3 ทาง: ปุ่มในทูลบาร์ ลากไฟล์มาวาง และวางจากคลิปบอร์ด
+ *
+ * หมายเหตุเรื่องความลื่นไหล: ทุกก้อนที่ส่งเข้า useEditor ต้องมี reference คงที่
+ * TipTap เทียบ options ทุกครั้งที่คอมโพเนนต์เรนเดอร์ ถ้าไม่เท่าเดิมจะสั่ง
+ * setOptions ซึ่งลากไปถึง view.setProps + view.updateState คือรื้อวิวใหม่ทั้งตัว
+ * หน้าสร้างข้อสอบมีตัวแก้ไข 5 ตัวต่อ 1 ข้อ พอถึงสิบข้อจะกลายเป็นรื้อวิวหลักร้อยครั้งต่อการพิมพ์หนึ่งตัวอักษร
  */
-export default function RichContentEditor({ doc, onChange, variant, placeholder }: Props) {
+function RichContentEditor({ doc, onChange, variant, placeholder }: Props) {
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
-  const token = localStorage.getItem('token');
+  const editorRef = useRef<Editor | null>(null);
 
-  const insertImage = async (file: File, editor: Editor | null) => {
+  // หน้าแม่ส่งฟังก์ชันใหม่มาได้ตามปกติ โดยไม่ทำให้ options ของตัวแก้ไขเปลี่ยนตาม
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const insertImage = useCallback(async (file: File) => {
+    const editor = editorRef.current;
     if (!editor) return;
     setUploading(true);
     try {
-      const url = await uploadImage(file, token);
+      const url = await uploadImage(file, localStorage.getItem('token'));
       // ใส่ URL เต็มลงตัวแก้ไขเพื่อให้รูปขึ้น ตอนบันทึกจะถูกแปลงกลับเป็น path
       editor.chain().focus().setImage({ src: resolveImageUrl(url) }).run();
     } catch (err) {
@@ -63,10 +73,10 @@ export default function RichContentEditor({ doc, onChange, variant, placeholder 
     } finally {
       setUploading(false);
     }
-  };
+  }, []);
 
-  const editor = useEditor({
-    extensions: [
+  const extensions = useMemo(
+    () => [
       StarterKit.configure({
         heading: false,
         codeBlock: false,
@@ -80,14 +90,17 @@ export default function RichContentEditor({ doc, onChange, variant, placeholder 
       // ไม่ใช่บล็อกที่ดันข้อความขึ้นบรรทัดใหม่
       Image.configure({ inline: true, allowBase64: false }),
     ],
-    content: withAbsoluteImages(doc),
-    editorProps: {
+    [],
+  );
+
+  const editorProps = useMemo(
+    () => ({
       attributes: {
         class: `mcq-rich-content outline-none px-3 py-2 ${
           variant === 'question' ? 'min-h-[7rem]' : 'min-h-[3rem]'
         }`,
       },
-      handlePaste: (_view, event) => {
+      handlePaste: (_view: unknown, event: ClipboardEvent) => {
         // คลิปบอร์ดจาก Word หรือหน้าเว็บมักแนบภาพของส่วนที่เลือกมาด้วย
         // ถ้ามีข้อความให้ถือว่าตั้งใจวางข้อความเสมอ ปล่อยให้ TipTap จัดการตามปกติ
         const text = event.clipboardData?.getData('text/plain') ?? '';
@@ -98,23 +111,47 @@ export default function RichContentEditor({ doc, onChange, variant, placeholder 
         );
         if (!file) return false;
         event.preventDefault();
-        insertImage(file, editor);
+        insertImage(file);
         return true;
       },
-      handleDrop: (_view, event) => {
-        const file = (event as DragEvent).dataTransfer?.files?.[0];
+      handleDrop: (_view: unknown, event: DragEvent) => {
+        const file = event.dataTransfer?.files?.[0];
         if (!file) return false;
         event.preventDefault();
         dragDepth.current = 0;
         setIsDraggingFile(false);
-        insertImage(file, editor);
+        insertImage(file);
         return true;
       },
-    },
-    onUpdate: ({ editor: ed }) => onChange(withRelativeImages(ed.getJSON() as RichDoc)),
-  });
+    }),
+    [variant, insertImage],
+  );
 
-  const isEmpty = editor?.isEmpty ?? false;
+  // content ถูกใช้ตอนสร้างตัวแก้ไขครั้งเดียว เก็บเป็น snapshot ไว้ให้ reference นิ่ง
+  const [initialContent] = useState(() => withAbsoluteImages(doc));
+
+  const editor = useEditor({
+    extensions,
+    content: initialContent,
+    editorProps,
+    onUpdate: ({ editor: ed }) => onChangeRef.current(withRelativeImages(ed.getJSON() as RichDoc)),
+  });
+  editorRef.current = editor;
+
+  // สถานะของทูลบาร์ต้องมาจากตัวแก้ไขโดยตรง เพราะคอมโพเนนต์นี้ไม่ได้เรนเดอร์ใหม่
+  // ตามหน้าแม่อีกแล้ว จะเรนเดอร์ก็ต่อเมื่อค่าเหล่านี้เปลี่ยนจริง
+  const state = useEditorState({
+    editor,
+    selector: ({ editor: ed }) =>
+      ed
+        ? {
+            bold: ed.isActive('bold'),
+            italic: ed.isActive('italic'),
+            bulletList: ed.isActive('bulletList'),
+            isEmpty: ed.isEmpty,
+          }
+        : { bold: false, italic: false, bulletList: false, isEmpty: true },
+  });
 
   return (
     <div
@@ -133,21 +170,21 @@ export default function RichContentEditor({ doc, onChange, variant, placeholder 
       <div className="flex items-center gap-0.5 px-2 py-1 border-b border-slate-100">
         <ToolbarButton
           label="ตัวหนา"
-          active={editor?.isActive('bold')}
+          active={state?.bold}
           onClick={() => editor?.chain().focus().toggleBold().run()}
         >
           <Bold size={15} />
         </ToolbarButton>
         <ToolbarButton
           label="ตัวเอียง"
-          active={editor?.isActive('italic')}
+          active={state?.italic}
           onClick={() => editor?.chain().focus().toggleItalic().run()}
         >
           <Italic size={15} />
         </ToolbarButton>
         <ToolbarButton
           label="รายการหัวข้อ"
-          active={editor?.isActive('bulletList')}
+          active={state?.bulletList}
           onClick={() => editor?.chain().focus().toggleBulletList().run()}
         >
           <List size={15} />
@@ -162,7 +199,7 @@ export default function RichContentEditor({ doc, onChange, variant, placeholder 
       </div>
 
       <div className="relative">
-        {isEmpty && placeholder && (
+        {state?.isEmpty && placeholder && (
           <span className="absolute left-3 top-2 text-sm text-slate-400 pointer-events-none">
             {placeholder}
           </span>
@@ -177,10 +214,13 @@ export default function RichContentEditor({ doc, onChange, variant, placeholder 
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) insertImage(file, editor);
+          if (file) insertImage(file);
           e.target.value = ''; // เลือกไฟล์เดิมซ้ำได้
         }}
       />
     </div>
   );
 }
+
+// หน้าสร้างข้อสอบมีตัวแก้ไขหลายสิบตัวพร้อมกัน การพิมพ์ในตัวหนึ่งไม่ควรลากตัวอื่นมาเรนเดอร์ด้วย
+export default memo(RichContentEditor);

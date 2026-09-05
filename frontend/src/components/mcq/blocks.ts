@@ -76,6 +76,34 @@ export function isDocEmpty(doc: RichDoc | null | undefined): boolean {
   return empty;
 }
 
+/** คำที่ backend ใช้แทนข้อที่มีแต่รูป — ให้แถบรายการข้อแสดงคำเดียวกัน */
+export const IMAGE_ONLY_TEXT = '[รูปภาพ]';
+
+/**
+ * ย่อเนื้อหาเอกสารให้เหลือข้อความบรรทัดเดียวสำหรับแสดงในรายการข้อ
+ *
+ * ข้อที่มีแต่รูปคืน [รูปภาพ] ตรงกับที่ backend เก็บไว้ใน question_text
+ * ข้อที่ยังว่างคืนข้อความบอกสถานะ ครูจะได้ไม่เห็นแถวเปล่า ๆ ในรายการ
+ */
+export function docToPlainText(doc: RichDoc | null | undefined, maxLength = 40): string {
+  if (!doc) return '(ยังไม่มีโจทย์)';
+
+  const parts: string[] = [];
+  let hasImage = false;
+  const walk = (nodes: RichNode[] = []) => {
+    for (const n of nodes) {
+      if (n.type === 'image') hasImage = true;
+      else if (n.type === 'text' && n.text) parts.push(n.text);
+      walk(n.content);
+    }
+  };
+  walk(doc.content);
+
+  const text = parts.join('').replace(/\s+/g, ' ').trim();
+  if (!text) return hasImage ? IMAGE_ONLY_TEXT : '(ยังไม่มีโจทย์)';
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
 /** ต่อ path ของรูปกับ base url ของ API (ตอน dev หน้าเว็บกับ backend อยู่คนละพอร์ต) */
 export function resolveImageUrl(url: string): string {
   const base = import.meta.env.VITE_API_BASE_URL;
