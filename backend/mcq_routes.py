@@ -1446,15 +1446,25 @@ def manual_grade(mission_id):
         # xp_points ของโจทย์ข้อนั้นเป็นแหล่งความจริงเดียวของคะแนน MCQ เหมือนกับ
         # submit_mcq/submit_mcq_single (ดู grade_answer) ไม่ใช่ mission.points หาร
         # เฉลี่ยเท่าจำนวนข้อ ซึ่งเป็นสูตรเก่าที่ไม่ตรงกับสองเส้นทางนั้นมานาน
-        total_questions = live_questions(mission_id).count()
+        live = live_questions(mission_id).all()
+        live_ids = {q.question_id for q in live}
+        total_possible = sum(q.xp_points or 0 for q in live)
         points_per_q = question.xp_points
         answer.xp_awarded = points_per_q
-        
+
         # Recalculate pass/fail
-        mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id).all()
+        # สูตรนี้ต้องตรงกับ finalize_mcq เป๊ะ: คิดเปอร์เซ็นต์จาก XP ถ่วงน้ำหนัก ไม่ใช่
+        # นับจำนวนข้อที่ถูกทั้งข้อ เพราะคะแนนบางส่วนของข้อซูโดกุ/ผังงานจะหายไปทั้งก้อน
+        # ถ้านับเป็นรายข้อ และกรองคำตอบเฉพาะข้อที่ยังไม่ใช่ร่าง (live_ids) ไม่งั้นคำตอบ
+        # ของข้อที่ครูเปลี่ยนเป็นร่างทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้น
+        # แล้ว ถ้าจะแก้สูตรนี้ต้องไปแก้ finalize_mcq ด้วย (และกลับกัน) ไม่งั้นครูกับ
+        # นักเรียนจะเห็นผ่าน/ตกของ attempt เดียวกันไม่ตรงกัน
+        mcq_answers = [a for a in MCQUserAnswer.query.filter_by(
+            user_mission_id=user_mission.user_mission_id).all() if a.question_id in live_ids]
         # Note: mcq_answers includes the currently modified answer because it's in the session
         correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-        percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+        total_xp_earned = sum((a.xp_awarded or 0) for a in mcq_answers)
+        percentage = (total_xp_earned / total_possible * 100) if total_possible > 0 else 0
         passing_percentage = mission.passing_percentage or 70
         is_passed = percentage >= passing_percentage
         

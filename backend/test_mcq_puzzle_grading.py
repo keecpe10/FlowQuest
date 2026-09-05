@@ -395,6 +395,63 @@ def test_partial_credit_counts_toward_passing(client, f):
           body['status'] == 'completed')
 
 
+def test_manual_grade_matches_student_pass_fail(client, f):
+    """ครูตรวจแก้คำตอบด้วยมือต้องให้ผ่าน/ตกตรงกับที่นักเรียนตอบเองจะได้ (สูตร XP เดียวกัน)
+
+    สองข้อ: ตัวเลือก xp=50 + ซูโดกุ xp=50 (มีช่องว่าง 2 ช่องตาม GIVEN_4)
+    นักเรียนตอบตัวเลือกผิดก่อน (xp=0) แล้วเติมซูโดกุถูก 1 จาก 2 ช่อง
+    -> grade_answer ให้ (1*50 + 2//2)//2 = 25 จาก 50 พอตอบครบสองข้อ submit-single
+    จะ auto-finalize ทันที ได้ total_xp = 0+25 = 25 จาก 100 = 25% < 70% -> ตกก่อน
+
+    ครูตรวจแก้คำตอบข้อตัวเลือกเป็นถูกผ่าน grade-manual ทำให้สถานะคำตอบสุดท้าย
+    เหมือนกับที่นักเรียนตอบถูกทั้งสองข้อตั้งแต่แรก (MC เต็ม 50 + ซูโดกุ 25) ซึ่ง
+    test_partial_credit_counts_toward_passing พิสูจน์แล้วว่านักเรียนเองจะ "ผ่าน"
+    (75% ของ XP >= เกณฑ์ผ่าน 70%)
+
+    สูตรเดิมของ manual_grade (นับข้อที่ถูกทั้งข้อ/จำนวนข้อ): ถูกทั้งข้อแค่ MC ข้อเดียว
+    จาก 2 ข้อ = 50% < 70% -> ตก ขัดกับสิ่งที่นักเรียนเห็นตอนตอบเอง (75% -> ผ่าน)
+    สูตร XP ถ่วงน้ำหนักที่ถูกต้อง: 50(MC) + 25(sudoku) = 75 จาก 100 = 75% -> ผ่าน
+    ตรงกับที่นักเรียนเห็น สองสูตรขัดกันจริงในเคสนี้ จึงจับการถดถอยกลับไปนับรายข้อได้
+    """
+    clear_questions(f)
+    clear_answers(f)
+    client.post(q_url(f), json=mc_question('ข้อถูกเต็ม (ครูตรวจทีหลัง)', xp=50),
+                headers=auth(f['teacher_token']))
+    client.post(q_url(f), json=puzzle_question('sudoku', sudoku_meta(), xp=50),
+                headers=auth(f['teacher_token']))
+    qs = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).order_by(MCQQuestion.order_index).all()
+    mc_q, sudoku_q = qs[0], qs[1]
+
+    wrong_choice = MCQChoice.query.filter_by(
+        question_id=mc_q.question_id, is_correct=False).first()
+    client.post(single_url(f), json={
+        'answer': {'question_id': mc_q.question_id, 'choice_id': wrong_choice.choice_id},
+    }, headers=auth(f['student_token']))
+
+    grid = [row[:] for row in GIVEN_4]
+    grid[3][2] = SOLUTION_4[3][2]      # เติมถูก 1 จาก 2 ช่องว่าง
+    res = client.post(single_url(f), json={
+        'answer': {'question_id': sudoku_q.question_id, 'answer_data': grid},
+    }, headers=auth(f['student_token']))
+    check('ตอบครบสองข้อ auto-finalize ทันที', res.get_json()['auto_completed'] is True)
+
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    check('ตอบผิด MC ทำให้ตกก่อนครูตรวจ (25% < 70%)', um.status == 'failed')
+
+    res = client.post(manual_grade_url(f), json={
+        'student_id': f['student'].user_id, 'question_id': mc_q.question_id,
+    }, headers=auth(f['teacher_token']))
+    check('ครูตรวจมือสำเร็จ', res.status_code == 200)
+    check('ครูตรวจแล้วต้องผ่าน เหมือนที่นักเรียนตอบถูกทั้งสองข้อเองตั้งแต่แรกจะผ่าน (75% >= 70%)',
+          res.get_json()['is_passed'] is True)
+
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    check('สถานะ attempt เปลี่ยนจาก failed เป็น completed', um.status == 'completed')
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -415,6 +472,8 @@ def main():
             test_pass_uses_xp_weight(client, f)
             clear_answers(f)
             test_partial_credit_counts_toward_passing(client, f)
+            clear_answers(f)
+            test_manual_grade_matches_student_pass_fail(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)
