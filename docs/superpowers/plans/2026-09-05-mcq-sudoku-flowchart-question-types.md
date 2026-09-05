@@ -1678,7 +1678,7 @@ export default SudokuAnswer;
 สร้าง `frontend/src/components/mcq/answers/FlowchartAnswer.tsx`:
 
 ```tsx
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, {
   Background, BackgroundVariant, Controls, MarkerType,
   ReactFlowProvider, addEdge, useEdgesState, useNodesState,
@@ -1715,16 +1715,25 @@ const Canvas: React.FC<Props> = ({ metadata, value, onChange, disabled }) => {
     }))
   );
 
-  // ครูแก้โจทย์ระหว่างที่หน้าเปิดค้างอยู่ได้ บล็อกจึงต้องตามโจทย์ล่าสุด
-  useEffect(() => {
-    setNodes(scramble(metadata?.nodes || []));
-  }, [metadata, setNodes]);
+  // ส่งเส้นขึ้นไปเมื่อ edges เปลี่ยน ห้ามเรียก onChange ข้างในตัวอัปเดตของ setEdges
+  // เพราะนั่นคือการสั่ง parent อัปเดต state ระหว่างที่ React กำลังอัปเดตคอมโพเนนต์นี้
+  // React จะเตือน "Cannot update a component while rendering a different component"
+  //
+  // เก็บ onChange ไว้ใน ref เพื่อไม่ต้องใส่ใน deps — parent ส่ง closure ใหม่มาทุก render
+  // ถ้าใส่ใน deps จะวนไม่จบ
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const firstRun = useRef(true);
 
-  const push = useCallback((es: Edge[]) => {
-    onChange(es.map((e) => ({
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    onChangeRef.current(edges.map((e) => ({
       source: e.source, target: e.target, label: (e.label as string) || '',
     })));
-  }, [onChange]);
+  }, [edges]);
 
   const onConnect = useCallback(async (params: Edge | Connection) => {
     if (disabled) return;
@@ -1740,23 +1749,12 @@ const Canvas: React.FC<Props> = ({ metadata, value, onChange, disabled }) => {
       });
       label = res.isConfirmed ? 'จริง' : 'เท็จ';
     }
-    const next = addEdge({
+    setEdges(addEdge({
       ...params, type: 'waypoint', label, data: { waypoints: [] },
       markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
       style: { stroke: '#94a3b8', strokeWidth: 2 },
-    }, edges);
-    setEdges(next);
-    push(next);
-  }, [disabled, nodes, edges, setEdges, push]);
-
-  const onEdgesChangeTracked = useCallback((changes: any) => {
-    onEdgesChange(changes);
-    // อ่านค่าหลัง React ประมวลผลชุดการเปลี่ยนแปลงแล้ว
-    setEdges((current) => {
-      push(current);
-      return current;
-    });
-  }, [onEdgesChange, setEdges, push]);
+    }, edges));
+  }, [disabled, nodes, edges, setEdges]);
 
   const types = useMemo(() => nodeTypes, []);
   const eTypes = useMemo(() => edgeTypes, []);
@@ -1767,7 +1765,7 @@ const Canvas: React.FC<Props> = ({ metadata, value, onChange, disabled }) => {
         nodes={nodes}
         edges={edges}
         onNodesChange={disabled ? undefined : onNodesChange}
-        onEdgesChange={disabled ? undefined : onEdgesChangeTracked}
+        onEdgesChange={disabled ? undefined : onEdgesChange}
         onConnect={onConnect}
         nodeTypes={types}
         edgeTypes={eTypes}
@@ -1808,6 +1806,7 @@ import FlowchartAnswer from '../components/mcq/answers/FlowchartAnswer';
 ```tsx
 {currentQ.question_type === 'sudoku' && (
   <SudokuAnswer
+    key={currentQ.question_id}
     metadata={currentQ.question_metadata}
     value={answers.find(a => a.question_id === currentQ.question_id)?.answer_data}
     onChange={(grid) => setAnswers(prev => {
@@ -1823,6 +1822,7 @@ import FlowchartAnswer from '../components/mcq/answers/FlowchartAnswer';
 
 {currentQ.question_type === 'flowchart' && (
   <FlowchartAnswer
+    key={currentQ.question_id}
     metadata={currentQ.question_metadata}
     value={answers.find(a => a.question_id === currentQ.question_id)?.answer_data}
     onChange={(edges) => setAnswers(prev => {
@@ -1849,6 +1849,8 @@ import FlowchartAnswer from '../components/mcq/answers/FlowchartAnswer';
                 } else if (q.question_type === 'flowchart') {
                     initialAnswers.push({ question_id: q.question_id, answer_data: [] });
 ```
+
+`key={currentQ.question_id}` จำเป็น — มันบังคับให้ React สร้างคอมโพเนนต์ใหม่ตอนเปลี่ยนข้อ บล็อกที่สลับตำแหน่งไว้กับเส้นที่ลากไว้จึงเป็นของข้อนั้นจริง ๆ ไม่ใช่ค้างมาจากข้อก่อน และทำให้ไม่ต้องมี `useEffect` คอยรีเซ็ต state ตาม prop ซึ่งจะรีเซ็ตตำแหน่งที่นักเรียนลากไว้ทุกครั้งที่ parent re-render
 
 `isAnswered` (บรรทัด 361-364) ใช้ได้กับสองชนิดใหม่อยู่แล้ว เพราะ grid เป็น array และ edges เป็น array แต่ซูโดกุที่เริ่มจากโจทย์จะถือว่า "ตอบแล้ว" ทันที ซึ่งถูกต้อง เพราะนักเรียนส่งข้อที่ทำไม่เสร็จมาเก็บคะแนนบางส่วนได้
 
