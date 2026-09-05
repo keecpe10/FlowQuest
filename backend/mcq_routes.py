@@ -623,10 +623,7 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     return {
         'status': user_mission.status,
         'is_passed': is_passed,
-        # total_xp คือ XP ที่ทำได้จริง (Σ xp_awarded) ไม่ใช่ user_mission.score_awarded
-        # เพราะ score_awarded ถูกริบเป็น 0 เมื่อสอบตก (ผูกกับการบันทึกลง ledger)
-        # แต่ตัวเลขที่ให้นักเรียนเห็นต้องสะท้อนคะแนนบางส่วนที่ทำได้จริงเสมอ
-        'total_xp': total_xp,
+        'total_xp': user_mission.score_awarded,
         'correct_answers': correct_answers,
         'total_questions': total_questions
     }

@@ -357,23 +357,42 @@ def test_pass_uses_xp_weight(client, f):
 
 
 def test_partial_credit_counts_toward_passing(client, f):
-    """ซูโดกุที่ทำถูกครึ่งต้องช่วยดันเปอร์เซ็นต์ ไม่ใช่นับเป็นศูนย์"""
+    """คะแนนบางส่วนต้องถ่วง XP ให้ดันเปอร์เซ็นต์ข้ามเกณฑ์ผ่าน ไม่ใช่แค่ไม่ถูกนับเป็นศูนย์
+
+    สองข้อ: ตัวเลือกถูกเต็ม xp=50 + ซูโดกุ xp=50 (มีช่องว่าง 2 ช่องตาม GIVEN_4)
+    เติมถูก 1 จาก 2 ช่อง -> grade_answer ให้ (1*50 + 2//2)//2 = 25 จาก 50
+    รวม 50+25 = 75 จาก 100 = 75% >= เกณฑ์ผ่าน 70% -> ต้องผ่าน
+
+    สูตรเดิม (นับข้อที่ถูกทั้งข้อ/จำนวนข้อ): ข้อซูโดกุ earned(1) != total(2) จึงไม่ถูกทั้งข้อ
+    เหลือแค่ข้อตัวเลือก 1 ข้อถูกจาก 2 ข้อ = 50% < 70% -> ตก
+    สองสูตรขัดกันจริงในเคสนี้ ต่างจากเคสเดิมที่ผ่าน/ตกเหมือนกันทั้งสองสูตร
+    """
     clear_questions(f)
     clear_answers(f)
-    client.post(q_url(f), json=puzzle_question('sudoku', sudoku_meta(), xp=100),
+    client.post(q_url(f), json=mc_question('ข้อถูกเต็ม', xp=50),
                 headers=auth(f['teacher_token']))
-    qid = MCQQuestion.query.filter_by(
-        mission_id=f['mission'].mission_id).first().question_id
+    client.post(q_url(f), json=puzzle_question('sudoku', sudoku_meta(), xp=50),
+                headers=auth(f['teacher_token']))
+    qs = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).order_by(MCQQuestion.order_index).all()
+    mc_q, sudoku_q = qs[0], qs[1]
+
+    correct_choice = MCQChoice.query.filter_by(
+        question_id=mc_q.question_id, is_correct=True).first()
+    client.post(single_url(f), json={
+        'answer': {'question_id': mc_q.question_id, 'choice_id': correct_choice.choice_id},
+    }, headers=auth(f['student_token']))
 
     grid = [row[:] for row in GIVEN_4]
-    grid[3][2] = SOLUTION_4[3][2]      # ถูก 1 จาก 2 ช่อง = 50 จาก 100
+    grid[3][2] = SOLUTION_4[3][2]      # เติมถูก 1 จาก 2 ช่องว่าง
     client.post(single_url(f), json={
-        'answer': {'question_id': qid, 'answer_data': grid},
+        'answer': {'question_id': sudoku_q.question_id, 'answer_data': grid},
     }, headers=auth(f['student_token']))
+
     res = client.post(complete_url(f), json={}, headers=auth(f['student_token']))
     body = res.get_json()
-    check('ทำถูกครึ่งได้ 50% จึงไม่ผ่านเกณฑ์ 70%', body['status'] == 'failed')
-    check('แต่ยังได้ XP บางส่วนบันทึกไว้', body['total_xp'] == 50)
+    check('75% จาก XP ถ่วงน้ำหนักผ่านเกณฑ์ 70% (สูตรเดิม 50% จะตก)',
+          body['status'] == 'completed')
 
 
 def main():
