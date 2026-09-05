@@ -339,6 +339,8 @@ const GameView = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [startedAt, setStartedAt] = React.useState<string | null>(null);
+  const [missionTitle, setMissionTitle] = React.useState('');
+  const [missionDescription, setMissionDescription] = React.useState('');
 
   React.useEffect(() => {
     if (id && user && token) {
@@ -349,6 +351,8 @@ const GameView = () => {
         if (res.data.started_at) {
           setStartedAt(res.data.started_at);
         }
+        setMissionTitle(res.data.title || '');
+        setMissionDescription(res.data.description || '');
       })
       .catch((error) => {
         if (handleMissionAccessError(error, navigate)) return;
@@ -368,7 +372,7 @@ const GameView = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-white leading-none">FlowQuest</h1>
+            <h1 className="text-base font-bold text-white leading-none">{missionTitle || 'FlowQuest'}</h1>
             <p className="text-xs text-slate-500 mt-0.5">สร้างผังงานให้ถูกต้อง</p>
           </div>
         </div>
@@ -386,7 +390,22 @@ const GameView = () => {
           <FlowBuilder />
         </div>
         <div className="w-72 h-full flex flex-col gap-4">
-          <Leaderboard />
+          {missionDescription && (
+            <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-white/20 p-5 flex flex-col flex-shrink-0 max-h-[45%]">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="bg-violet-100 p-2 rounded-xl text-violet-600">
+                  <BookOpen size={18} />
+                </div>
+                <h2 className="text-lg font-bold text-slate-800 tracking-tight">โจทย์ของด่าน</h2>
+              </div>
+              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap overflow-y-auto min-h-0 custom-scrollbar pr-2">
+                {missionDescription}
+              </p>
+            </div>
+          )}
+          <div className="flex-1 min-h-0">
+            <Leaderboard />
+          </div>
         </div>
       </main>
     </div>
