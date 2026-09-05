@@ -266,6 +266,9 @@ class MCQQuestion(db.Model):
     xp_points = db.Column(db.Integer, default=10)
     order_index = db.Column(db.Integer, default=0)
     explanation = db.Column(db.Text, nullable=True)
+    # ข้อที่ครูยังกรอกไม่ครบ นักเรียนไม่เห็นและไม่ถูกนับเป็นคะแนนเต็ม
+    # backend คำนวณเองทุกครั้งที่เขียน ดู compute_is_draft ใน mcq_routes.py
+    is_draft = db.Column(db.Boolean, nullable=False, server_default='false', default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     mission = db.relationship('Mission', backref=db.backref('mcq_questions', cascade='all, delete-orphan', lazy=True))

@@ -173,6 +173,68 @@ def normalize_content(raw, where):
     return doc, plain_text or IMAGE_ONLY_TEXT
 
 
+def _has_content(doc, legacy_text):
+    """โจทย์หรือตัวเลือกนี้มีอะไรให้นักเรียนอ่านหรือยัง
+
+    normalize_content คืน doc เป็น None เมื่อเนื้อหาว่างทั้งหมด (ไม่มีทั้งข้อความ
+    และรูป) การมี doc จึงแปลว่ามีเนื้อหาแน่นอน ส่วนข้อเก่าที่ยังไม่ได้ใช้ rich text
+    ให้ดูจากฟิลด์ข้อความเดิม
+    """
+    return doc is not None or bool((legacy_text or '').strip())
+
+
+def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, choices):
+    """ข้อนี้ยังกรอกไม่ครบหรือเปล่า
+
+    เกณฑ์ตรงกับ validateQuestion ฝั่งหน้าเว็บ แต่ที่นี่เป็นตัวตัดสินจริง เพราะเป็น
+    ตัวกำหนดว่านักเรียนจะเห็นข้อนี้หรือไม่ ค่าที่ client ส่งมาถูกเพิกเฉยเสมอ
+
+    choices: list ของ (doc, legacy_text, is_correct)
+    """
+    if not _has_content(q_doc, q_legacy_text):
+        return True
+    if not xp_points or xp_points < 1:
+        return True
+
+    meta = metadata or {}
+
+    if question_type in ('multiple_choice', 'true_false'):
+        if not choices:
+            return True
+        if not all(_has_content(d, t) for d, t, _ in choices):
+            return True
+        if sum(1 for _, _, correct in choices if correct) != 1:
+            return True
+    elif question_type == 'fill_blank':
+        if not (meta.get('correct_text') or '').strip():
+            return True
+    elif question_type == 'matching':
+        pairs = meta.get('pairs') or []
+        if len(pairs) < 2:
+            return True
+        if not all((p or {}).get('left', '').strip() and (p or {}).get('right', '').strip()
+                   for p in pairs):
+            return True
+    elif question_type == 'categorize':
+        categories = meta.get('categories') or []
+        items = meta.get('items') or []
+        if len(categories) < 2 or not all((c or '').strip() for c in categories):
+            return True
+        if len(items) < 2:
+            return True
+        if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
+                   for i in items):
+            return True
+
+    return False
+
+
+def _draft_choice_tuples(c_normalized, choices_data):
+    """รวมผลจาก normalize_content กับ payload ดิบ ให้อยู่ในรูปที่ compute_is_draft รับ"""
+    return [(c_doc, c_data.get('choice_text'), bool(c_data.get('is_correct')))
+            for (c_doc, _), c_data in zip(c_normalized, choices_data)]
+
+
 # เผื่อเวลาให้ 5 วินาที สำหรับ network lag ตอนกดส่งพอดีเส้นตาย
 DEADLINE_GRACE_SECONDS = 5
 
@@ -465,7 +527,13 @@ def update_mcq_questions(mission_id):
             content_blocks=q_doc,
             xp_points=q_data.get('xp_points', 10),
             order_index=idx,
-            explanation=q_data.get('explanation')
+            explanation=q_data.get('explanation'),
+            is_draft=compute_is_draft(
+                q_data.get('question_type', 'multiple_choice'),
+                q_doc, q_data.get('question_text'), q_data.get('question_metadata'),
+                q_data.get('xp_points', 10),
+                _draft_choice_tuples(c_normalized, q_data.get('choices', [])),
+            ),
         )
         db.session.add(new_q)
         db.session.flush() # get question_id
