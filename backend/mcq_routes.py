@@ -6,6 +6,7 @@ from models import Mission, UserMission, User, PointHistory, MCQQuestion, MCQCho
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
 import random
 from sudoku_solver import count_solutions
+from engine import flowchart_score, sudoku_score
 
 mcq_bp = Blueprint('mcq', __name__, url_prefix='/api/v1/mcq')
 
@@ -243,6 +244,62 @@ def live_questions(mission_id):
     filter_by(is_draft=False) เองอีก เพื่อให้กฎนี้อยู่ที่เดียว
     """
     return MCQQuestion.query.filter_by(mission_id=mission_id, is_draft=False)
+
+
+def grade_answer(question, choice_id, answer_data):
+    """ตรวจคำตอบหนึ่งข้อ คืน (is_correct, xp_awarded, correct_choice_id)
+
+    ที่เดียวของทั้งระบบ — submit_mcq กับ submit_mcq_single เรียกตัวนี้ทั้งคู่
+    ชนิดคำถามใหม่จึงเสียบที่นี่ที่เดียว
+
+    ทุกชนิดคืนคะแนนเป็นคู่จำนวนเต็ม (ถูก, เต็ม) ชนิดที่ตัดสินถูก/ผิดล้วน
+    ใช้ (1, 1) หรือ (0, 1)
+    """
+    meta = question.question_metadata or {}
+    qt = question.question_type
+    correct_choice_id = None
+
+    if qt in ('multiple_choice', 'true_false'):
+        choice = MCQChoice.query.get(choice_id) if choice_id else None
+        correct = MCQChoice.query.filter_by(
+            question_id=question.question_id, is_correct=True).first()
+        correct_choice_id = correct.choice_id if correct else None
+        earned, total = (1 if (choice and choice.is_correct) else 0), 1
+
+    elif qt == 'fill_blank':
+        want = str(meta.get('correct_text', '')).strip().lower()
+        got = str(answer_data).strip().lower() if answer_data else ''
+        earned, total = (1 if want == got else 0), 1
+
+    elif qt == 'matching':
+        pairs = meta.get('pairs', [])
+        ok = isinstance(answer_data, list) and len(answer_data) == len(pairs) \
+            and all(p in answer_data for p in pairs)
+        earned, total = (1 if ok else 0), 1
+
+    elif qt == 'categorize':
+        items = meta.get('items', [])
+        ok = isinstance(answer_data, dict) and len(answer_data) == len(items) \
+            and all(answer_data.get(i.get('text')) == i.get('category') for i in items)
+        earned, total = (1 if ok else 0), 1
+
+    elif qt == 'sudoku':
+        earned, total = sudoku_score(meta, answer_data)
+
+    elif qt == 'flowchart':
+        earned, total = flowchart_score(meta.get('edges') or [], answer_data)
+
+    else:
+        earned, total = 0, 1
+
+    xp_points = question.xp_points or 0
+    if total <= 0:
+        return False, 0, correct_choice_id
+
+    # ปัดครึ่งขึ้นด้วยเลขจำนวนเต็มล้วน และตัดสินถูกทั้งข้อจากการเทียบจำนวนเต็ม
+    # ไม่ใช่ ratio == 1.0 เพราะการหารทศนิยมให้ค่าอย่าง 0.9999999 ได้
+    xp_awarded = (earned * xp_points + total // 2) // total
+    return earned == total, xp_awarded, correct_choice_id
 
 
 # ---- โจทย์ซูโดกุ/ผังงานที่ฝังอยู่ในข้อสอบ ----
@@ -1043,49 +1100,8 @@ def submit_mcq(mission_id):
         if not question or question.mission_id != mission_id or question.is_draft:
             continue
             
-        is_correct = False
-        correct_choice_id = None
-        
-        if question.question_type in ['multiple_choice', 'true_false']:
-            choice = MCQChoice.query.get(c_id) if c_id else None
-            is_correct = choice.is_correct if choice else False
-            correct_choice = MCQChoice.query.filter_by(question_id=q_id, is_correct=True).first()
-            correct_choice_id = correct_choice.choice_id if correct_choice else None
-            
-        elif question.question_type == 'fill_blank':
-            metadata = question.question_metadata or {}
-            correct_text = str(metadata.get('correct_text', '')).strip().lower()
-            user_text = str(answer_data).strip().lower() if answer_data else ''
-            is_correct = (correct_text == user_text)
-            
-        elif question.question_type == 'matching':
-            metadata = question.question_metadata or {}
-            correct_pairs = metadata.get('pairs', [])
-            # answer_data format: [{"left": "A", "right": "B"}, ...]
-            if isinstance(answer_data, list) and len(answer_data) == len(correct_pairs):
-                is_correct = True
-                for p in correct_pairs:
-                    if p not in answer_data:
-                        is_correct = False
-                        break
-            
-        elif question.question_type == 'categorize':
-            metadata = question.question_metadata or {}
-            correct_items = metadata.get('items', [])
-            # answer_data format: { "Apple": "Fruit", "Dog": "Animal" }
-            is_correct = True
-            if not isinstance(answer_data, dict) or len(answer_data) != len(correct_items):
-                is_correct = False
-            else:
-                for item in correct_items:
-                    text = item.get('text')
-                    correct_cat = item.get('category')
-                    if answer_data.get(text) != correct_cat:
-                        is_correct = False
-                        break
-            
-        xp_awarded = question.xp_points if is_correct else 0
-        
+        is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
+
         user_ans = MCQUserAnswer(
             user_mission_id=user_mission.user_mission_id,
             question_id=q_id,
@@ -1301,50 +1317,10 @@ def submit_mcq_single(mission_id):
     if existing_ans:
         return jsonify({'error': 'Question already answered'}), 400
         
-    is_correct = False
-    correct_choice_id = None
-    
-    if question.question_type in ['multiple_choice', 'true_false']:
-        choice = MCQChoice.query.get(c_id) if c_id else None
-        is_correct = choice.is_correct if choice else False
-        correct_choice = MCQChoice.query.filter_by(question_id=q_id, is_correct=True).first()
-        correct_choice_id = correct_choice.choice_id if correct_choice else None
-        
-    elif question.question_type == 'fill_blank':
-        metadata = question.question_metadata or {}
-        correct_text = str(metadata.get('correct_text', '')).strip().lower()
-        user_text = str(answer_data).strip().lower() if answer_data else ''
-        is_correct = (correct_text == user_text)
-        
-    elif question.question_type == 'matching':
-        metadata = question.question_metadata or {}
-        correct_pairs = metadata.get('pairs', [])
-        if isinstance(answer_data, list) and len(answer_data) == len(correct_pairs):
-            is_correct = True
-            for p in correct_pairs:
-                if p not in answer_data:
-                    is_correct = False
-                    break
-        
-    elif question.question_type == 'categorize':
-        metadata = question.question_metadata or {}
-        correct_items = metadata.get('items', [])
-        is_correct = True
-        if not isinstance(answer_data, dict) or len(answer_data) != len(correct_items):
-            is_correct = False
-        else:
-            for item in correct_items:
-                text = item.get('text')
-                correct_cat = item.get('category')
-                if answer_data.get(text) != correct_cat:
-                    is_correct = False
-                    break
-        
-    # Calculate XP (proportional based on mission total points)
+    is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
+
     total_questions = live_questions(mission_id).count()
-    points_per_q = int(mission.points / total_questions) if total_questions > 0 else question.xp_points
-    xp_awarded = points_per_q if is_correct else 0
-    
+
     user_ans = MCQUserAnswer(
         user_mission_id=user_mission.user_mission_id,
         question_id=q_id,
