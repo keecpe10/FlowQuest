@@ -226,6 +226,12 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
         if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
                    for i in items):
             return True
+    elif question_type == 'sudoku':
+        if not sudoku_meta_complete(meta):
+            return True
+    elif question_type == 'flowchart':
+        if not flowchart_meta_complete(meta):
+            return True
 
     return False
 
@@ -663,37 +669,28 @@ def update_mcq_questions(mission_id):
     data = request.get_json()
     questions_data = data.get('questions', [])
 
-    # ตรวจ content_blocks ให้ครบทุกข้อก่อนแตะฐานข้อมูล เพราะขั้นต่อไปลบคำถามเดิม
-    # ทั้งชุดทิ้ง ถ้าไปล้มกลางทางแล้ว commit ข้อสอบทั้งด่านจะหาย
+    # ตรวจ content_blocks และโจทย์ปริศนาให้ครบทุกข้อก่อนแตะฐานข้อมูล เพราะขั้นต่อไป
+    # ลบคำถามเดิมทั้งชุดทิ้ง ถ้าไปล้มกลางทางแล้ว commit ข้อสอบทั้งด่านจะหาย
     try:
-        normalized = []
-        for idx, q_data in enumerate(questions_data):
-            q_doc, q_text = normalize_content(
-                q_data.get('content_blocks'), f'คำถามข้อที่ {idx + 1}'
-            )
-            c_normalized = []
-            for c_idx, c_data in enumerate(q_data.get('choices', [])):
-                c_doc, c_text = normalize_content(
-                    c_data.get('content_blocks'),
-                    f'คำถามข้อที่ {idx + 1} ตัวเลือกที่ {c_idx + 1}',
-                )
-                c_normalized.append((c_doc, c_text))
-            normalized.append((q_doc, q_text, c_normalized))
+        normalized = [
+            _normalize_question(q_data, f'คำถามข้อที่ {idx + 1}')
+            for idx, q_data in enumerate(questions_data)
+        ]
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
     # Delete existing questions and choices (cascade will handle choices)
     MCQQuestion.query.filter_by(mission_id=mission_id).delete()
-    
+
     for idx, q_data in enumerate(questions_data):
-        q_doc, q_text, c_normalized = normalized[idx]
+        q_doc, q_text, c_normalized, meta = normalized[idx]
         new_q = MCQQuestion(
             mission_id=mission_id,
             # ใช้บล็อกเป็นแหล่งความจริงถ้ามี แล้ว derive ข้อความให้สถิติรายข้อ
             # กับ prompt ของ Gemini อ่านต่อได้เหมือนเดิม
             question_text=q_text if q_doc else q_data.get('question_text', ''),
             question_type=q_data.get('question_type', 'multiple_choice'),
-            question_metadata=q_data.get('question_metadata'),
+            question_metadata=meta,
             image_url=None if q_doc else q_data.get('image_url'),
             content_blocks=q_doc,
             xp_points=q_data.get('xp_points', 10),
@@ -701,7 +698,7 @@ def update_mcq_questions(mission_id):
             explanation=q_data.get('explanation'),
             is_draft=compute_is_draft(
                 q_data.get('question_type', 'multiple_choice'),
-                q_doc, q_data.get('question_text'), q_data.get('question_metadata'),
+                q_doc, q_data.get('question_text'), meta,
                 q_data.get('xp_points', 10),
                 _draft_choice_tuples(c_normalized, q_data.get('choices', [])),
             ),
@@ -749,14 +746,17 @@ def _teacher_mission(mission_id):
 
 
 def _normalize_question(q_data, where='คำถาม'):
-    """ตรวจเนื้อหาของคำถามและตัวเลือกทั้งหมดก่อนแตะฐานข้อมูล"""
+    """ตรวจเนื้อหาและโจทย์ของคำถามทั้งหมดก่อนแตะฐานข้อมูล"""
     q_doc, q_text = normalize_content(q_data.get('content_blocks'), where)
     c_normalized = []
     for c_idx, c_data in enumerate(q_data.get('choices', [])):
         c_doc, c_text = normalize_content(
             c_data.get('content_blocks'), f'{where} ตัวเลือกที่ {c_idx + 1}')
         c_normalized.append((c_doc, c_text))
-    return q_doc, q_text, c_normalized
+    meta = clean_puzzle_metadata(
+        q_data.get('question_type', 'multiple_choice'),
+        q_data.get('question_metadata'), where)
+    return q_doc, q_text, c_normalized, meta
 
 
 def _question_json(q):
@@ -784,12 +784,12 @@ def _question_json(q):
     }
 
 
-def _write_question(q, q_data, q_doc, q_text, c_normalized):
+def _write_question(q, q_data, q_doc, q_text, c_normalized, meta):
     """เขียนค่าจาก payload ลงคำถาม (ยังไม่ commit) และคำนวณสถานะร่างให้เอง"""
     choices_data = q_data.get('choices', [])
     q.question_text = q_text if q_doc else q_data.get('question_text', '')
     q.question_type = q_data.get('question_type', 'multiple_choice')
-    q.question_metadata = q_data.get('question_metadata')
+    q.question_metadata = meta
     q.image_url = None if q_doc else q_data.get('image_url')
     q.content_blocks = q_doc
     q.xp_points = q_data.get('xp_points', 10)
@@ -836,7 +836,7 @@ def create_mcq_question(mission_id):
 
     q_data = request.get_json() or {}
     try:
-        q_doc, q_text, c_normalized = _normalize_question(q_data)
+        q_doc, q_text, c_normalized, meta = _normalize_question(q_data)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
@@ -844,7 +844,7 @@ def create_mcq_question(mission_id):
         MCQQuestion.order_index.desc()).first()
     new_q = MCQQuestion(mission_id=mission_id, question_text='',
                         order_index=(last.order_index + 1) if last else 0)
-    _write_question(new_q, q_data, q_doc, q_text, c_normalized)
+    _write_question(new_q, q_data, q_doc, q_text, c_normalized, meta)
     db.session.add(new_q)
     db.session.flush()
 
@@ -876,11 +876,11 @@ def update_mcq_question(mission_id, question_id):
 
     q_data = request.get_json() or {}
     try:
-        q_doc, q_text, c_normalized = _normalize_question(q_data)
+        q_doc, q_text, c_normalized, meta = _normalize_question(q_data)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
-    _write_question(question, q_data, q_doc, q_text, c_normalized)
+    _write_question(question, q_data, q_doc, q_text, c_normalized, meta)
     _sync_choices(question, q_data.get('choices', []), c_normalized)
 
     db.session.commit()

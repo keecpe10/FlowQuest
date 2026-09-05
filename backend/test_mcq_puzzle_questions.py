@@ -3,8 +3,14 @@
 รัน: docker compose exec backend python test_mcq_puzzle_questions.py
 """
 import sys
+import uuid
+from werkzeug.security import generate_password_hash
 
-from app import create_app
+from app import create_app, db
+from models import (
+    User, Role, Course, CourseEnrollment, Mission, UserMission, MCQQuestion,
+)
+from routes import generate_token
 from mcq_routes import clean_puzzle_metadata
 
 FAILURES = []
@@ -25,6 +31,100 @@ def raises(fn):
         return False
     except ValueError:
         return True
+
+
+def _get_or_create_role(name):
+    role = Role.query.filter_by(role_name=name).first()
+    if not role:
+        role = Role(role_name=name)
+        db.session.add(role)
+        db.session.commit()
+    return role
+
+
+def setup_fixtures():
+    """ครู นักเรียน รายวิชา และด่าน mcq เปล่า ๆ หนึ่งด่าน"""
+    suffix = uuid.uuid4().hex[:8]
+    teacher_role = _get_or_create_role('teacher')
+    student_role = _get_or_create_role('student')
+
+    committed = []
+    try:
+        teacher = User(
+            username=f'pzl_teacher_{suffix}',
+            password_hash=generate_password_hash('x'),
+            role_id=teacher_role.role_id,
+            first_name='Puzzle', last_name='Teacher',
+        )
+        student = User(
+            username=f'pzl_student_{suffix}',
+            password_hash=generate_password_hash('x'),
+            role_id=student_role.role_id,
+            first_name='Puzzle', last_name='Student',
+        )
+        db.session.add_all([teacher, student])
+        db.session.commit()
+        committed.extend([teacher, student])
+
+        course = Course(course_name=f'Puzzle Course {suffix}', teacher_id=teacher.user_id)
+        db.session.add(course)
+        db.session.commit()
+        committed.append(course)
+
+        db.session.add(CourseEnrollment(course_id=course.course_id, user_id=student.user_id))
+
+        mission = Mission(
+            course_id=course.course_id, title='ด่าน MCQ ปริศนา', mission_type='mcq',
+            points=100, difficulty_level=1, order_index=0, is_active=True,
+            passing_percentage=70, max_attempts=0,
+        )
+        db.session.add(mission)
+        db.session.commit()
+
+        return {
+            'teacher': teacher, 'student': student, 'course': course, 'mission': mission,
+            'teacher_token': generate_token(teacher.user_id),
+            'student_token': generate_token(student.user_id),
+        }
+    except Exception:
+        for obj in reversed(committed):
+            db.session.delete(obj)
+        db.session.commit()
+        raise
+
+
+def teardown_fixtures(f):
+    UserMission.query.filter_by(mission_id=f['mission'].mission_id).delete(
+        synchronize_session=False
+    )
+    db.session.delete(f['course'])
+    db.session.delete(f['student'])
+    db.session.delete(f['teacher'])
+    db.session.commit()
+
+
+def clear_questions(f):
+    """ล้างคำถามของด่านทดสอบ ให้แต่ละเคสเริ่มจากศูนย์"""
+    MCQQuestion.query.filter_by(mission_id=f['mission'].mission_id).delete(
+        synchronize_session=False
+    )
+    db.session.commit()
+
+
+def auth(token):
+    return {'Authorization': f'Bearer {token}'}
+
+
+def doc(*inline):
+    """เอกสารย่อหน้าเดียวจากโหนด inline ที่ส่งเข้ามา"""
+    return {'type': 'doc', 'content': [{'type': 'paragraph', 'content': list(inline)}]}
+
+
+def txt(s, *marks):
+    node = {'type': 'text', 'text': s}
+    if marks:
+        node['marks'] = [{'type': m} for m in marks]
+    return node
 
 
 # ปริศนา 4x4 ที่มีคำตอบเดียว
@@ -61,6 +161,24 @@ def flow_meta(**over):
     }
     meta.update(over)
     return meta
+
+
+def q_url(f):
+    return f"/api/v1/mcq/{f['mission'].mission_id}/questions"
+
+
+def puzzle_question(qtype, meta, xp=10):
+    return {
+        'content_blocks': doc(txt('ทำโจทย์นี้')),
+        'question_type': qtype,
+        'question_metadata': meta,
+        'xp_points': xp,
+        'choices': [],
+    }
+
+
+def rows_count(f):
+    return MCQQuestion.query.filter_by(mission_id=f['mission'].mission_id).count()
 
 
 def test_sudoku_metadata_accepts_valid():
@@ -177,6 +295,40 @@ def test_other_types_untouched():
     check('ชนิดอื่นไม่ถูกแตะ', clean_puzzle_metadata('matching', meta, 'คำถาม') == meta)
 
 
+def test_draft_rules(client, f):
+    """โจทย์ครบ = ข้อจริง · โจทย์ไม่ครบ = ข้อร่าง"""
+    clear_questions(f)
+    res = client.post(q_url(f), json=puzzle_question('sudoku', sudoku_meta()),
+                      headers=auth(f['teacher_token']))
+    check('สร้างข้อซูโดกุได้', res.status_code == 201)
+    check('ซูโดกุครบไม่เป็นร่าง', res.get_json()['is_draft'] is False)
+
+    res = client.post(q_url(f), json=puzzle_question(
+        'sudoku', sudoku_meta(given_grid=[row[:] for row in SOLUTION_4])),
+        headers=auth(f['teacher_token']))
+    check('ซูโดกุที่ไม่มีช่องว่างเป็นร่าง', res.get_json()['is_draft'] is True)
+
+    res = client.post(q_url(f), json=puzzle_question('flowchart', flow_meta()),
+                      headers=auth(f['teacher_token']))
+    check('ผังงานครบไม่เป็นร่าง', res.get_json()['is_draft'] is False)
+
+    res = client.post(q_url(f), json=puzzle_question(
+        'flowchart', flow_meta(edges=[])), headers=auth(f['teacher_token']))
+    check('ผังงานไม่มีเส้นเป็นร่าง', res.get_json()['is_draft'] is True)
+
+
+def test_bad_metadata_rejected_by_api(client, f):
+    clear_questions(f)
+    res = client.post(q_url(f), json=puzzle_question(
+        'sudoku', sudoku_meta(render_mode='emoji')), headers=auth(f['teacher_token']))
+    check('metadata พังถูกปฏิเสธที่ POST', res.status_code == 400)
+
+    res = client.put(q_url(f), json={'questions': [puzzle_question(
+        'sudoku', sudoku_meta(render_mode='emoji'))]}, headers=auth(f['teacher_token']))
+    check('metadata พังถูกปฏิเสธที่ PUT ทั้งชุด', res.status_code == 400)
+    check('ปฏิเสธแล้วไม่มีข้อถูกเขียน', rows_count(f) == 0)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -188,6 +340,16 @@ def main():
         test_sudoku_rectangular_box_shape()
         test_flowchart_metadata()
         test_other_types_untouched()
+
+        client = app.test_client()
+        f = setup_fixtures()
+        try:
+            test_draft_rules(client, f)
+            test_bad_metadata_rejected_by_api(client, f)
+        finally:
+            db.session.rollback()
+            clear_questions(f)
+            teardown_fixtures(f)
 
     print()
     if FAILURES:
