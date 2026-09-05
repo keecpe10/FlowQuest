@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { Plus, Save, Trash2, CheckCircle, AlertTriangle } from 'lucide-react';
 import RichContentEditor from './RichContentEditor';
 import { EMPTY_DOC, type RichDoc } from './blocks';
+import SudokuQuestionEditor, { emptySudokuMeta } from './editors/SudokuQuestionEditor';
 
 export interface Choice {
   choice_id?: number;
@@ -47,7 +48,9 @@ const emptyChoice = (is_correct: boolean): Choice => ({
 
 /** ตั้งค่าเริ่มต้นของแต่ละชนิดข้อ ตอนครูสลับชนิด */
 const withQuestionType = (q: Question, type: string): Question => {
-  const base: Question = { ...q, question_type: type, question_metadata: {} };
+  const startingMetadata = (type: string) =>
+    type === 'sudoku' ? emptySudokuMeta() : {};
+  const base: Question = { ...q, question_type: type, question_metadata: startingMetadata(type) };
 
   if (type === 'multiple_choice') {
     return { ...base, choices: [true, false, false, false].map(emptyChoice) };
@@ -169,6 +172,7 @@ export default function QuestionForm({
             <option value="fill_blank">เติมคำในช่องว่าง</option>
             <option value="matching">โยงเส้นจับคู่</option>
             <option value="categorize">ลากจัดหมวดหมู่</option>
+            <option value="sudoku">เติมซูโดกุ</option>
           </select>
 
           {onDelete && (
@@ -393,6 +397,16 @@ export default function QuestionForm({
                 <Plus size={16} /> เพิ่มรายการ
               </button>
             </div>
+          )}
+
+          {question.question_type === 'sudoku' && (
+            <>
+              <label className="block text-sm font-bold text-slate-700 mb-3">โจทย์ซูโดกุ</label>
+              <SudokuQuestionEditor
+                metadata={question.question_metadata}
+                onChange={(meta) => set({ question_metadata: meta })}
+              />
+            </>
           )}
 
         </div>
