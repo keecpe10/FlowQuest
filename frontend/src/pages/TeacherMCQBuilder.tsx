@@ -3,14 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, Plus, Save, Trash2, CheckCircle } from 'lucide-react';
-import ContentBlockEditor from '../components/mcq/ContentBlockEditor';
-import { toBlocks, type ContentBlock } from '../components/mcq/blocks';
+import { ArrowLeft, Plus, Save, Trash2, CheckCircle, AlertTriangle } from 'lucide-react';
+import RichContentEditor from '../components/mcq/RichContentEditor';
+import { toDoc, isDocEmpty, EMPTY_DOC, type RichDoc } from '../components/mcq/blocks';
 
 interface Choice {
   choice_text: string;
   image_url?: string;
-  content_blocks?: ContentBlock[];
+  content_blocks?: RichDoc;
   is_correct: boolean;
 }
 
@@ -19,15 +19,67 @@ interface Question {
   question_type: string;
   question_metadata: any;
   image_url?: string;
-  content_blocks?: ContentBlock[];
+  content_blocks?: RichDoc;
   xp_points: number;
   explanation?: string;
   choices: Choice[];
 }
 
 /** ข้อนี้มีเนื้อหาให้นักเรียนอ่านหรือยัง (ข้อความที่ไม่ว่าง หรือมีรูป) */
-const hasContent = (blocks?: ContentBlock[]) =>
-  (blocks || []).some((b) => (b.type === 'text' ? b.value.trim() !== '' : true));
+const hasContent = (doc?: RichDoc) => !isDocEmpty(doc);
+
+/** ตัวเลือกนี้กรอกแล้วหรือยัง — multiple_choice ใช้ตัวแก้ไขเนื้อหา ชนิดอื่นใช้ช่องข้อความ */
+const choiceFilled = (c: Choice) =>
+  c.content_blocks ? hasContent(c.content_blocks) : !!(c.choice_text || '').trim();
+
+/**
+ * ตรวจความเรียบร้อยของข้อสอบทั้งชุด
+ *
+ * เก็บปัญหาทุกข้อที่เจอ ไม่หยุดที่ข้อแรก ครูจะได้เห็นทั้งหมดในครั้งเดียวและแก้รวดเดียวจบ
+ * แทนที่จะกดบันทึกแล้วโดนเตือนทีละเรื่อง
+ */
+const validateQuestions = (questions: Question[]): Record<number, string[]> => {
+  const problems: Record<number, string[]> = {};
+  const add = (qIndex: number, message: string) => {
+    (problems[qIndex] ||= []).push(message);
+  };
+
+  questions.forEach((q, i) => {
+    if (!hasContent(q.content_blocks)) add(i, 'ยังไม่ได้กรอกคำถาม');
+
+    if (['multiple_choice', 'true_false'].includes(q.question_type)) {
+      const blank = q.choices
+        .map((c, ci) => (choiceFilled(c) ? -1 : ci + 1))
+        .filter((n) => n > 0);
+      if (blank.length) add(i, `ยังไม่ได้กรอกตัวเลือกที่ ${blank.join(', ')}`);
+
+      const correct = q.choices.filter((c) => c.is_correct);
+      if (correct.length === 0) add(i, 'ยังไม่ได้เลือกคำตอบที่ถูกต้อง');
+      else if (!choiceFilled(correct[0])) add(i, 'ตัวเลือกที่ทำเครื่องหมายว่าถูกยังว่างอยู่');
+    } else if (q.question_type === 'fill_blank') {
+      if (!q.question_metadata?.correct_text?.trim()) add(i, 'ยังไม่ได้ระบุคำตอบที่ถูกต้อง');
+    } else if (q.question_type === 'matching') {
+      const pairs = q.question_metadata?.pairs || [];
+      if (pairs.length < 2) add(i, 'ต้องมีคู่จับคู่อย่างน้อย 2 คู่');
+      const incomplete = pairs
+        .map((p: any, pi: number) => (p?.left?.trim() && p?.right?.trim() ? -1 : pi + 1))
+        .filter((n: number) => n > 0);
+      if (incomplete.length) add(i, `คู่ที่ ${incomplete.join(', ')} ยังกรอกไม่ครบทั้งสองฝั่ง`);
+    } else if (q.question_type === 'categorize') {
+      const categories = q.question_metadata?.categories || [];
+      const items = q.question_metadata?.items || [];
+      if (categories.length < 2) add(i, 'ต้องมีหมวดหมู่อย่างน้อย 2 หมวดหมู่');
+      if (categories.some((c: string) => !c?.trim())) add(i, 'มีหมวดหมู่ที่ยังไม่ได้ตั้งชื่อ');
+      if (items.length < 2) add(i, 'ต้องมีรายการให้จัดหมวดหมู่อย่างน้อย 2 รายการ');
+      if (items.some((it: any) => !it?.text?.trim())) add(i, 'มีรายการที่ยังไม่ได้กรอกข้อความ');
+      if (items.some((it: any) => !it?.category)) add(i, 'มีรายการที่ยังไม่ได้ระบุหมวดหมู่');
+    }
+
+    if (!q.xp_points || q.xp_points < 1) add(i, 'คะแนน XP ต้องมากกว่า 0');
+  });
+
+  return problems;
+};
 
 const TeacherMCQBuilder = () => {
   const { id } = useParams<{ id: string }>();
@@ -37,6 +89,11 @@ const TeacherMCQBuilder = () => {
   const [saving, setSaving] = useState(false);
   
   const [questions, setQuestions] = useState<Question[]>([]);
+  // ปัญหาที่เจอตอนกดบันทึก แยกตามข้อ ใช้ทั้งไฮไลต์การ์ดและแสดงรายการในการ์ด
+  const [problems, setProblems] = useState<Record<number, string[]>>({});
+
+  // ครูแก้อะไรก็ตาม ให้คำเตือนเก่าหายไป จะได้ไม่ค้างอยู่ทั้งที่แก้ไปแล้ว
+  useEffect(() => setProblems({}), [questions]);
   
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -57,15 +114,20 @@ const TeacherMCQBuilder = () => {
               question_type: q.question_type || 'multiple_choice',
               question_metadata: q.question_metadata || {},
               image_url: q.image_url || '',
-              // ข้อเก่าที่ยังไม่มีบล็อก ถูกแปลงเป็น [รูป, ข้อความ] ตามลำดับที่เคยแสดงผล
-              content_blocks: toBlocks(q.content_blocks, q.question_text, q.image_url),
+              // ข้อเก่าถูกแปลงเป็นเอกสารให้อัตโนมัติ ทั้งแบบลิสต์บล็อกและแบบฟิลด์เดิม
+              content_blocks: toDoc(q.content_blocks, q.question_text, q.image_url),
               xp_points: q.xp_points || 10,
               explanation: q.explanation || '',
               choices: choices
                 .slice(0, q.question_type === 'multiple_choice' ? 4 : (q.question_type === 'true_false' ? 2 : 0))
                 .map((c: any) => ({
                   ...c,
-                  content_blocks: toBlocks(c.content_blocks, c.choice_text, c.image_url),
+                  // เฉพาะ multiple_choice เท่านั้นที่แก้ตัวเลือกด้วยตัวแก้ไขเนื้อหา
+                  // ชนิดอื่นผูกกับ choice_text ถ้าพก content_blocks ไว้ backend จะเลือกใช้
+                  // ตัวหลัง แล้วข้อความที่ครูเพิ่งแก้จะถูกทิ้ง
+                  content_blocks: q.question_type === 'multiple_choice'
+                    ? toDoc(c.content_blocks, c.choice_text, c.image_url)
+                    : undefined,
                 })),
             };
           });
@@ -87,13 +149,13 @@ const TeacherMCQBuilder = () => {
     const emptyChoice = (is_correct: boolean): Choice => ({
       choice_text: '',
       is_correct,
-      content_blocks: [{ type: 'text', value: '' }],
+      content_blocks: EMPTY_DOC,
     });
     setQuestions([...questions, {
       question_text: '',
       question_type: 'multiple_choice',
       question_metadata: {},
-      content_blocks: [{ type: 'text', value: '' }],
+      content_blocks: EMPTY_DOC,
       xp_points: 10,
       explanation: '',
       choices: [emptyChoice(true), emptyChoice(false), emptyChoice(false), emptyChoice(false)]
@@ -101,49 +163,32 @@ const TeacherMCQBuilder = () => {
   };
   
   const handleSave = async () => {
-    // Validate
-    for (let i = 0; i < questions.length; i++) {
-      if (!hasContent(questions[i].content_blocks)) {
-        Swal.fire({ icon: 'warning', text: `กรุณากรอกคำถามข้อที่ ${i+1}` });
-        return;
-      }
-      if (['multiple_choice', 'true_false'].includes(questions[i].question_type)) {
-        const hasCorrect = questions[i].choices.some(c => c.is_correct);
-        if (!hasCorrect) {
-          Swal.fire({ icon: 'warning', text: `กรุณาเลือกคำตอบที่ถูกต้องสำหรับข้อที่ ${i+1}` });
-          return;
-        }
-      } else if (questions[i].question_type === 'fill_blank') {
-          if (!questions[i].question_metadata?.correct_text?.trim()) {
-              Swal.fire({ icon: 'warning', text: `กรุณาระบุคำตอบสำหรับข้อที่ ${i+1}` });
-              return;
-          }
-      } else if (questions[i].question_type === 'matching') {
-          const pairs = questions[i].question_metadata?.pairs || [];
-          if (pairs.length < 2) {
-              Swal.fire({ icon: 'warning', text: `กรุณาเพิ่มคู่อย่างน้อย 2 คู่ สำหรับข้อที่ ${i+1}` });
-              return;
-          }
-      } else if (questions[i].question_type === 'categorize') {
-          const items = questions[i].question_metadata?.items || [];
-          const categories = questions[i].question_metadata?.categories || [];
-          if (categories.length < 2) {
-              Swal.fire({ icon: 'warning', text: `กรุณาเพิ่มหมวดหมู่อย่างน้อย 2 หมวดหมู่ สำหรับข้อที่ ${i+1}` });
-              return;
-          }
-          if (items.length < 2) {
-              Swal.fire({ icon: 'warning', text: `กรุณาเพิ่มรายการจัดหมวดหมู่อย่างน้อย 2 รายการ สำหรับข้อที่ ${i+1}` });
-              return;
-          }
-          for (let item of items) {
-             if (!item.category) {
-                 Swal.fire({ icon: 'warning', text: `กรุณาระบุหมวดหมู่ให้ครบทุกรายการ สำหรับข้อที่ ${i+1}` });
-                 return;
-             }
-          }
-      }
+    if (questions.length === 0) {
+      Swal.fire({ icon: 'warning', text: 'ยังไม่มีคำถาม กรุณาเพิ่มอย่างน้อย 1 ข้อก่อนบันทึก' });
+      return;
     }
-    
+
+    const found = validateQuestions(questions);
+    const badIndexes = Object.keys(found).map(Number).sort((a, b) => a - b);
+    if (badIndexes.length > 0) {
+      setProblems(found);
+      const list = badIndexes
+        .map((i) => `<li style="margin-bottom:6px"><b>ข้อที่ ${i + 1}</b><br/>${found[i].join('<br/>')}</li>`)
+        .join('');
+      Swal.fire({
+        icon: 'warning',
+        title: 'ยังกรอกข้อมูลไม่เรียบร้อย',
+        html: `<ul style="text-align:left;padding-left:20px;margin:0">${list}</ul>`,
+        confirmButtonText: 'ไปแก้ไข',
+      }).then(() => {
+        document
+          .getElementById(`question-card-${badIndexes[0]}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      return;
+    }
+    setProblems({});
+
     setSaving(true);
     try {
       await axios.put(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${id}/questions`, {
@@ -169,7 +214,7 @@ const TeacherMCQBuilder = () => {
       
       if (type === 'multiple_choice') {
           const blank = (is_correct: boolean): Choice => ({
-              choice_text: '', is_correct, content_blocks: [{ type: 'text', value: '' }],
+              choice_text: '', is_correct, content_blocks: EMPTY_DOC,
           });
           newQ[qIndex].choices = [blank(true), blank(false), blank(false), blank(false)];
       } else if (type === 'true_false') {
@@ -216,7 +261,21 @@ const TeacherMCQBuilder = () => {
       
       <div className="max-w-4xl mx-auto px-8 py-8 space-y-8">
         {questions.map((q, qIndex) => (
-          <div key={qIndex} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <div
+            key={qIndex}
+            id={`question-card-${qIndex}`}
+            className={`bg-white rounded-2xl shadow-sm border p-6 transition-colors ${
+              problems[qIndex] ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200'
+            }`}
+          >
+            {problems[qIndex] && (
+              <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
+                <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                <ul className="text-sm text-amber-800 space-y-0.5">
+                  {problems[qIndex].map((msg, i) => <li key={i}>{msg}</li>)}
+                </ul>
+              </div>
+            )}
             <div className="flex items-start justify-between mb-4 pb-4 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center font-bold">
@@ -255,13 +314,13 @@ const TeacherMCQBuilder = () => {
               <div className="flex gap-4">
                 <div className="flex-1 min-w-0">
                   <label className="block text-sm font-bold text-slate-700 mb-1.5">คำถาม</label>
-                  <ContentBlockEditor
+                  <RichContentEditor
                     variant="question"
                     placeholder="พิมพ์คำถามที่นี่..."
-                    blocks={q.content_blocks || []}
-                    onChange={(blocks) => {
+                    doc={q.content_blocks || EMPTY_DOC}
+                    onChange={(doc) => {
                       const newQ = [...questions];
-                      newQ[qIndex].content_blocks = blocks;
+                      newQ[qIndex].content_blocks = doc;
                       setQuestions(newQ);
                     }}
                   />
@@ -304,13 +363,13 @@ const TeacherMCQBuilder = () => {
                             
                             <div className="flex-1 min-w-0 space-y-2">
                                 {q.question_type === 'multiple_choice' ? (
-                                    <ContentBlockEditor
+                                    <RichContentEditor
                                         variant="choice"
                                         placeholder={`ตัวเลือกที่ ${cIndex + 1}`}
-                                        blocks={choice.content_blocks || []}
-                                        onChange={(blocks) => {
+                                        doc={choice.content_blocks || EMPTY_DOC}
+                                        onChange={(doc) => {
                                             const newQ = [...questions];
-                                            newQ[qIndex].choices[cIndex].content_blocks = blocks;
+                                            newQ[qIndex].choices[cIndex].content_blocks = doc;
                                             setQuestions(newQ);
                                         }}
                                     />
@@ -322,6 +381,7 @@ const TeacherMCQBuilder = () => {
                                         onChange={(e) => {
                                             const newQ = [...questions];
                                             newQ[qIndex].choices[cIndex].choice_text = e.target.value;
+                                            newQ[qIndex].choices[cIndex].content_blocks = undefined;
                                             setQuestions(newQ);
                                         }}
                                         placeholder={`ตัวเลือกที่ ${cIndex + 1}`}
@@ -543,6 +603,32 @@ const TeacherMCQBuilder = () => {
         >
           <Plus size={20} /> เพิ่มคำถามใหม่
         </button>
+
+        {/* ปุ่มบันทึกด้านล่าง — ข้อสอบยาว ๆ ครูจะได้ไม่ต้องเลื่อนกลับขึ้นไปหาปุ่มบนหัว */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 pb-4">
+          <p className="text-sm text-slate-500">
+            ทั้งหมด <span className="font-bold text-slate-700">{questions.length}</span> ข้อ
+            {' · '}รวม <span className="font-bold text-slate-700">
+              {questions.reduce((sum, q) => sum + (q.xp_points || 0), 0)}
+            </span> XP
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="px-5 py-2.5 rounded-xl font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors text-sm"
+            >
+              ยกเลิก
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white font-bold rounded-xl shadow-lg shadow-violet-600/25 transition-all flex items-center gap-2 text-sm"
+            >
+              <Save size={16} />
+              {saving ? 'กำลังบันทึก...' : 'บันทึกแบบทดสอบ'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

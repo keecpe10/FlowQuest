@@ -7,13 +7,13 @@ import { useWindowSize } from 'react-use';
 import Confetti from 'react-confetti';
 import Swal from 'sweetalert2';
 import ContentBlockView from '../components/mcq/ContentBlockView';
-import type { ContentBlock } from '../components/mcq/blocks';
+import type { StoredContent } from '../components/mcq/blocks';
 
 interface Choice {
   choice_id: number;
   choice_text: string;
   image_url?: string;
-  content_blocks?: ContentBlock[] | null;
+  content_blocks?: StoredContent;
   is_correct?: boolean;
 }
 
@@ -23,7 +23,7 @@ interface Question {
   question_type: string;
   question_metadata: any;
   image_url?: string;
-  content_blocks?: ContentBlock[] | null;
+  content_blocks?: StoredContent;
   xp_points: number;
   choices: Choice[];
 }
@@ -203,7 +203,7 @@ const StudentMCQView = () => {
                         <h3 className="text-lg font-bold text-white shrink-0">ข้อ {i+1}:</h3>
                         <ContentBlockView
                           size="question"
-                          blocks={q.content_blocks}
+                          content={q.content_blocks}
                           text={q.question_text}
                           imageUrl={q.image_url}
                           className="flex-1 min-w-0"
@@ -230,7 +230,7 @@ const StudentMCQView = () => {
                                 <div key={c.choice_id} className={`p-3 rounded-xl border ${bg} text-sm`}>
                                   <ContentBlockView
                                     size="choice"
-                                    blocks={c.content_blocks}
+                                    content={c.content_blocks}
                                     text={c.choice_text}
                                     imageUrl={c.image_url}
                                   />

@@ -21,71 +21,163 @@ def get_current_user_id():
     return None
 
 
-# ---- content blocks ของคำถาม/ตัวเลือก ----
+# ---- เนื้อหาแบบ rich text ของคำถาม/ตัวเลือก ----
+#
+# เก็บเป็นเอกสาร ProseMirror (โครงสร้างของ TipTap) ไม่ใช่ HTML ดิบ ตอนแสดงผล
+# หน้าเว็บสร้าง DOM จากโครงสร้างนี้เอง จึงไม่มีทางที่ payload จะกลายเป็น HTML
+# หรือสคริปต์ที่รันในเบราว์เซอร์ของนักเรียน
+#
+# ยังรับรูปแบบลิสต์บล็อก [{type: text|image}] ที่เคยใช้ก่อนหน้าได้ด้วย เพื่อให้
+# ข้อสอบที่บันทึกไว้แล้วยังอ่านออก
 
 # path ที่ /api/v1/upload คืนมาเท่านั้น กัน url ภายนอกหรือ javascript: ที่ยิงเข้ามา
 # ทาง API ตรง ๆ ไม่ให้กลายเป็น <img src> ในเบราว์เซอร์ของนักเรียน
 UPLOAD_URL_PREFIX = '/api/v1/uploads/'
-MAX_BLOCKS = 20
+MAX_NODES = 500
+MAX_DEPTH = 10
 MAX_TEXT_LEN = 5000
 # ใช้แทนข้อความว่าง เพราะสถิติรายข้อและ prompt ของ Gemini อ่านจาก question_text
 IMAGE_ONLY_TEXT = '[รูปภาพ]'
 
+# ชนิดโหนดและ mark ที่อนุญาต ตรงกับ extension ที่หน้าเว็บเปิดใช้
+ALLOWED_NODES = {
+    'doc', 'paragraph', 'text', 'hardBreak', 'image',
+    'bulletList', 'orderedList', 'listItem',
+}
+ALLOWED_MARKS = {'bold', 'italic'}
+# โหนดที่ขึ้นบรรทัดใหม่เมื่อแปลงกลับเป็นข้อความล้วน
+BLOCK_NODES = {'paragraph', 'listItem', 'hardBreak'}
 
-def normalize_blocks(raw, where):
-    """ตรวจและทำความสะอาด content_blocks
 
-    คืน (blocks, plain_text) โดย blocks เป็น None แปลว่าไม่ได้ส่งมา ให้ใช้ฟิลด์เดิม
-    ถ้า payload ไม่ถูกต้องจะ raise ValueError พร้อมข้อความที่บอกว่าผิดตรงไหน
-    """
-    if raw is None:
-        return None, None
+class _DocState:
+    """นับโหนดรวมทั้งเอกสาร กันไม่ให้ payload ใหญ่จนเป็นภาระตอนเรนเดอร์"""
 
-    if not isinstance(raw, list):
-        raise ValueError(f'{where}: content_blocks ต้องเป็น list')
+    def __init__(self):
+        self.count = 0
+        self.texts = []
+        self.has_image = False
 
-    if len(raw) > MAX_BLOCKS:
-        raise ValueError(f'{where}: บล็อกเกิน {MAX_BLOCKS} บล็อก')
 
-    blocks = []
-    texts = []
+def _clean_marks(marks, where):
+    if marks is None:
+        return None
+    if not isinstance(marks, list):
+        raise ValueError(f'{where}: marks ต้องเป็น list')
+    cleaned = []
+    for m in marks:
+        if not isinstance(m, dict) or m.get('type') not in ALLOWED_MARKS:
+            raise ValueError(f'{where}: รูปแบบตัวอักษรที่ไม่รองรับ')
+        cleaned.append({'type': m['type']})
+    return cleaned or None
+
+
+def _clean_node(node, where, state, depth):
+    """สร้างโหนดขึ้นใหม่จากเฉพาะฟิลด์ที่อนุญาต ทิ้งส่วนที่เหลือทั้งหมด"""
+    if depth > MAX_DEPTH:
+        raise ValueError(f'{where}: เนื้อหาซ้อนกันลึกเกินไป')
+    if not isinstance(node, dict):
+        raise ValueError(f'{where}: โหนดต้องเป็น object')
+
+    node_type = node.get('type')
+    if node_type not in ALLOWED_NODES:
+        raise ValueError(f'{where}: ชนิดเนื้อหาที่ไม่รองรับ ({node_type})')
+
+    state.count += 1
+    if state.count > MAX_NODES:
+        raise ValueError(f'{where}: เนื้อหายาวเกินไป')
+
+    out = {'type': node_type}
+
+    if node_type == 'text':
+        text = node.get('text')
+        if not isinstance(text, str):
+            raise ValueError(f'{where}: text ต้องเป็นข้อความ')
+        if len(text) > MAX_TEXT_LEN:
+            raise ValueError(f'{where}: ข้อความยาวเกิน {MAX_TEXT_LEN} ตัวอักษร')
+        out['text'] = text
+        state.texts.append(text)
+        marks = _clean_marks(node.get('marks'), where)
+        if marks:
+            out['marks'] = marks
+        return out
+
+    if node_type == 'image':
+        attrs = node.get('attrs') or {}
+        src = attrs.get('src')
+        if not isinstance(src, str) or not src.startswith(UPLOAD_URL_PREFIX) or '..' in src:
+            raise ValueError(f'{where}: รูปต้องเป็นไฟล์ที่อัปโหลดผ่าน {UPLOAD_URL_PREFIX}')
+        alt = attrs.get('alt')
+        out['attrs'] = {
+            'src': src,
+            'alt': alt.strip()[:MAX_TEXT_LEN] if isinstance(alt, str) else None,
+        }
+        state.has_image = True
+        return out
+
+    if node_type == 'hardBreak':
+        state.texts.append('\n')
+        return out
+
+    children = node.get('content')
+    if children is not None:
+        if not isinstance(children, list):
+            raise ValueError(f'{where}: content ต้องเป็น list')
+        out['content'] = [_clean_node(c, where, state, depth + 1) for c in children]
+
+    if node_type in BLOCK_NODES:
+        state.texts.append('\n')
+
+    return out
+
+
+def _blocks_to_doc(raw, where, state):
+    """แปลงรูปแบบลิสต์บล็อกที่เคยใช้ ให้เป็นเอกสารเดียวกัน"""
+    content = []
     for i, block in enumerate(raw):
         at = f'{where} บล็อกที่ {i + 1}'
         if not isinstance(block, dict):
             raise ValueError(f'{at}: ต้องเป็น object')
-
-        block_type = block.get('type')
-        if block_type == 'text':
+        if block.get('type') == 'text':
             value = block.get('value')
             if not isinstance(value, str):
                 raise ValueError(f'{at}: value ต้องเป็นข้อความ')
-            if len(value) > MAX_TEXT_LEN:
-                raise ValueError(f'{at}: ข้อความยาวเกิน {MAX_TEXT_LEN} ตัวอักษร')
-            value = value.strip()
-            if not value:
-                continue  # บล็อกข้อความว่างไม่ต้องเก็บ
-            blocks.append({'type': 'text', 'value': value})
-            texts.append(value)
-
-        elif block_type == 'image':
-            url = block.get('url')
-            if not isinstance(url, str) or not url.startswith(UPLOAD_URL_PREFIX) or '..' in url:
-                raise ValueError(f'{at}: url ต้องเป็นไฟล์ที่อัปโหลดผ่าน {UPLOAD_URL_PREFIX}')
-            alt = block.get('alt') or ''
-            if not isinstance(alt, str):
-                raise ValueError(f'{at}: alt ต้องเป็นข้อความ')
-            blocks.append({'type': 'image', 'url': url, 'alt': alt.strip()[:MAX_TEXT_LEN]})
-
+            content.append({'type': 'text', 'text': value})
+        elif block.get('type') == 'image':
+            content.append({'type': 'image', 'attrs': {'src': block.get('url'), 'alt': block.get('alt')}})
         else:
             raise ValueError(f'{at}: type ต้องเป็น text หรือ image')
+    return _clean_node(
+        {'type': 'doc', 'content': [{'type': 'paragraph', 'content': content}]},
+        where, state, 0,
+    )
 
-    if not blocks:
-        # ว่างทั้งหมด (เช่น ตัวเลือกที่ครูเว้นไว้) ให้ถือว่าไม่ได้ใช้บล็อก
+
+def normalize_content(raw, where):
+    """ตรวจและทำความสะอาดเนื้อหาที่ครูส่งมา
+
+    คืน (doc, plain_text) โดย doc เป็น None แปลว่าไม่ได้ส่งมาหรือว่างเปล่า
+    ให้ใช้ฟิลด์ข้อความเดิมแทน ถ้า payload ไม่ถูกต้องจะ raise ValueError
+    """
+    if raw is None:
+        return None, None
+
+    state = _DocState()
+    if isinstance(raw, list):
+        doc = _blocks_to_doc(raw, where, state)
+    elif isinstance(raw, dict) and raw.get('type') == 'doc':
+        doc = _clean_node(raw, where, state, 0)
+    else:
+        raise ValueError(f'{where}: รูปแบบเนื้อหาไม่ถูกต้อง')
+
+    plain_text = '\n'.join(''.join(state.texts).split('\n'))
+    plain_text = '\n'.join(line.strip() for line in plain_text.split('\n') if line.strip())
+
+    if not plain_text and not state.has_image:
+        # ว่างทั้งหมด (เช่น ตัวเลือกที่ครูเว้นไว้) ให้ถือว่าไม่ได้ใช้เนื้อหาแบบใหม่
         # จะได้เก็บเหมือนของเดิมคือข้อความว่าง ไม่ใช่ปฏิเสธการบันทึกทั้งชุด
         return None, None
 
-    plain_text = '\n'.join(texts) if texts else IMAGE_ONLY_TEXT
-    return blocks, plain_text
+    return doc, plain_text or IMAGE_ONLY_TEXT
 
 
 # เผื่อเวลาให้ 5 วินาที สำหรับ network lag ตอนกดส่งพอดีเส้นตาย
@@ -350,17 +442,17 @@ def update_mcq_questions(mission_id):
     try:
         normalized = []
         for idx, q_data in enumerate(questions_data):
-            q_blocks, q_text = normalize_blocks(
+            q_doc, q_text = normalize_content(
                 q_data.get('content_blocks'), f'คำถามข้อที่ {idx + 1}'
             )
             c_normalized = []
             for c_idx, c_data in enumerate(q_data.get('choices', [])):
-                c_blocks, c_text = normalize_blocks(
+                c_doc, c_text = normalize_content(
                     c_data.get('content_blocks'),
                     f'คำถามข้อที่ {idx + 1} ตัวเลือกที่ {c_idx + 1}',
                 )
-                c_normalized.append((c_blocks, c_text))
-            normalized.append((q_blocks, q_text, c_normalized))
+                c_normalized.append((c_doc, c_text))
+            normalized.append((q_doc, q_text, c_normalized))
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
@@ -368,16 +460,16 @@ def update_mcq_questions(mission_id):
     MCQQuestion.query.filter_by(mission_id=mission_id).delete()
     
     for idx, q_data in enumerate(questions_data):
-        q_blocks, q_text, c_normalized = normalized[idx]
+        q_doc, q_text, c_normalized = normalized[idx]
         new_q = MCQQuestion(
             mission_id=mission_id,
             # ใช้บล็อกเป็นแหล่งความจริงถ้ามี แล้ว derive ข้อความให้สถิติรายข้อ
             # กับ prompt ของ Gemini อ่านต่อได้เหมือนเดิม
-            question_text=q_text if q_blocks else q_data.get('question_text', ''),
+            question_text=q_text if q_doc else q_data.get('question_text', ''),
             question_type=q_data.get('question_type', 'multiple_choice'),
             question_metadata=q_data.get('question_metadata'),
-            image_url=None if q_blocks else q_data.get('image_url'),
-            content_blocks=q_blocks,
+            image_url=None if q_doc else q_data.get('image_url'),
+            content_blocks=q_doc,
             xp_points=q_data.get('xp_points', 10),
             order_index=idx,
             explanation=q_data.get('explanation')
@@ -387,12 +479,12 @@ def update_mcq_questions(mission_id):
         
         choices_data = q_data.get('choices', [])
         for c_idx, c_data in enumerate(choices_data):
-            c_blocks, c_text = c_normalized[c_idx]
+            c_doc, c_text = c_normalized[c_idx]
             new_c = MCQChoice(
                 question_id=new_q.question_id,
-                choice_text=c_text if c_blocks else c_data.get('choice_text', ''),
-                image_url=None if c_blocks else c_data.get('image_url'),
-                content_blocks=c_blocks,
+                choice_text=c_text if c_doc else c_data.get('choice_text', ''),
+                image_url=None if c_doc else c_data.get('image_url'),
+                content_blocks=c_doc,
                 is_correct=c_data.get('is_correct', False)
             )
             db.session.add(new_c)
@@ -400,6 +492,34 @@ def update_mcq_questions(mission_id):
     db.session.commit()
     socketio.emit('missions_updated')
     return jsonify({'message': 'MCQ Questions updated successfully'}), 200
+
+@mcq_bp.route('/<int:mission_id>/reset-preview', methods=['POST'])
+def reset_teacher_preview(mission_id):
+    """ล้างผลการทดลองเล่นของครูเอง เพื่อเริ่มทดลองใหม่ตั้งแต่ต้น
+
+    ครูทดลองเล่นได้ไม่จำกัดอยู่แล้ว แต่คำตอบรอบก่อนยังค้างอยู่ ทำให้เปิดเข้ามาอีก
+    ครั้งแล้วเห็นทุกข้อถูกตรวจไปหมดแล้ว endpoint นี้ล้างเฉพาะแถวของครูคนที่เรียก
+    และเฉพาะด่านที่ตัวเองเป็นเจ้าของ ไม่แตะข้อมูลของนักเรียน
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
+
+    mission = Mission.query.get(mission_id)
+    if not mission or mission.mission_type != 'mcq':
+        return jsonify({'message': 'MCQ Mission not found'}), 404
+
+    if not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'message': 'Forbidden. Teacher access required.'}), 403
+
+    user_missions = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).all()
+    for um in user_missions:
+        MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).delete()
+        db.session.delete(um)
+    db.session.commit()
+
+    return jsonify({'message': 'ล้างผลการทดลองเล่นแล้ว'}), 200
+
 
 @mcq_bp.route('/<int:mission_id>/submit', methods=['POST'])
 def submit_mcq(mission_id):

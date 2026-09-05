@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import { toBlocks, resolveImageUrl, type ContentBlock } from './blocks';
+import { toDoc, resolveImageUrl, isDocEmpty, type RichNode, type StoredContent } from './blocks';
 
 interface Props {
-  blocks?: ContentBlock[] | null;
-  /** ฟิลด์เดิม ใช้เมื่อข้อนั้นยังไม่มี blocks */
+  content?: StoredContent;
+  /** ฟิลด์เดิม ใช้เมื่อข้อนั้นยังไม่มีเนื้อหาแบบใหม่ */
   text?: string | null;
   imageUrl?: string | null;
   size: 'question' | 'choice';
@@ -14,21 +14,24 @@ interface Props {
 }
 
 /**
- * แสดงเนื้อหาคำถามหรือตัวเลือกจากลิสต์บล็อก
+ * แสดงเนื้อหาคำถามหรือตัวเลือกจากเอกสารที่ครูเขียนไว้
+ *
+ * สร้าง DOM จากโครงสร้างเอกสารโดยตรง ไม่ได้ยัด HTML ดิบเข้าหน้าเว็บ ต่อให้มีใคร
+ * เขียนอะไรแปลกปลอมลงฐานข้อมูล ก็เป็นได้แค่ข้อความธรรมดา
  *
  * ใช้ตัวเดียวกันทั้งหน้าที่นักเรียนทำข้อสอบและหน้าที่ครูดูย้อนหลัง ครูจึงเห็น
  * ตรงกับที่นักเรียนเห็นเสมอ
  */
 export default function ContentBlockView({
-  blocks,
+  content,
   text,
   imageUrl,
   size,
   className = '',
   textClassName = '',
 }: Props) {
-  const [zoomed, setZoomed] = useState<ContentBlock | null>(null);
-  const resolved = toBlocks(blocks, text, imageUrl);
+  const [zoomed, setZoomed] = useState<{ src: string; alt: string } | null>(null);
+  const doc = toDoc(content, text, imageUrl);
 
   useEffect(() => {
     if (!zoomed) return;
@@ -39,40 +42,90 @@ export default function ContentBlockView({
     return () => window.removeEventListener('keydown', onKey);
   }, [zoomed]);
 
-  if (resolved.length === 0) return null;
+  if (isDocEmpty(doc)) return null;
 
+  // รูปไหลไปกับข้อความในบรรทัดเดียวกัน เช่น "บล็อกคำสั่ง [รูป] จะแสดงผลอย่างไร"
+  // รูปที่กว้างเกินบรรทัดจะถูก max-w-full บีบแล้วตกไปอยู่บรรทัดของตัวเองตามปกติ
   const imageClass =
     size === 'question'
-      ? 'w-full max-h-[60vh] object-contain rounded-xl'
-      : 'max-h-32 max-w-full object-contain rounded-lg';
+      ? 'inline-block align-middle mx-1 my-1 max-h-64 max-w-full object-contain rounded-xl'
+      : 'inline-block align-middle mx-1 max-h-16 max-w-full object-contain rounded-lg';
 
-  return (
-    <>
-      <div className={`flex flex-col gap-2 ${className}`}>
-        {resolved.map((block, i) =>
-          block.type === 'text' ? (
-            <p key={i} className={`whitespace-pre-wrap break-words ${textClassName}`}>
-              {block.value}
-            </p>
-          ) : (
+  const renderNodes = (nodes: RichNode[] | undefined, keyPrefix: string): React.ReactNode =>
+    (nodes || []).map((node, i) => {
+      const key = `${keyPrefix}-${i}`;
+
+      switch (node.type) {
+        case 'text': {
+          let el: React.ReactNode = node.text;
+          for (const mark of node.marks || []) {
+            if (mark.type === 'bold') el = <strong>{el}</strong>;
+            else if (mark.type === 'italic') el = <em>{el}</em>;
+          }
+          return <Fragment key={key}>{el}</Fragment>;
+        }
+
+        case 'image': {
+          const src = node.attrs?.src;
+          if (typeof src !== 'string') return null;
+          const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : '';
+          return (
             <img
-              key={i}
-              src={resolveImageUrl(block.url)}
-              alt={block.alt || ''}
+              key={key}
+              src={resolveImageUrl(src)}
+              alt={alt}
               loading="lazy"
               onClick={(e) => {
                 // ในหน้านักเรียน รูปอยู่ในปุ่มตัวเลือก การกดดูรูปต้องไม่กลายเป็นการตอบ
                 e.stopPropagation();
                 e.preventDefault();
-                setZoomed(block);
+                setZoomed({ src, alt });
               }}
               className={`${imageClass} cursor-zoom-in bg-black/20 border border-white/10`}
             />
-          ),
-        )}
+          );
+        }
+
+        case 'hardBreak':
+          return <br key={key} />;
+
+        case 'paragraph':
+          return <p key={key}>{renderNodes(node.content, key)}</p>;
+
+        case 'bulletList':
+          return (
+            <ul key={key} className="list-disc list-inside text-left">
+              {renderNodes(node.content, key)}
+            </ul>
+          );
+
+        case 'orderedList':
+          return (
+            <ol key={key} className="list-decimal list-inside text-left">
+              {renderNodes(node.content, key)}
+            </ol>
+          );
+
+        case 'listItem':
+          // ย่อหน้าใน list item เรนเดอร์เป็น inline เพื่อไม่ให้ตกบรรทัดจากจุดนำ
+          return (
+            <li key={key} className="[&>p]:inline">
+              {renderNodes(node.content, key)}
+            </li>
+          );
+
+        default:
+          return <Fragment key={key}>{renderNodes(node.content, key)}</Fragment>;
+      }
+    });
+
+  return (
+    <>
+      <div className={`mcq-rich-content break-words ${textClassName} ${className}`}>
+        {renderNodes(doc.content, 'n')}
       </div>
 
-      {zoomed && zoomed.type === 'image' && (
+      {zoomed && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm"
           onClick={(e) => {
@@ -81,8 +134,8 @@ export default function ContentBlockView({
           }}
         >
           <img
-            src={resolveImageUrl(zoomed.url)}
-            alt={zoomed.alt || ''}
+            src={resolveImageUrl(zoomed.src)}
+            alt={zoomed.alt}
             onClick={(e) => e.stopPropagation()}
             className="max-h-full max-w-full object-contain rounded-xl"
           />
