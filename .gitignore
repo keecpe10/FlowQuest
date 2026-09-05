@@ -35,3 +35,6 @@ backend/migrations/versions/__pycache__/
 # PDF and HDR
 *.pdf
 *.hdr
+
+# การตั้งค่าเครื่องมือของ Claude Code — ผูกกับเครื่องแต่ละคน ไม่ควรขึ้น repo
+.claude/launch.json
