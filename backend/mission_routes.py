@@ -8,17 +8,10 @@ from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
 
-def get_current_user_id():
-    auth_header = request.headers.get('Authorization')
-    if auth_header and auth_header.startswith('Bearer '):
-        token = auth_header.split(' ')[1]
-        try:
-            secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
-            data = jwt.decode(token, secret_key, algorithms=['HS256'])
-            return data['sub']
-        except Exception:
-            return None
-    return None
+# ใช้ตัวเดียวกับทั้งระบบจาก auth_utils ไม่ก๊อปมาไว้เองแล้ว
+# เดิมไฟล์นี้มีสำเนาของตัวเอง ทำให้เวลาเพิ่มเงื่อนไข (เช่น จำกัด 1 เครื่องต่อบัญชี)
+# ต้องไล่แก้ทุกไฟล์ และพลาดไฟล์ไหนไปก็กลายเป็นทางลัดที่เลี่ยงเงื่อนไขนั้นได้
+from auth_utils import get_current_user_id  # noqa: F401
 
 
 def _parse_max_attempts(value, fallback=0):

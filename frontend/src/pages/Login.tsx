@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
@@ -34,6 +34,15 @@ const Login = () => {
     }
   };
 
+  // หนึ่งบัญชีล็อกอินได้ทีละเครื่อง ถ้าถูกตัดเพราะไปล็อกอินที่อื่น ให้บอกเหตุผล
+  const [sessionNotice, setSessionNotice] = useState('');
+  useEffect(() => {
+    if (sessionStorage.getItem('logout_reason') === 'session_replaced') {
+      setSessionNotice('บัญชีนี้ถูกใช้งานที่เครื่องอื่น หนึ่งบัญชีเข้าใช้ได้ทีละเครื่องเท่านั้น');
+      sessionStorage.removeItem('logout_reason');
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
       {/* พื้นหลังไล่สีเคลื่อนไหว (ReactBits Aurora) */}
@@ -52,6 +61,12 @@ const Login = () => {
         
         <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">ยินดีต้อนรับกลับมา</h2>
         <p className="text-center text-slate-500 mb-8">เข้าสู่ระบบเพื่อไปทำภารกิจผังงานกันต่อ</p>
+
+        {sessionNotice && (
+          <div className="mb-4 p-3 bg-amber-50 text-amber-700 rounded-xl border border-amber-100 text-sm text-center">
+            {sessionNotice}
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-rose-50 text-rose-600 rounded-xl border border-rose-100 text-sm text-center">

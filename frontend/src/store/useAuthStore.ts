@@ -40,6 +40,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   
   logout: () => {
+    // บอกเซิร์ฟเวอร์ให้ยกเลิกรอบนี้ด้วย ไม่งั้น token ใบเดิมยังใช้ได้จนหมดอายุ
+    // ถ้ามีใครก๊อปไปก่อนหน้านั้น — ยิงแบบไม่รอผล เพราะยังไงก็ต้องออกจากระบบ
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     delete axios.defaults.headers.common['Authorization'];
@@ -52,7 +60,12 @@ axios.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Token is likely expired or invalid
+      // token หมดอายุ ถูกยกเลิก หรือถูกตัดเพราะบัญชีนี้ไปล็อกอินที่เครื่องอื่น
+      // (หนึ่งบัญชีใช้ได้ทีละเครื่อง) แจ้งเหตุผลไว้ให้หน้าเข้าสู่ระบบอ่าน
+      // ไม่งั้นผู้ใช้จะเจอแค่การเด้งออกเฉย ๆ โดยไม่รู้ว่าเกิดอะไรขึ้น
+      if (localStorage.getItem('token')) {
+        sessionStorage.setItem('logout_reason', 'session_replaced');
+      }
       useAuthStore.getState().logout();
     }
     return Promise.reject(error);

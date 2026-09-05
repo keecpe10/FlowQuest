@@ -5,17 +5,34 @@ from models import User, Role
 import jwt
 from datetime import datetime, timedelta
 import shared_state
+import auth_utils
+import uuid
 import os
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
 
+TOKEN_LIFETIME = timedelta(days=1)
+
+
 def generate_token(user_id):
+    """ออก token ใหม่ พร้อมบันทึกว่ารอบนี้คือรอบล่าสุดของบัญชีนี้
+
+    หนึ่งบัญชีล็อกอินได้ทีละเครื่อง การออก token ใหม่จึงเท่ากับตัดเครื่องเดิม
+    ออกโดยอัตโนมัติ เพราะ sid ที่บันทึกไว้จะไม่ตรงกับ token ใบเก่าอีกต่อไป
+    (ดูการตรวจใน auth_utils.user_id_from_token)
+    """
     secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
+    session_id = uuid.uuid4().hex
     payload = {
-        'exp': datetime.utcnow() + timedelta(days=1),
+        'exp': datetime.utcnow() + TOKEN_LIFETIME,
         'iat': datetime.utcnow(),
-        'sub': user_id
+        'sub': user_id,
+        'sid': session_id,
     }
+    shared_state.set_value(
+        auth_utils.session_key(user_id), session_id,
+        int(TOKEN_LIFETIME.total_seconds()),
+    )
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
 # จำกัดจำนวนครั้งที่ล็อกอินผิดต่อชื่อผู้ใช้ + ไอพี
@@ -76,6 +93,26 @@ def login():
             'is_super_admin': user.is_super_admin
         }
     }), 200
+
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    """ออกจากระบบฝั่งเซิร์ฟเวอร์ — ลบรอบที่บันทึกไว้ให้ token ใบนั้นใช้ไม่ได้ทันที
+
+    เดิมการออกจากระบบทำแค่ลบ token ทิ้งจากเบราว์เซอร์ ตัว token ยังใช้ได้จนหมดอายุ
+    ถ้าใครก๊อปไปก่อนหน้านั้น
+    """
+    user_id = auth_utils.get_current_user_id()
+    if user_id:
+        # ตั้งเป็นรหัสรอบที่ไม่มีใครถืออยู่ แทนที่จะลบคีย์ทิ้ง
+        # เพราะกติกาคือ "ไม่มีค่าเก็บไว้ = ปล่อยผ่าน" (กันคนหลุดยกแผงตอน Redis
+        # ถูกล้าง) ถ้าลบทิ้ง token ใบเดิมจะกลับมาใช้ได้อีก ซึ่งตรงข้ามกับการ
+        # ออกจากระบบ
+        shared_state.set_value(
+            auth_utils.session_key(user_id), uuid.uuid4().hex,
+            int(TOKEN_LIFETIME.total_seconds()),
+        )
+    return jsonify({'message': 'ออกจากระบบแล้ว'}), 200
+
 
 @auth_bp.route('/classes', methods=['GET'])
 def get_classes():

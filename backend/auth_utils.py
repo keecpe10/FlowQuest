@@ -3,11 +3,19 @@ import jwt
 from flask import request
 from models import User, Course, CourseEnrollment
 
+def session_key(user_id):
+    return f'active_session:{user_id}'
+
+
 def user_id_from_token(token):
-    """ถอด user_id จาก JWT คืน None ถ้า token ไม่ถูกต้องหรือหมดอายุ
+    """ถอด user_id จาก JWT คืน None ถ้า token ไม่ถูกต้อง หมดอายุ หรือถูกแทนที่แล้ว
 
     แยกออกมาเพื่อให้ฝั่ง Socket.IO ใช้ได้ด้วย เพราะตอนเชื่อมต่อ socket
     ไม่ได้ส่ง token มาทาง header เหมือน HTTP ปกติ
+
+    หนึ่งบัญชีล็อกอินได้ทีละเครื่อง — ตอนล็อกอินจะบันทึกรหัสรอบ (sid) ล่าสุดไว้
+    ถ้า token ที่ถืออยู่มี sid ไม่ตรงกับตัวล่าสุด แปลว่ามีคนล็อกอินบัญชีนี้จาก
+    เครื่องอื่นทีหลัง เครื่องเก่าจึงถูกตัดสิทธิ์
     """
     if not token:
         return None
@@ -16,9 +24,23 @@ def user_id_from_token(token):
     try:
         secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
         data = jwt.decode(token, secret_key, algorithms=['HS256'])
-        return data['sub']
     except Exception:
         return None
+
+    user_id = data.get('sub')
+    if user_id is None:
+        return None
+
+    token_sid = data.get('sid')
+    if token_sid:
+        import shared_state
+        active_sid = shared_state.get_value(session_key(user_id))
+        # ไม่มีรอบที่บันทึกไว้ (เช่น Redis เพิ่งถูกล้าง) ก็ปล่อยผ่าน ไม่งั้นทุกคน
+        # หลุดออกจากระบบพร้อมกันโดยไม่มีเหตุ — เมื่อไรที่มีค่าเก็บไว้จึงบังคับ
+        if active_sid and active_sid != token_sid:
+            return None
+
+    return user_id
 
 
 def get_current_user_id():

@@ -11,9 +11,10 @@ def get_current_teacher():
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
         try:
-            secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
-            data = jwt.decode(token, secret_key, algorithms=['HS256'])
-            user_id = data['sub']
+            from auth_utils import user_id_from_token
+            user_id = user_id_from_token(token)
+            if not user_id:
+                return None
             user = User.query.get(user_id)
             if user and user.role and user.role.role_name == 'teacher':
                 return user
