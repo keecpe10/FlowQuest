@@ -28,7 +28,7 @@ const Login = () => {
       login(response.data.access_token, response.data.user);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      setError(err.response?.data?.message || 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setIsLoading(false);
     }
@@ -50,8 +50,8 @@ const Login = () => {
           </div>
         </div>
         
-        <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">Welcome Back</h2>
-        <p className="text-center text-slate-500 mb-8">Sign in to continue your flowchart quests</p>
+        <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">ยินดีต้อนรับกลับมา</h2>
+        <p className="text-center text-slate-500 mb-8">เข้าสู่ระบบเพื่อไปทำภารกิจผังงานกันต่อ</p>
 
         {error && (
           <div className="mb-4 p-3 bg-rose-50 text-rose-600 rounded-xl border border-rose-100 text-sm text-center">
@@ -61,7 +61,7 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Username</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">ชื่อผู้ใช้</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <User size={18} className="text-slate-400" />
@@ -71,14 +71,14 @@ const Login = () => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-colors"
-                placeholder="Enter your username"
+                placeholder="กรอกชื่อผู้ใช้ของคุณ"
                 required
               />
             </div>
           </div>
           
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Password</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">รหัสผ่าน</label>
             <input
               type="password"
               value={password}
@@ -94,14 +94,14 @@ const Login = () => {
             disabled={isLoading}
             className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-primary-600/30 mt-4 disabled:opacity-70 flex justify-center"
           >
-            {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Sign In"}
+            {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'เข้าสู่ระบบ'}
           </button>
         </form>
 
         <p className="text-center text-slate-500 mt-8 text-sm">
-          Don't have an account?{' '}
+          ยังไม่มีบัญชีใช่ไหม?{' '}
           <Link to="/register" className="text-primary-600 font-bold hover:underline">
-            Register here
+            สมัครสมาชิกที่นี่
           </Link>
         </p>
       </div>
