@@ -46,7 +46,7 @@ const Register = () => {
       // On success, redirect to login
       navigate('/login');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      setError(err.response?.data?.message || 'สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setIsLoading(false);
     }
@@ -65,8 +65,8 @@ const Register = () => {
           </div>
         </div>
         
-        <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">Create Account</h2>
-        <p className="text-center text-slate-500 mb-8">Join FlowQuest and start learning!</p>
+        <h2 className="text-3xl font-bold text-center text-slate-800 mb-2">สร้างบัญชีใหม่</h2>
+        <p className="text-center text-slate-500 mb-8">สมัครเข้าใช้ FlowQuest แล้วเริ่มเรียนกันเลย!</p>
 
         {error && (
           <div className="mb-4 p-3 bg-rose-50 text-rose-600 rounded-xl border border-rose-100 text-sm text-center">
@@ -76,41 +76,41 @@ const Register = () => {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="mb-2">
-            <label className="block text-sm font-semibold text-slate-700 mb-2">I am a...</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">ฉันเป็น...</label>
             <div className="flex gap-4">
               <label className={`flex-1 cursor-pointer border-2 rounded-xl p-3 flex flex-col items-center justify-center transition-all ${formData.role === 'student' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 hover:border-emerald-300 text-slate-500'}`}>
                 <input type="radio" name="role" value="student" checked={formData.role === 'student'} onChange={handleChange} className="hidden" />
-                <span className="font-bold">Student</span>
+                <span className="font-bold">นักเรียน</span>
               </label>
               <label className={`flex-1 cursor-pointer border-2 rounded-xl p-3 flex flex-col items-center justify-center transition-all ${formData.role === 'teacher' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 hover:border-emerald-300 text-slate-500'}`}>
                 <input type="radio" name="role" value="teacher" checked={formData.role === 'teacher'} onChange={handleChange} className="hidden" />
-                <span className="font-bold">Teacher</span>
+                <span className="font-bold">ครู</span>
               </label>
             </div>
           </div>
           
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="block text-sm font-semibold text-slate-700 mb-1">First Name</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">ชื่อจริง</label>
               <input
                 type="text"
                 name="first_name"
                 value={formData.first_name}
                 onChange={handleChange}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
-                placeholder="John"
+                placeholder="เช่น สมชาย"
                 required
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Last Name</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">นามสกุล</label>
               <input
                 type="text"
                 name="last_name"
                 value={formData.last_name}
                 onChange={handleChange}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
-                placeholder="Doe"
+                placeholder="เช่น ใจดี"
                 required
               />
             </div>
@@ -120,7 +120,7 @@ const Register = () => {
             <div className="flex flex-col gap-4">
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Academic Year</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">ปีการศึกษา</label>
                   <input
                     type="text"
                     name="academic_year"
@@ -128,7 +128,7 @@ const Register = () => {
                     onChange={handleChange}
                     list="academic-years"
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
-                    placeholder="e.g. 2566"
+                    placeholder="เช่น 2566"
                     required={formData.role === 'student'}
                   />
                   <datalist id="academic-years">
@@ -136,7 +136,7 @@ const Register = () => {
                   </datalist>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Grade Level</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">ระดับชั้น</label>
                   <input
                     type="text"
                     name="grade_level"
@@ -144,7 +144,7 @@ const Register = () => {
                     onChange={handleChange}
                     list="grade-levels"
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
-                    placeholder="e.g. 1"
+                    placeholder="เช่น ป.5"
                     required={formData.role === 'student'}
                   />
                   <datalist id="grade-levels">
@@ -153,7 +153,7 @@ const Register = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Room / Class</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">ห้องเรียน</label>
                 <input
                   type="text"
                   name="class_name"
@@ -161,7 +161,7 @@ const Register = () => {
                   onChange={handleChange}
                   list="class-names"
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
-                  placeholder="e.g. 1/1"
+                  placeholder="เช่น 5/1"
                   required={formData.role === 'student'}
                 />
                 <datalist id="class-names">
@@ -178,7 +178,7 @@ const Register = () => {
           )}
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Username</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">ชื่อผู้ใช้</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <User size={18} className="text-slate-400" />
@@ -189,14 +189,14 @@ const Register = () => {
                 value={formData.username}
                 onChange={handleChange}
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-colors"
-                placeholder="Choose a username"
+                placeholder="ตั้งชื่อผู้ใช้ของคุณ"
                 required
               />
             </div>
           </div>
           
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">Password</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">รหัสผ่าน</label>
             <input
               type="password"
               name="password"
@@ -213,14 +213,14 @@ const Register = () => {
             disabled={isLoading}
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-emerald-600/30 mt-4 disabled:opacity-70 flex justify-center"
           >
-            {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Sign Up"}
+            {isLoading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'สมัครสมาชิก'}
           </button>
         </form>
 
         <p className="text-center text-slate-500 mt-8 text-sm">
-          Already have an account?{' '}
+          มีบัญชีอยู่แล้วใช่ไหม?{' '}
           <Link to="/login" className="text-emerald-600 font-bold hover:underline">
-            Sign In
+            เข้าสู่ระบบ
           </Link>
         </p>
       </div>
