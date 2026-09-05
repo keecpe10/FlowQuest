@@ -30,6 +30,7 @@ import sys
 
 from app import create_app, db
 from models import Mission, MCQQuestion
+from mcq_routes import live_questions
 
 
 def distribute_points(total_points, count):
@@ -42,9 +43,7 @@ def distribute_points(total_points, count):
 
 
 def normalize_mission(mission, apply_changes):
-    questions = MCQQuestion.query.filter_by(
-        mission_id=mission.mission_id, is_draft=False
-    ).order_by(MCQQuestion.order_index).all()
+    questions = live_questions(mission.mission_id).order_by(MCQQuestion.order_index).all()
 
     if not questions:
         print(f"  ข้าม ด่าน {mission.mission_id} '{mission.title}': ไม่มีข้อที่ไม่ใช่ร่าง")
