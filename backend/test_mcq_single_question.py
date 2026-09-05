@@ -223,6 +223,54 @@ def test_draft_rules_per_type(client, f):
         check(f'เกณฑ์ร่าง: {label}', row.is_draft is expect_draft)
 
 
+# ---------------- Task 2: ซ่อนข้อร่างจากนักเรียน ----------------
+
+def test_drafts_hidden_from_students(client, f):
+    """ข้อร่างต้องไม่โผล่ให้นักเรียนเห็น แต่ครูเห็นได้เมื่อขอ"""
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    put_all(client, f, [mc_question('ข้อครบ'), mc_question('ข้อร่าง', filled_choices=1)])
+
+    student = client.get(f'/api/v1/mcq/{mid}/questions',
+                         headers=auth(f['student_token'])).get_json()
+    check('นักเรียนเห็นข้อเดียว', len(student) == 1)
+    check('นักเรียนเห็นเฉพาะข้อที่ครบ', student[0]['question_text'] == 'ข้อครบ')
+
+    preview = client.get(f'/api/v1/mcq/{mid}/questions',
+                         headers=auth(f['teacher_token'])).get_json()
+    check('ครูพรีวิวเห็นเท่านักเรียน', len(preview) == 1)
+
+    builder = client.get(f'/api/v1/mcq/{mid}/questions?include_drafts=1',
+                         headers=auth(f['teacher_token'])).get_json()
+    check('หน้าสร้างข้อสอบเห็นครบสองข้อ', len(builder) == 2)
+    check('มีฟิลด์ is_draft ให้ครู', builder[1].get('is_draft') is True)
+    check('ข้อที่ครบไม่ใช่ร่าง', builder[0].get('is_draft') is False)
+
+    sneak = client.get(f'/api/v1/mcq/{mid}/questions?include_drafts=1',
+                       headers=auth(f['student_token'])).get_json()
+    check('นักเรียนส่ง include_drafts ก็ยังไม่เห็น', len(sneak) == 1)
+    check('นักเรียนไม่ได้ฟิลด์ is_draft', 'is_draft' not in sneak[0])
+
+
+def test_draft_not_counted_or_answerable(client, f):
+    """ข้อร่างไม่ถูกนับเป็นคะแนนเต็ม และยิง question_id ตรง ๆ ก็ตอบไม่ได้"""
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    put_all(client, f, [mc_question('ข้อครบ'), mc_question('ข้อร่าง', filled_choices=1)])
+    draft = MCQQuestion.query.filter_by(mission_id=mid, is_draft=True).first()
+
+    progress = client.get(f"/api/v1/mcq/{mid}/student/{f['student'].user_id}",
+                          headers=auth(f['teacher_token'])).get_json()
+    check('หน้าความคืบหน้าไม่นับข้อร่าง', len(progress['questions']) == 1)
+
+    res = client.post(
+        f'/api/v1/mcq/{mid}/submit-single',
+        json={'answer': {'question_id': draft.question_id, 'choice_id': None}},
+        headers=auth(f['student_token']),
+    )
+    check('ตอบข้อร่างตรง ๆ ไม่ได้', res.status_code == 400)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -231,6 +279,8 @@ def main():
         try:
             test_full_put_marks_drafts(client, f)
             test_draft_rules_per_type(client, f)
+            test_drafts_hidden_from_students(client, f)
+            test_draft_not_counted_or_answerable(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

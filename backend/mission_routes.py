@@ -4,6 +4,8 @@ from flask import Blueprint, request, jsonify
 from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
+# ข้อร่างถูกซ่อนจากนักเรียนด้วยกฎเดียวกันทั้งระบบ ดู mcq_routes.live_questions
+from mcq_routes import live_questions
 from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
@@ -72,7 +74,7 @@ def get_missions(course_id):
         
         score_text = None
         if m.mission_type == 'mcq' and status in ['completed', 'failed'] and um:
-            total_questions = MCQQuestion.query.filter_by(mission_id=m.mission_id).count()
+            total_questions = live_questions(m.mission_id).count()
             mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
             correct_answers = sum(1 for a in mcq_answers if a.is_correct)
             score_text = f"{correct_answers}/{total_questions}"
@@ -312,7 +314,7 @@ def get_students_progress(mission_id):
                     mcq_progress_text = f"กำลังทำข้อ {current_q} จาก {total_q} ข้อ"
             elif status in ['completed', 'failed'] and um:
                 # Calculate correct answers
-                total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
+                total_questions = live_questions(mission_id).count()
                 mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
                 correct_answers = sum(1 for a in mcq_answers if a.is_correct)
                 score_text = f"{correct_answers}/{total_questions}"
@@ -965,7 +967,7 @@ def analyze_mcq_all(mission_id):
     if not api_key:
         return jsonify({"error": "Gemini API key not configured. Please add GEMINI_API_KEY to .env"}), 503
 
-    questions = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(MCQQuestion.order_index).all()
+    questions = live_questions(mission_id).order_by(MCQQuestion.order_index).all()
     if not questions:
         return jsonify({"analysis": "ยังไม่มีคำถาม MCQ ในด่านนี้"}), 200
 
@@ -1040,7 +1042,7 @@ def analyze_mcq_student(mission_id, student_id):
     if not um or um.status == 'not_started':
         return jsonify({"analysis": f"นักเรียน {student.username} ยังไม่ได้เริ่มทำแบบทดสอบนี้เลยครับ"}), 200
 
-    questions = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(MCQQuestion.order_index).all()
+    questions = live_questions(mission_id).order_by(MCQQuestion.order_index).all()
     answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
     
     if not answers:

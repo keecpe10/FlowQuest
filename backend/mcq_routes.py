@@ -229,6 +229,15 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
     return False
 
 
+def live_questions(mission_id):
+    """คำถามที่นักเรียนเห็นได้จริง — ข้อร่างไม่นับ
+
+    ใช้เป็นฐานของทุกการนับและทุกการให้คะแนน ไม่ควรมีที่ไหนเขียน
+    filter_by(is_draft=False) เองอีก เพื่อให้กฎนี้อยู่ที่เดียว
+    """
+    return MCQQuestion.query.filter_by(mission_id=mission_id, is_draft=False)
+
+
 def _draft_choice_tuples(c_normalized, choices_data):
     """รวมผลจาก normalize_content กับ payload ดิบ ให้อยู่ในรูปที่ compute_is_draft รับ"""
     return [(c_doc, c_data.get('choice_text'), bool(c_data.get('is_correct')))
@@ -328,7 +337,7 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     from datetime import datetime
 
     mission_id = mission.mission_id
-    total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
+    total_questions = live_questions(mission_id).count()
     mcq_answers = MCQUserAnswer.query.filter_by(
         user_mission_id=user_mission.user_mission_id
     ).all()
@@ -412,12 +421,18 @@ def get_mcq_questions(mission_id):
     if not is_user_teacher:
         user_mission = ensure_mcq_attempt(user_id, mission, user_mission)
 
-    questions = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(MCQQuestion.order_index).all()
+    # ข้อร่างเห็นได้จากหน้าสร้างข้อสอบของครูเท่านั้น และต้องขอมาชัด ๆ
+    # GET ตัวนี้ถูกใช้ตอนครูกดพรีวิวด้วย ถ้ากรองแค่ "ผู้เรียกเป็นครู" ครูจะพรีวิว
+    # แล้วเห็นไม่ตรงกับที่นักเรียนเห็นจริง
+    include_drafts = is_user_teacher and request.args.get('include_drafts') == '1'
+    base_query = (MCQQuestion.query.filter_by(mission_id=mission_id)
+                  if include_drafts else live_questions(mission_id))
+    questions = base_query.order_by(MCQQuestion.order_index).all()
     
     q_data = []
     for q in questions:
         c_data = []
-        choices = MCQChoice.query.filter_by(question_id=q.question_id).all()
+        choices = MCQChoice.query.filter_by(question_id=q.question_id).order_by(MCQChoice.choice_id).all()
         
         # If student and randomize_choices is true
         if not is_user_teacher and mission.randomize_choices:
@@ -450,6 +465,7 @@ def get_mcq_questions(mission_id):
         if is_user_teacher:
             question_dict['explanation'] = q.explanation
             question_dict['question_metadata'] = metadata
+            question_dict['is_draft'] = q.is_draft
         else:
             filtered_metadata = {}
             if q.question_type == 'matching':
@@ -648,7 +664,7 @@ def submit_mcq(mission_id):
         answer_data = ans.get('answer_data')
         
         question = MCQQuestion.query.get(q_id)
-        if not question or question.mission_id != mission_id:
+        if not question or question.mission_id != mission_id or question.is_draft:
             continue
             
         is_correct = False
@@ -779,10 +795,10 @@ def get_mcq_student_progress(mission_id, student_id):
         
     um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     
-    questions = MCQQuestion.query.filter_by(mission_id=mission_id).all()
+    questions = live_questions(mission_id).all()
     q_data = []
     for q in questions:
-        choices = MCQChoice.query.filter_by(question_id=q.question_id).all()
+        choices = MCQChoice.query.filter_by(question_id=q.question_id).order_by(MCQChoice.choice_id).all()
         q_data.append({
             'question_id': q.question_id,
             'question_text': q.question_text,
@@ -901,7 +917,7 @@ def submit_mcq_single(mission_id):
     answer_data = ans.get('answer_data')
     
     question = MCQQuestion.query.get(q_id)
-    if not question or question.mission_id != mission_id:
+    if not question or question.mission_id != mission_id or question.is_draft:
         return jsonify({'error': 'Invalid question'}), 400
         
     # Check if already answered
@@ -949,7 +965,7 @@ def submit_mcq_single(mission_id):
                     break
         
     # Calculate XP (proportional based on mission total points)
-    total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
+    total_questions = live_questions(mission_id).count()
     points_per_q = int(mission.points / total_questions) if total_questions > 0 else question.xp_points
     xp_awarded = points_per_q if is_correct else 0
     
@@ -1066,7 +1082,7 @@ def manual_grade(mission_id):
         
         answer.is_correct = True
         
-        total_questions = MCQQuestion.query.filter_by(mission_id=mission_id).count()
+        total_questions = live_questions(mission_id).count()
         points_per_q = int(mission.points / total_questions) if total_questions > 0 else question.xp_points
         answer.xp_awarded = points_per_q
         
