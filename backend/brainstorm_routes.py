@@ -5,9 +5,55 @@ from flask_socketio import emit, join_room, leave_room
 import json
 import os
 import requests
-from auth_utils import get_current_user_id, can_play_mission
+from auth_utils import get_current_user_id, can_play_mission, has_course_access, is_course_teacher
 
 brainstorm_bp = Blueprint('brainstorm', __name__, url_prefix='/api/v1/brainstorm')
+
+
+@brainstorm_bp.before_request
+def require_authenticated_user():
+    """ทุก endpoint ของกระดานระดมความคิดต้องล็อกอินก่อน
+
+    เดิมทั้งไฟล์นี้ไม่ตรวจตัวตนเลย ใครยิง API ตรง ๆ ก็เพิ่มการ์ด ลบกระดาน
+    และแจก XP ให้ใครก็ได้ วางไว้เป็น before_request เพื่อให้ครอบทุก endpoint
+    รวมถึงอันที่เพิ่มเข้ามาใหม่ในอนาคตด้วย ไม่ต้องไปไล่ใส่ทีละตัวแล้วลืม
+    """
+    if request.method == 'OPTIONS':
+        return None  # preflight ของ CORS ไม่มี header ตรวจสิทธิ์
+    if not get_current_user_id():
+        return jsonify({'error': 'Unauthorized'}), 401
+    return None
+
+
+def _board_course_id(board):
+    """course ที่กระดานนี้สังกัด อาจเป็น None ถ้ากระดานไม่ผูกกับภารกิจ"""
+    if not board or not board.mission_id:
+        return None
+    mission = Mission.query.get(board.mission_id)
+    return mission.course_id if mission else None
+
+
+def require_board_access(board, teacher_only=False):
+    """ตรวจสิทธิ์เข้าถึงกระดาน คืน error response หรือ None ถ้าผ่าน
+
+    ครูประจำรายวิชาทำได้ทุกอย่าง นักเรียนที่ลงทะเบียนเรียนอ่านและร่วมกิจกรรมได้
+    """
+    user_id = get_current_user_id()
+    course_id = _board_course_id(board)
+    if course_id is None:
+        # กระดานอิสระที่ไม่ผูกกับรายวิชา ให้เฉพาะคนสร้างเท่านั้น
+        if board and board.created_by == user_id:
+            return None
+        return jsonify({'error': 'Forbidden'}), 403
+
+    if is_course_teacher(user_id, course_id):
+        return None
+    if teacher_only:
+        return jsonify({'error': 'Forbidden. Teacher access required.'}), 403
+    if has_course_access(user_id, course_id):
+        return None
+    return jsonify({'error': 'Forbidden'}), 403
+
 
 # --- REST API Routes ---
 
@@ -60,10 +106,9 @@ def create_board():
 
 @brainstorm_bp.route('/boards', methods=['GET'])
 def get_user_boards():
-    user_id_str = request.args.get('user_id')
-    if not user_id_str:
-        return jsonify({"error": "user_id is required"}), 400
-        
+    # เดิมรับ user_id จาก query ทำให้ดูกระดานของใครก็ได้ ตอนนี้ยึดจาก token เท่านั้น
+    user_id_str = str(get_current_user_id())
+
     try:
         user_id = int(user_id_str)
     except ValueError:
@@ -237,9 +282,14 @@ def update_board_visibility(board_id):
 @brainstorm_bp.route('/boards/<int:board_id>/cards', methods=['POST'])
 def add_card(board_id):
     data = request.json
-    user_id = data.get('user_id')
+    # ผู้เขียนต้องเป็นคนที่ถือ token เท่านั้น เดิมรับจาก body ทำให้เขียนการ์ด
+    # ในนามคนอื่นและแจก XP ให้คนอื่นได้โดยไม่ต้องล็อกอินด้วยซ้ำ
+    user_id = get_current_user_id()
     try:
         board = BrainstormBoard.query.get_or_404(board_id)
+        access_error = require_board_access(board)
+        if access_error:
+            return access_error
         
         if board.status == 'closed':
             return jsonify({"error": "This board is closed."}), 403
@@ -455,11 +505,13 @@ def update_card_positions_batch(board_id):
 def toggle_reaction(card_id):
     card = BrainstormCard.query.get_or_404(card_id)
     data = request.json
-    
+
     emoji = data.get('emoji')
-    
-    if not user_id or not emoji:
-        return jsonify({"error": "Missing user_id or emoji"}), 400
+    # เดิมอ้าง user_id ที่ไม่เคยถูกกำหนดในฟังก์ชันนี้ ทำให้กดรีแอ็กชันแล้วพัง 500
+    user_id = get_current_user_id()
+
+    if not emoji:
+        return jsonify({"error": "Missing emoji"}), 400
         
     existing = BrainstormReaction.query.filter_by(card_id=card_id, user_id=user_id, emoji=emoji).first()
     
@@ -525,7 +577,8 @@ def add_card_comment(card_id):
     card = BrainstormCard.query.get_or_404(card_id)
     data = request.json
     content = (data.get('content') or '').strip()
-    author_id = data.get('author_id')
+    # เดิมรับ author_id จาก body คอมเมนต์ในนามคนอื่นได้
+    author_id = get_current_user_id()
 
     if not content:
         return jsonify({"error": "Comment content cannot be empty"}), 400
@@ -571,8 +624,9 @@ def add_card_comment(card_id):
 def delete_card_comment(comment_id):
     """Delete a comment. Only the comment author (teacher) can delete."""
     comment = BrainstormComment.query.get_or_404(comment_id)
-    data = request.json or {}
-    requester_id = data.get('user_id') or get_current_user_id()
+    # เดิมเขียนว่า data.get('user_id') or get_current_user_id() ซึ่งให้ค่าจาก body
+    # มาก่อน token เท่ากับปลอมเป็นใครก็ได้เพื่อข้ามการตรวจสิทธิ์ด้านล่าง
+    requester_id = get_current_user_id()
 
     if requester_id != comment.author_id:
         # Also allow if requester is a teacher on the same board

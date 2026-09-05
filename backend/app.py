@@ -14,11 +14,16 @@ load_dotenv()
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
-socketio = SocketIO(cors_allowed_origins=os.getenv("CORS_ORIGINS", "*").split(","))
+socketio = SocketIO(cors_allowed_origins=os.getenv(
+    "CORS_ORIGINS", "http://localhost,http://localhost:5173").split(","))
 
 def create_app():
     app = Flask(__name__)
-    CORS(app, resources={r"/*": {"origins": os.getenv("CORS_ORIGINS", "*").split(",")}})  # Restrict origins in production
+    # ค่าเริ่มต้นจำกัดไว้ที่เครื่องตัวเอง ถ้าจะเปิดให้โดเมนอื่นเรียก ต้องระบุใน
+    # CORS_ORIGINS อย่างชัดเจน ปล่อยเป็น * แปลว่าเว็บใดก็เรียก API นี้ได้จาก
+    # เบราว์เซอร์ของผู้ใช้ที่ล็อกอินอยู่
+    allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost,http://localhost:5173").split(",")
+    CORS(app, resources={r"/*": {"origins": allowed_origins}})
 
     # Configuration
     db_user = os.getenv('POSTGRES_USER', 'flowquest')
@@ -29,7 +34,21 @@ def create_app():
     
     app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql+psycopg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev_secret_key')
+    # กุญแจเซ็น JWT — ถ้าใช้ค่า default ใครก็ปลอม token เป็นซูเปอร์แอดมินได้
+    # จึงให้แอปหยุดทำงานไปเลยเมื่อรันแบบ production โดยไม่ได้ตั้งค่า ดีกว่าเดินหน้า
+    # เงียบ ๆ ด้วยกุญแจที่เดาได้
+    secret_key = os.getenv('SECRET_KEY')
+    if not secret_key:
+        if os.getenv('FLASK_ENV') == 'development' or os.getenv('FLASK_DEBUG') == '1':
+            secret_key = 'dev_secret_key'
+            print('[คำเตือน] ไม่ได้ตั้ง SECRET_KEY กำลังใช้ค่าสำหรับพัฒนาเท่านั้น')
+        else:
+            raise RuntimeError(
+                'ต้องตั้งค่า SECRET_KEY ก่อนรันระบบ '
+                '(ตั้งใน .env หรือ environment variable) '
+                'ถ้าไม่ตั้ง ใครก็ปลอม token เข้าระบบในนามผู้ดูแลได้'
+            )
+    app.config['SECRET_KEY'] = secret_key
     app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB limit for uploads
 
     # Initialize extensions with app
@@ -98,6 +117,23 @@ def create_app():
         ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
         if ext not in ALLOWED_EXTENSIONS:
             return jsonify({'error': 'File type not allowed'}), 400
+
+        # ตรวจจากเนื้อไฟล์จริงด้วย ไม่ใช่เชื่อแค่ชื่อไฟล์ที่ผู้ใช้ตั้งเอง
+        # ไม่งั้นเปลี่ยนนามสกุลอะไรก็ได้เป็น .png แล้วฝากไฟล์ไว้บนเซิร์ฟเวอร์
+        MAGIC_BYTES = {
+            b'\x89PNG\r\n\x1a\n': 'png',
+            b'\xff\xd8\xff': 'jpg',
+            b'GIF87a': 'gif',
+            b'GIF89a': 'gif',
+        }
+        head = file.stream.read(12)
+        file.stream.seek(0)
+        looks_like_image = any(head.startswith(sig) for sig in MAGIC_BYTES)
+        # webp: "RIFF" 4 ไบต์ ข้ามขนาด 4 ไบต์ แล้วตามด้วย "WEBP"
+        if not looks_like_image:
+            looks_like_image = head[:4] == b'RIFF' and head[8:12] == b'WEBP'
+        if not looks_like_image:
+            return jsonify({'error': 'ไฟล์นี้ไม่ใช่รูปภาพ'}), 400
             
         if file:
             filename = secure_filename(file.filename)

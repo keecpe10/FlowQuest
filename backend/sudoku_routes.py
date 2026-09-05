@@ -151,6 +151,10 @@ def save_puzzle(mission_id):
 
 @sudoku_bp.route('/generate', methods=['POST'])
 def generate_puzzle():
+    # การสุ่มโจทย์เป็นงานฝั่งครู ไม่ควรเปิดให้ใครก็เรียกได้
+    if not get_current_user_id():
+        return jsonify({'error': 'Unauthorized'}), 401
+
     data = request.json
     bw = data.get('box_cols', 2)
     bh = data.get('box_rows', 2)
@@ -192,6 +196,11 @@ def autosave_progress(mission_id):
 
 @sudoku_bp.route('/<int:mission_id>/validate', methods=['POST'])
 def validate_progress(mission_id):
+    # เดิมไม่ตรวจตัวตนเลย ยิงซ้ำเพื่อไล่หาเฉลยได้ไม่จำกัดและไม่ถูกนับครั้ง
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
     data = request.json
     grid = data.get('grid')
     puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()

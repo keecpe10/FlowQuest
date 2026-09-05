@@ -36,8 +36,25 @@ def _serialize_teacher(user: User) -> dict:
 # ---------------------------------------------------------------------------
 # GET /api/v1/teachers  — list all teachers
 # ---------------------------------------------------------------------------
+def _require_teacher():
+    """ต้องเป็นครูที่ล็อกอินแล้ว คืน error response หรือ None ถ้าผ่าน"""
+    requester_id = get_current_user_id()
+    if not requester_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    requester = User.query.get(requester_id)
+    if not requester or not requester.role or requester.role.role_name != 'teacher':
+        return jsonify({'error': 'Forbidden. Teacher access required.'}), 403
+    return None
+
+
 @teacher_bp.route('/', methods=['GET'])
 def list_teachers():
+    # เดิมเปิดให้คนที่ไม่ได้ล็อกอินอ่านได้ หลุดทั้ง username อีเมล และธง
+    # is_super_admin ซึ่งเป็นข้อมูลตั้งต้นชั้นดีสำหรับเดารหัสผ่านแบบเจาะจงเป้า
+    err = _require_teacher()
+    if err:
+        return err
+
     teacher_role = Role.query.filter_by(role_name='teacher').first()
     if not teacher_role:
         return jsonify({'teachers': []})
@@ -51,6 +68,10 @@ def list_teachers():
 # ---------------------------------------------------------------------------
 @teacher_bp.route('/<int:user_id>', methods=['GET'])
 def get_teacher(user_id):
+    err = _require_teacher()
+    if err:
+        return err
+
     user = User.query.get_or_404(user_id)
     if not user.role or user.role.role_name != 'teacher':
         return jsonify({'error': 'User is not a teacher'}), 404

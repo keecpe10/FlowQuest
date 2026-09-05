@@ -17,6 +17,27 @@ def generate_token(user_id):
     }
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
+# จำกัดจำนวนครั้งที่ล็อกอินผิดต่อชื่อผู้ใช้ + ไอพี
+# เก็บในหน่วยความจำของโปรเซส พอสำหรับการใช้งานระดับโรงเรียนที่รันเครื่องเดียว
+# ถ้าวันหนึ่งขยายเป็นหลายโปรเซสต้องย้ายไปเก็บใน Redis ที่มีอยู่แล้วในระบบ
+_login_attempts = {}
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_WINDOW_SECONDS = 300
+
+
+def _login_throttled(key):
+    """คืน True ถ้าพยายามผิดถี่เกินกำหนด พร้อมล้างรายการที่หมดอายุไปด้วย"""
+    now = datetime.utcnow()
+    attempts = [t for t in _login_attempts.get(key, [])
+                if (now - t).total_seconds() < LOGIN_WINDOW_SECONDS]
+    _login_attempts[key] = attempts
+    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_failure(key):
+    _login_attempts.setdefault(key, []).append(datetime.utcnow())
+
+
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -24,10 +45,19 @@ def login():
     if not data or not data.get('username') or not data.get('password'):
         return jsonify({'message': 'Missing username or password'}), 400
         
+    throttle_key = f"{data['username']}|{request.remote_addr}"
+    if _login_throttled(throttle_key):
+        return jsonify({
+            'message': 'ลองเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่'
+        }), 429
+
     user = User.query.filter_by(username=data['username']).first()
-    
+
     if not user or not check_password_hash(user.password_hash, data['password']):
+        _record_login_failure(throttle_key)
         return jsonify({'message': 'Invalid username or password'}), 401
+
+    _login_attempts.pop(throttle_key, None)  # ล็อกอินสำเร็จแล้วล้างประวัติ
         
     role_name = user.role.role_name if user.role else 'student'
     
