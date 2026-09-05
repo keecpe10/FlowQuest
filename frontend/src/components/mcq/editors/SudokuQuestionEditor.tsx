@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import SudokuBoard from '../../Sudoku/SudokuBoard';
 import SymbolPalette from '../../Sudoku/SymbolPalette';
 
-const ALL_SYMBOLS = ['circle', 'square', 'triangle', 'star',
-                     'heart', 'moon', 'sun', 'cloud', 'bolt'];
+// ต้องเป็นชื่อที่ getSymbolDisplay ใน SudokuBoard รู้จักเท่านั้น ชื่อที่ไม่มีในแมป
+// จะถูกแสดงเป็นข้อความดิบ ๆ (เช่น "bolt") แทนที่จะเป็นสัญลักษณ์
+const ALL_SYMBOLS = ['circle', 'square', 'triangle', 'star', 'diamond',
+                     'hexagon', 'cross', 'heart', 'moon'];
 
 const PRESETS = [
   { label: '4 x 4', size: 4, boxRows: 2, boxCols: 2 },
