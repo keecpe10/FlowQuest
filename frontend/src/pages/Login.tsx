@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
+import Aurora from '../components/reactbits/Aurora';
 import { LogIn, User } from 'lucide-react';
 
 const Login = () => {
@@ -35,11 +36,14 @@ const Login = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background decorations */}
+      {/* พื้นหลังไล่สีเคลื่อนไหว (ReactBits Aurora) */}
+      <div className="absolute inset-0 opacity-60 pointer-events-none">
+        <Aurora colorStops={['#7c3aed', '#38bdf8', '#34d399']} amplitude={0.9} blend={0.6} speed={0.6} />
+      </div>
       <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] bg-primary-400/20 rounded-full blur-3xl -z-10"></div>
       <div className="absolute bottom-1/4 left-1/4 w-[500px] h-[500px] bg-emerald-400/20 rounded-full blur-3xl -z-10"></div>
 
-      <div className="w-full max-w-md bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-white/50">
+      <div className="w-full max-w-md relative bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-white/50">
         <div className="flex justify-center mb-8">
           <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-primary-500/30">
             <LogIn size={32} />

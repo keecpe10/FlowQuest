@@ -4,6 +4,7 @@ import {
   X, Loader2, ShieldCheck, Mail, AtSign, Eye, EyeOff,
   CheckCircle, AlertCircle, GraduationCap
 } from 'lucide-react';
+import { stagger } from '../components/reactbits/Reveal';
 import Swal from 'sweetalert2';
 import { useAuthStore } from '../store/useAuthStore';
 
@@ -319,8 +320,8 @@ const StudentManagement: React.FC = () => {
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {filtered.map(s => (
-              <div key={s.user_id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+            {filtered.map((s, idx) => (
+              <div key={s.user_id} style={{ animationDelay: `${stagger(idx, 25, 300)}ms` }} className="rb-reveal flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
                 <Avatar student={s} size={42} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">

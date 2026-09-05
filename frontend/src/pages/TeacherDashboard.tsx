@@ -5,8 +5,7 @@ import {
   Edit2, Trash2, Plus, X, Target, Star, BarChart2,
   BookOpen, ChevronRight, Zap, TrendingUp, Trophy,
   GripVertical, ArrowUp, ArrowDown, Save, ListOrdered,
-  Eye, EyeOff
-} from 'lucide-react';
+  Eye, EyeOff, PlayCircle } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, arrayMove, useSortable } from '@dnd-kit/sortable';
@@ -82,7 +81,7 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
   };
 
   return (
-    <div ref={setNodeRef} style={style} className={`relative bg-white rounded-2xl border ${isDragging ? 'border-violet-500 shadow-2xl scale-[1.02]' : 'border-slate-200/80 shadow-sm hover:shadow-lg'} ${isHidden ? 'opacity-60' : ''} transition-all group flex flex-col overflow-hidden`}>
+    <div ref={setNodeRef} style={style} className={`rb-fade relative bg-white rounded-2xl border ${isDragging ? 'border-violet-500 shadow-2xl scale-[1.02]' : 'border-slate-200/80 shadow-sm hover:shadow-lg'} ${isHidden ? 'opacity-60' : ''} transition-all group flex flex-col overflow-hidden`}>
       {/* Card top accent */}
       <div className={`h-1.5 w-full ${
         isHidden ? 'bg-slate-300' :
@@ -139,6 +138,13 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
               <LayoutDashboard size={14} /> ออกแบบด่าน
             </button>
           </Link>
+          {mission.mission_type === 'mcq' && (
+            <Link to={`/mcq/${mission.mission_id}`}>
+              <button className="flex items-center justify-center p-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 transition-colors" title="ทดลองเล่นแบบทดสอบนี้ (ไม่นับสิทธิ์ ไม่ได้ XP)">
+                <PlayCircle size={18} />
+              </button>
+            </Link>
+          )}
           {(mission.mission_type === 'mcq' || mission.mission_type === 'flowchart' || mission.mission_type === 'sudoku') && (
             <Link to={`/leaderboard?mission_id=${mission.mission_id}`}>
               <button className="flex items-center justify-center p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors tooltip" title="Leaderboard">

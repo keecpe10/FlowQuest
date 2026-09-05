@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCharacterStore } from '../store/characterStore';
 import Swal from 'sweetalert2';
 import { ArrowRightLeft, Search, Coins, ArrowUpRight } from 'lucide-react';
+import { stagger } from '../components/reactbits/Reveal';
 import CharacterCanvas from '../components/Character/CharacterCanvas';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -153,8 +154,8 @@ const TradeMarket: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredListings.map(listing => (
-              <div key={listing.trade_id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200 hover:shadow-xl transition-all group relative">
+            {filteredListings.map((listing, idx) => (
+              <div key={listing.trade_id} style={{ animationDelay: `${stagger(idx, 40)}ms` }} className="rb-reveal bg-white rounded-2xl p-4 shadow-sm border border-gray-200 hover:shadow-xl transition-all group relative">
                 
                 {listing.seller_id === user?.user_id && (
                   <div className="absolute top-2 left-2 z-10 bg-black/50 text-white text-xs px-2 py-1 rounded backdrop-blur font-bold">

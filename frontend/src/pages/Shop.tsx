@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCharacterStore } from '../store/characterStore';
 import Swal from 'sweetalert2';
 import { ShoppingBag, Coins, Search, Filter, Shirt, Scissors, Smile, Activity, Star } from 'lucide-react';
+import { stagger } from '../components/reactbits/Reveal';
 import CharacterCanvas from '../components/Character/CharacterCanvas';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -216,10 +217,11 @@ const Shop: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-                {items.map(item => (
+                {items.map((item, idx) => (
                   <div 
                     key={item.item_id} 
-                    className={`bg-white rounded-xl shadow-sm border-2 hover:shadow-md transition cursor-pointer flex flex-col group overflow-hidden ${
+                    style={{ animationDelay: `${stagger(idx, 40)}ms` }}
+                    className={`rb-reveal bg-white rounded-xl shadow-sm border-2 hover:shadow-md transition cursor-pointer flex flex-col group overflow-hidden ${
                       previewItem?.item_id === item.item_id ? 'border-violet-500 ring-2 ring-violet-200' : 'border-gray-200 hover:border-violet-300'
                     }`}
                     onClick={() => setPreviewItem(item)}

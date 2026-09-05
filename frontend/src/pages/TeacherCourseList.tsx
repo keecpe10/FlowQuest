@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { stagger } from '../components/reactbits/Reveal';
 import { useAuthStore } from '../store/useAuthStore';
 import { Link, Navigate } from 'react-router-dom';
 import { Plus, BookOpen, Users, Target, ChevronRight, Search, X, Edit, Trash2 } from 'lucide-react';
@@ -176,7 +177,8 @@ const TeacherCourseList = () => {
             <Link 
               key={course.course_id} 
               to={`/teacher/courses/${course.course_id}`}
-              className="bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg transition-all group flex flex-col overflow-hidden relative"
+              style={{ animationDelay: `${stagger(index)}ms` }}
+              className="rb-reveal bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg transition-all group flex flex-col overflow-hidden relative"
             >
               <div className={`h-2 w-full bg-gradient-to-r ${CARD_COLORS[index % CARD_COLORS.length]}`} />
               

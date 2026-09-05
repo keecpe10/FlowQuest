@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import CountUp from '../components/reactbits/CountUp';
+import { stagger } from '../components/reactbits/Reveal';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCharacterStore } from '../store/characterStore';
 import { Award, Star, Shield, Trophy, Target, Zap, CheckCircle, Edit3 } from 'lucide-react';
@@ -113,7 +115,9 @@ const Profile = () => {
               <div className="text-right hidden sm:block">
                 <div className="flex items-center gap-2 justify-end">
                   <Zap size={24} className="text-amber-400" />
-                  <span className="text-4xl font-black text-white">{profile.points.toLocaleString()}</span>
+                  <span className="text-4xl font-black text-white">
+                    <CountUp to={profile.points} duration={1.4} separator="," />
+                  </span>
                 </div>
                 <p className="text-amber-400/70 text-sm font-semibold mt-0.5">Total XP</p>
               </div>
@@ -126,7 +130,7 @@ const Profile = () => {
                 { icon: <Award size={18} className="text-indigo-400" />, label: 'Badge ที่ได้', value: profile.badges.length },
                 { icon: <Target size={18} className="text-emerald-400" />, label: 'ระดับ', value: rank.label },
               ].map((stat, i) => (
-                <div key={i} className="bg-white/5 rounded-xl p-4 text-center">
+                <div key={i} className="rb-reveal bg-white/5 rounded-xl p-4 text-center" style={{ animationDelay: `${stagger(i, 80)}ms` }}>
                   <div className="flex items-center justify-center gap-1.5 mb-1">
                     {stat.icon}
                   </div>
