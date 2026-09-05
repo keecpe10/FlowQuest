@@ -417,6 +417,84 @@ def test_post_draft_state(client, f):
     check('POST ข้อร่างสำเร็จ', body.get('is_draft') is True)
 
 
+# ---------------- เรียงลำดับข้อ ----------------
+
+def reorder(client, f, ids, token_key='teacher_token'):
+    return client.put(
+        f"/api/v1/mcq/{f['mission'].mission_id}/questions/reorder",
+        json={'question_ids': ids}, headers=auth(f[token_key]),
+    )
+
+
+def test_reorder_applies_order(client, f):
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    put_all(client, f, [mc_question('ก'), mc_question('ข'), mc_question('ค')])
+    ids = [q.question_id for q in rows(f)]
+
+    res = reorder(client, f, [ids[2], ids[0], ids[1]])
+    check('reorder สำเร็จ', res.status_code == 200)
+
+    db.session.expire_all()
+    check('order_index ตรงตามลิสต์',
+          [q.question_text for q in rows(f)] == ['ค', 'ก', 'ข'])
+    check('order_index ต่อเนื่องจาก 0',
+          [q.order_index for q in rows(f)] == [0, 1, 2])
+
+    seen = client.get(f'/api/v1/mcq/{mid}/questions',
+                      headers=auth(f['student_token'])).get_json()
+    check('นักเรียนเห็นลำดับใหม่',
+          [q['question_text'] for q in seen] == ['ค', 'ก', 'ข'])
+
+
+def test_reorder_includes_drafts(client, f):
+    """ข้อร่างต้องถูกนับรวมในลิสต์ที่ต้องส่ง และเรียงได้"""
+    clear_questions(f)
+    put_all(client, f, [mc_question('ครบ'), mc_question('ร่าง', filled_choices=1)])
+    ids = [q.question_id for q in rows(f)]
+
+    res = reorder(client, f, [ids[1], ids[0]])
+    check('เรียงข้อร่างได้', res.status_code == 200)
+    db.session.expire_all()
+    check('ข้อร่างขึ้นมาอยู่ก่อน',
+          [q.question_text for q in rows(f)] == ['ร่าง', 'ครบ'])
+
+
+def test_reorder_rejects_bad_lists(client, f):
+    """ส่งไม่ครบ ส่งซ้ำ ส่ง id ด่านอื่น หรือไม่ใช่ list ต้อง 400 และไม่แตะลำดับเดิม"""
+    clear_questions(f)
+    put_all(client, f, [mc_question('ก'), mc_question('ข'), mc_question('ค')])
+    ids = [q.question_id for q in rows(f)]
+    before = [q.question_text for q in rows(f)]
+
+    cases = [
+        ('ส่งไม่ครบ', [ids[0], ids[1]]),
+        ('ส่งซ้ำ', [ids[0], ids[0], ids[1]]),
+        ('มี id ที่ไม่มีจริง', [ids[0], ids[1], 99999999]),
+        ('ส่งเกิน', ids + [99999999]),
+        ('ลิสต์ว่าง', []),
+    ]
+    for label, payload in cases:
+        res = reorder(client, f, payload)
+        check(f'{label} ได้ 400', res.status_code == 400)
+
+    res = client.put(
+        f"/api/v1/mcq/{f['mission'].mission_id}/questions/reorder",
+        json={'question_ids': 'ไม่ใช่ list'}, headers=auth(f['teacher_token']))
+    check('ไม่ใช่ list ได้ 400', res.status_code == 400)
+
+    db.session.expire_all()
+    check('ลำดับเดิมไม่ถูกแตะ', [q.question_text for q in rows(f)] == before)
+
+
+def test_reorder_permissions(client, f):
+    clear_questions(f)
+    put_all(client, f, [mc_question('ก'), mc_question('ข')])
+    ids = [q.question_id for q in rows(f)]
+    res = reorder(client, f, [ids[1], ids[0]], token_key='student_token')
+    check('นักเรียนเรียงไม่ได้', res.status_code == 403)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -436,6 +514,10 @@ def main():
             test_put_single_scoping(client, f)
             test_delete_single_and_repack(client, f)
             test_delete_permissions(client, f)
+            test_reorder_applies_order(client, f)
+            test_reorder_includes_drafts(client, f)
+            test_reorder_rejects_bad_lists(client, f)
+            test_reorder_permissions(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

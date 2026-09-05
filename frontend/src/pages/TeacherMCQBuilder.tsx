@@ -271,6 +271,27 @@ const TeacherMCQBuilder = () => {
     setDirty(false);
   };
 
+  /**
+   * เรียงลำดับใหม่แล้วบันทึกทันที
+   *
+   * สลับใน state ก่อนเพื่อให้เห็นผลทันทีตอนวาง ถ้าเซิร์ฟเวอร์ปฏิเสธค่อยคืนลำดับเดิม
+   * ไม่แตะ draft/dirty/selected เพราะ selected ผูกกับ question_id ไม่ใช่ตำแหน่ง
+   * ข้อที่เปิดค้างอยู่จึงยังเปิดอยู่ เปลี่ยนแค่เลขข้อที่แสดง
+   */
+  const reorderQuestions = async (questionIds: number[]) => {
+    const previous = questions;
+    const byId = new Map(questions.map((q) => [q.question_id, q]));
+    setQuestions(questionIds.map((qid) => byId.get(qid)!));
+
+    try {
+      await axios.put(`${apiBase}/reorder`, { question_ids: questionIds }, { headers });
+    } catch (error) {
+      console.error('Failed to reorder questions', error);
+      setQuestions(previous);
+      Swal.fire({ icon: 'error', text: 'เรียงลำดับไม่สำเร็จ' });
+    }
+  };
+
   const goBack = async () => {
     if (!(await confirmLeave())) return;
     navigate(-1);
@@ -315,6 +336,7 @@ const TeacherMCQBuilder = () => {
           selected={selected}
           onSelect={selectQuestion}
           onAdd={addQuestion}
+          onReorder={reorderQuestions}
         />
 
         <main className="flex-1 min-w-0 overflow-y-auto p-4 md:p-8">

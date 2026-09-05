@@ -733,6 +733,40 @@ def update_mcq_question(mission_id, question_id):
     return jsonify(_question_json(question)), 200
 
 
+@mcq_bp.route('/<int:mission_id>/questions/reorder', methods=['PUT'])
+def reorder_mcq_questions(mission_id):
+    """เรียงลำดับข้อใหม่ตามลิสต์ที่ส่งมา
+
+    บังคับให้ส่ง question_id ครบทุกข้อของด่านนี้พอดี ไม่ขาด ไม่เกิน ไม่ซ้ำ
+    ถ้ายอมให้ส่งไม่ครบแล้วเซ็ตเฉพาะตัวที่หาเจอ ข้อที่ไม่ได้ส่งจะคง order_index
+    เดิมไว้จนซ้ำกับข้อที่เพิ่งเซ็ต แล้วลำดับที่นักเรียนเห็นจะขึ้นกับว่า DB คืน
+    แถวไหนก่อน ซึ่งไม่แน่นอน
+    """
+    mission, err = _teacher_mission(mission_id)
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    question_ids = data.get('question_ids')
+    if not isinstance(question_ids, list):
+        return jsonify({'message': 'question_ids ต้องเป็น list'}), 400
+
+    questions = MCQQuestion.query.filter_by(mission_id=mission_id).all()
+    existing = sorted(q.question_id for q in questions)
+    if sorted(question_ids) != existing:
+        return jsonify({
+            'message': 'question_ids ต้องมีครบทุกข้อของด่านนี้พอดี ไม่ซ้ำและไม่มีข้อของด่านอื่น'
+        }), 400
+
+    by_id = {q.question_id: q for q in questions}
+    for index, question_id in enumerate(question_ids):
+        by_id[question_id].order_index = index
+
+    db.session.commit()
+    socketio.emit('missions_updated')
+    return jsonify({'message': 'Questions reordered successfully'}), 200
+
+
 @mcq_bp.route('/<int:mission_id>/questions/<int:question_id>', methods=['DELETE'])
 def delete_mcq_question(mission_id, question_id):
     """ลบคำถามข้อเดียว แล้วจัด order_index ของข้อที่เหลือให้ต่อเนื่อง"""
