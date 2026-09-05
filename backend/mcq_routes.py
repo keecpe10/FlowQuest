@@ -316,13 +316,18 @@ def _clean_sudoku_metadata(meta, where):
         'given_grid': given, 'solution_grid': solution,
     }
 
+    # เทียบช่องที่เปิดเผยกับเฉลย ทำได้ไม่ว่าโจทย์จะครบหรือยัง (ต่างจากการตรวจ
+    # คำตอบเดียวด้านล่างที่ต้องรอให้ครบก่อน) เพราะข้อมูลที่ขัดแย้งกันเองถือว่า
+    # ผิดรูปเสมอ ส่วนช่องที่ยังไม่กรอกทั้งสองฝั่ง (เป็น -1) ข้ามไปเพราะเป็นแค่
+    # งานทำค้าง ไม่ใช่ความขัดแย้ง
+    for r in range(size):
+        for c in range(size):
+            if given[r][c] != -1 and solution[r][c] != -1 and given[r][c] != solution[r][c]:
+                raise ValueError(f'{where}: ช่องที่เปิดเผยไม่ตรงกับเฉลย')
+
     # ตรวจความเป็นคำตอบเดียวได้ต่อเมื่อโจทย์ครบแล้วเท่านั้น ไม่งั้นครูบันทึก
     # งานที่ทำค้างไว้ไม่ได้เลย
     if sudoku_meta_complete(cleaned):
-        for r in range(size):
-            for c in range(size):
-                if given[r][c] != -1 and given[r][c] != solution[r][c]:
-                    raise ValueError(f'{where}: ช่องที่เปิดเผยไม่ตรงกับเฉลย')
         # count_solutions ต้องการ 0 สำหรับช่องว่าง ไม่ใช่ -1
         given_for_solver = [[0 if v == -1 else v + 1 for v in row] for row in given]
         if count_solutions(given_for_solver, box_cols, box_rows, limit=2) != 1:

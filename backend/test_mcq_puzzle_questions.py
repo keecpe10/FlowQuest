@@ -98,6 +98,50 @@ def test_sudoku_incomplete_saves_as_draft():
     check('เฉลยยังไม่เต็มก็บันทึกได้', out['solution_grid'][0][0] == -1)
 
 
+def test_sudoku_full_given_contradicts_solution():
+    """given_grid เต็มทุกช่องแต่ขัดกับเฉลยต้องถูกปฏิเสธ แม้ sudoku_meta_complete
+    จะคืน False (เพราะ given ไม่มี -1 เหลือเลย) ก็ต้องไม่ข้ามการตรวจนี้ไป"""
+    contradiction = sudoku_meta(
+        given_grid=[row[:] for row in SOLUTION_4],
+    )
+    # ทำให้ขัดกับเฉลยตรงช่องเดียว โดยยังคงเป็นค่าที่ใช้ได้ (อยู่ในช่วง 0..size-1)
+    contradiction['given_grid'][0][0] = (SOLUTION_4[0][0] + 1) % 4
+    check('given เต็มแต่ขัดกับเฉลยถูกปฏิเสธ',
+          raises(lambda: clean_puzzle_metadata('sudoku', contradiction, 'คำถาม')))
+
+
+# ปริศนา 6x6 กล่องไม่เป็นสี่เหลี่ยมจัตุรัส (box_rows=2 แถว x box_cols=3 คอลัมน์)
+# ใช้จับกรณีสลับอาร์กิวเมนต์ box_cols/box_rows ตอนเรียก count_solutions โดยไม่ตั้งใจ
+# เพราะทดสอบด้วย box 2x2 (สี่เหลี่ยมจัตุรัส) แล้วสลับไปก็ยังผ่านเหมือนเดิม จับไม่ได้
+SOLUTION_6 = [[0, 1, 2, 3, 4, 5],
+              [3, 4, 5, 0, 1, 2],
+              [1, 2, 3, 4, 5, 0],
+              [4, 5, 0, 1, 2, 3],
+              [2, 3, 4, 5, 0, 1],
+              [5, 0, 1, 2, 3, 4]]
+
+GIVEN_6 = [row[:] for row in SOLUTION_6]
+GIVEN_6[5][4] = -1
+GIVEN_6[5][5] = -1
+
+
+def test_sudoku_rectangular_box_shape():
+    """กล่อง 2 แถว x 3 คอลัมน์ (ไม่ใช่สี่เหลี่ยมจัตุรัส) ต้องผ่านเมื่อคำตอบไม่ซ้ำ
+
+    ยืนยันแล้วว่า GIVEN_6 มีคำตอบเดียวพอดีภายใต้การแปลงที่โค้ดจริงใช้
+    (count_solutions(given_for_solver, box_cols=3, box_rows=2) == 1)
+    """
+    meta = {
+        'size': 6, 'box_rows': 2, 'box_cols': 3,
+        'symbol_set': ['1', '2', '3', '4', '5', '6'],
+        'render_mode': 'number',
+        'given_grid': [row[:] for row in GIVEN_6],
+        'solution_grid': [row[:] for row in SOLUTION_6],
+    }
+    out = clean_puzzle_metadata('sudoku', meta, 'คำถาม')
+    check('กล่อง 2x3 ที่มีคำตอบเดียวผ่าน', out['size'] == 6)
+
+
 def test_flowchart_metadata():
     out = clean_puzzle_metadata('flowchart', flow_meta(), 'คำถาม')
     check('ผังงานที่ถูกต้องผ่าน', len(out['nodes']) == 2 and len(out['edges']) == 1)
@@ -140,6 +184,8 @@ def main():
         test_sudoku_metadata_rejects_bad_shape()
         test_sudoku_metadata_rejects_multiple_solutions()
         test_sudoku_incomplete_saves_as_draft()
+        test_sudoku_full_given_contradicts_solution()
+        test_sudoku_rectangular_box_shape()
         test_flowchart_metadata()
         test_other_types_untouched()
 
