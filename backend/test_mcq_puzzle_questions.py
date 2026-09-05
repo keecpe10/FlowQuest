@@ -318,15 +318,31 @@ def test_draft_rules(client, f):
 
 
 def test_bad_metadata_rejected_by_api(client, f):
+    """PUT ทั้งชุดต้องตรวจ metadata ให้ผ่านก่อนแตะฐานข้อมูล ไม่ใช่ลบของเดิมทิ้งก่อนตรวจ
+
+    ต้องมีข้อเดิมอยู่ในด่านก่อนยิง PUT ที่พัง แล้วเช็คว่าทั้งจำนวนและตัวข้อ
+    (question_id) ยังเป็นของเดิมเป๊ะ ๆ ถ้าเทสต์นี้ล้างข้อให้เป็นศูนย์ก่อนแล้วเช็คแค่
+    rows_count(f) == 0 จะผ่านเหมือนกันทั้งกรณีตรวจก่อนลบ (ถูก) และลบก่อนตรวจ (บั๊ก)
+    เพราะไม่มีข้อให้ลบตั้งแต่ต้น เทสต์แบบนั้นจึงจับบั๊กนี้ไม่ได้เลย
+    """
     clear_questions(f)
     res = client.post(q_url(f), json=puzzle_question(
         'sudoku', sudoku_meta(render_mode='emoji')), headers=auth(f['teacher_token']))
     check('metadata พังถูกปฏิเสธที่ POST', res.status_code == 400)
 
+    # สร้างข้อที่ถูกต้องไว้ก่อนหนึ่งข้อ เพื่อให้มีอะไรให้ PUT ที่พังไปทำลายได้จริง
+    res = client.post(q_url(f), json=puzzle_question('flowchart', flow_meta()),
+                      headers=auth(f['teacher_token']))
+    check('สร้างข้อถูกต้องไว้ก่อนได้', res.status_code == 201)
+    seeded_id = res.get_json()['question_id']
+
     res = client.put(q_url(f), json={'questions': [puzzle_question(
         'sudoku', sudoku_meta(render_mode='emoji'))]}, headers=auth(f['teacher_token']))
     check('metadata พังถูกปฏิเสธที่ PUT ทั้งชุด', res.status_code == 400)
-    check('ปฏิเสธแล้วไม่มีข้อถูกเขียน', rows_count(f) == 0)
+    check('ปฏิเสธแล้วจำนวนข้อไม่เปลี่ยนจากเดิม', rows_count(f) == 1)
+    remaining = MCQQuestion.query.filter_by(mission_id=f['mission'].mission_id).first()
+    check('ปฏิเสธแล้วข้อเดิมยังอยู่ ไม่ถูกลบแล้วสร้างใหม่',
+          remaining is not None and remaining.question_id == seeded_id)
 
 
 def main():
