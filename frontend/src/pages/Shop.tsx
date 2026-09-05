@@ -14,6 +14,8 @@ const Shop: React.FC = () => {
   const { config, equipped, loadFromServer } = useCharacterStore();
   
   const [items, setItems] = useState<any[]>([]);
+  // เลเวลของผู้ซื้อ มาจาก API เดียวกับรายการไอเทม ใช้ปิดปุ่มไอเทมที่ยังไม่ถึงเลเวล
+  const [viewerLevel, setViewerLevel] = useState(1);
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
@@ -45,6 +47,7 @@ const Shop: React.FC = () => {
         }
       });
       setItems(res.data.items);
+      setViewerLevel(res.data.viewer_level ?? 1);
     } catch (error) {
       console.error(error);
     }
@@ -277,17 +280,28 @@ const Shop: React.FC = () => {
                           {previewItem.price_points}
                         </div>
                     </div>
-                    <button
-                      onClick={() => handlePurchase(previewItem)}
-                      disabled={points < previewItem.price_points}
-                      className={`w-full py-3 rounded-xl font-bold transition flex items-center justify-center ${
-                        points >= previewItem.price_points 
-                          ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:scale-105' 
-                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                      }`}
-                    >
-                      {points >= previewItem.price_points ? 'ซื้อไอเทม' : 'แต้มไม่พอ'}
-                    </button>
+                    {(() => {
+                      const needLevel = (previewItem.level_required || 1) > viewerLevel;
+                      const needPoints = points < previewItem.price_points;
+                      const canBuy = !needLevel && !needPoints;
+                      return (
+                        <button
+                          onClick={() => handlePurchase(previewItem)}
+                          disabled={!canBuy}
+                          className={`w-full py-3 rounded-xl font-bold transition flex items-center justify-center ${
+                            canBuy
+                              ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:scale-105'
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          {needLevel
+                            ? `ต้องถึงเลเวล ${previewItem.level_required}`
+                            : needPoints
+                              ? 'แต้มไม่พอ'
+                              : 'ซื้อไอเทม'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 )}
                 {!previewItem && (

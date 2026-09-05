@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from models import ShopItem, UserInventory, User, PointHistory
-from gamification import get_current_user_id
+from gamification import get_current_user_id, get_user_level, level_from_points
 from datetime import datetime
 
 shop_bp = Blueprint('shop', __name__, url_prefix='/api/v1/shop')
@@ -62,7 +62,12 @@ def get_items():
             'render_config': item.render_config,
         })
         
-    return jsonify({'status': 'success', 'items': result}), 200
+    # ส่งเลเวลของคนที่กำลังดูไปด้วย หน้าร้านค้าจะได้ปิดปุ่มไอเทมที่ยังซื้อไม่ได้
+    # โดยไม่ต้องยิง API เพิ่มอีกรอบ ผู้ที่ยังไม่ล็อกอินถือเป็นเลเวล 1
+    viewer_id = get_current_user_id()
+    viewer_level = get_user_level(viewer_id) if viewer_id else 1
+
+    return jsonify({'status': 'success', 'items': result, 'viewer_level': viewer_level}), 200
 
 @shop_bp.route('/featured', methods=['GET'])
 def get_featured():
@@ -122,7 +127,20 @@ def purchase_item():
         # Check balance efficiently using SQL sum
         total_points_result = db.session.query(db.func.sum(PointHistory.points)).filter_by(user_id=user_id).scalar()
         total_points = total_points_result or 0
-        
+
+        # ไอเทมที่กำหนดเลเวลขั้นต่ำไว้ ต้องตรวจก่อนหักคะแนน
+        # ฟิลด์นี้มีมาตั้งแต่ต้นและถูกส่งไปแสดงในร้านค้า แต่ไม่เคยถูกบังคับใช้
+        required_level = item.level_required or 1
+        if required_level > 1:
+            current_level = level_from_points(total_points)
+            if current_level < required_level:
+                db.session.rollback()
+                return jsonify({
+                    'message': f'ต้องถึงเลเวล {required_level} ก่อนจึงจะซื้อไอเทมนี้ได้ (ตอนนี้เลเวล {current_level})',
+                    'required_level': required_level,
+                    'current_level': current_level,
+                }), 400
+
         if total_points < item.price_points:
             db.session.rollback()
             return jsonify({'message': 'Insufficient points', 'current_points': total_points, 'price': item.price_points}), 400

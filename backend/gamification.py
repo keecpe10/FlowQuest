@@ -9,6 +9,32 @@ from engine import validate_flowchart
 
 game_bp = Blueprint('game', __name__, url_prefix='/api/v1/game')
 
+# ---- เลเวลของผู้เล่น ----
+#
+# ระบบไม่เคยมีเลเวลเป็นตัวเลขมาก่อน มีแต่ยศที่หน้าเว็บคำนวณจากคะแนน
+# (Beginner / Skilled / Expert / Master) แต่ ShopItem.level_required มีมาตั้งแต่ต้น
+# และไม่เคยถูกบังคับใช้ จึงนิยามเลเวลไว้ที่เดียวตรงนี้ให้ทุกที่อ้างอิงตรงกัน
+#
+# 100 คะแนนสะสมต่อ 1 เลเวล เริ่มที่เลเวล 1 — ให้พอดีกับเกณฑ์ยศที่ใช้อยู่
+# (200 คะแนน = Skilled ≈ เลเวล 3, 500 = Expert ≈ เลเวล 6, 1000 = Master ≈ เลเวล 11)
+POINTS_PER_LEVEL = 100
+
+
+def level_from_points(total_points):
+    """เลเวลจากคะแนนสะสม อย่างต่ำเลเวล 1 เสมอ แม้คะแนนติดลบจากการซื้อของ"""
+    return max(1, int(total_points or 0) // POINTS_PER_LEVEL + 1)
+
+
+def get_user_total_points(user_id):
+    """คะแนนสะสมสุทธิ รวมรายการติดลบจากการซื้อของในร้านค้าแล้ว"""
+    total = db.session.query(db.func.sum(PointHistory.points)).filter_by(user_id=user_id).scalar()
+    return total or 0
+
+
+def get_user_level(user_id):
+    return level_from_points(get_user_total_points(user_id))
+
+
 def get_current_user_id():
     auth_header = request.headers.get('Authorization')
     if auth_header and auth_header.startswith('Bearer '):
