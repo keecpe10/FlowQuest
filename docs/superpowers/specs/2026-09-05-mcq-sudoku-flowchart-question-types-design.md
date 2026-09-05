@@ -138,7 +138,7 @@ def grade_answer(question, choice_id, answer_data):
 | ไฟล์ | สิ่งที่ทำ |
 |---|---|
 | `mcq_routes.py` | เพิ่ม `grade_answer` แล้วให้ `submit_mcq` / `submit_mcq_single` เรียกใช้ · เพิ่มสาขา `sudoku` / `flowchart` ใน `compute_is_draft` · ตรวจ metadata ตอนบันทึกข้อ · เปลี่ยนสูตรใน `finalize_mcq` |
-| `engine.py` | เพิ่ม `flowchart_ratio(student_edges, solution_edges)` ข้าง `validate_flowchart` ใช้ `extract_connections` ร่วมกัน |
+| `engine.py` | เพิ่ม `flowchart_score(solution_edges, student_edges)` และ `sudoku_score(meta, grid)` ข้าง `validate_flowchart` โดยยก `extract_connections` ออกมาระดับโมดูลเพื่อใช้ร่วมกัน ทั้งคู่คืน `(ถูก, เต็ม)` เป็นจำนวนเต็ม |
 
 ### เกณฑ์ข้อร่าง
 
