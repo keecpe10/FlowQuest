@@ -1433,9 +1433,12 @@ def manual_grade(mission_id):
         question = MCQQuestion.query.get(question_id)
         
         answer.is_correct = True
-        
+
+        # xp_points ของโจทย์ข้อนั้นเป็นแหล่งความจริงเดียวของคะแนน MCQ เหมือนกับ
+        # submit_mcq/submit_mcq_single (ดู grade_answer) ไม่ใช่ mission.points หาร
+        # เฉลี่ยเท่าจำนวนข้อ ซึ่งเป็นสูตรเก่าที่ไม่ตรงกับสองเส้นทางนั้นมานาน
         total_questions = live_questions(mission_id).count()
-        points_per_q = int(mission.points / total_questions) if total_questions > 0 else question.xp_points
+        points_per_q = question.xp_points
         answer.xp_awarded = points_per_q
         
         # Recalculate pass/fail

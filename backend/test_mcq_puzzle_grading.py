@@ -151,6 +151,31 @@ def single_url(f):
     return f"/api/v1/mcq/{f['mission'].mission_id}/submit-single"
 
 
+def manual_grade_url(f):
+    return f"/api/v1/mcq/{f['mission'].mission_id}/grade-manual"
+
+
+# ผังงาน 3 บล็อก เฉลยลากเส้น n1->n2->n3 สองเส้น
+FLOWCHART_NODES = [
+    {'id': 'n1', 'type': 'terminal', 'position': {'x': 0, 'y': 0}, 'data': {'label': 'เริ่ม'}},
+    {'id': 'n2', 'type': 'process', 'position': {'x': 0, 'y': 100}, 'data': {'label': 'ทำงาน'}},
+    {'id': 'n3', 'type': 'terminal', 'position': {'x': 0, 'y': 200}, 'data': {'label': 'จบ'}},
+]
+FLOWCHART_SOLUTION_EDGES = [
+    {'source': 'n1', 'target': 'n2', 'label': ''},
+    {'source': 'n2', 'target': 'n3', 'label': ''},
+]
+
+
+def flowchart_meta(**over):
+    meta = {
+        'nodes': [dict(n) for n in FLOWCHART_NODES],
+        'edges': [dict(e) for e in FLOWCHART_SOLUTION_EDGES],
+    }
+    meta.update(over)
+    return meta
+
+
 def puzzle_question(qtype, meta, xp=10):
     return {
         'content_blocks': doc(txt('ทำโจทย์นี้')),
@@ -243,6 +268,64 @@ def test_choice_types_unchanged(client, f):
     check('ตอบผิดได้ 0', res.get_json()['xp_awarded'] == 0)
 
 
+def test_flowchart_partial_credit_end_to_end(client, f):
+    """สร้างข้อผังงานผ่าน API ครู แล้วส่งคำตอบนักเรียนผ่าน endpoint เดียวกับข้อสอบจริง
+
+    เฉลยมี 2 เส้น (n1->n2, n2->n3) นักเรียนลากถูก 1 เส้น (n1->n2) และลากเส้นเกิน
+    มาอีก 1 เส้นที่ไม่มีในเฉลย (n1->n3) หารด้วย union ของเฉลยกับคำตอบ = 3 เส้น
+    (ไม่ใช่หารด้วยจำนวนเส้นเฉลย = 2) ได้ 1/3 ของ xp=30 คือ 30*1//3 = 10
+    ถ้าไปหารด้วยจำนวนเส้นเฉลยแทน (สูตรผิด) จะได้ 15 ซึ่งต่างจากค่าที่คาดหวังชัดเจน
+    """
+    clear_questions(f)
+    client.post(q_url(f), json=puzzle_question('flowchart', flowchart_meta(), xp=30),
+                headers=auth(f['teacher_token']))
+    qid = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).first().question_id
+
+    student_edges = [
+        {'source': 'n1', 'target': 'n2', 'label': ''},  # ถูก อยู่ในเฉลย
+        {'source': 'n1', 'target': 'n3', 'label': ''},  # เกิน ไม่อยู่ในเฉลย
+    ]
+    res = client.post(single_url(f), json={
+        'answer': {'question_id': qid, 'answer_data': student_edges},
+    }, headers=auth(f['student_token']))
+    body = res.get_json()
+    check('คะแนนบางส่วนหารด้วย union ไม่ใช่จำนวนเส้นเฉลย', body['xp_awarded'] == 10)
+    check('ยังไม่ถือว่าถูกทั้งข้อ (มีเส้นเกิน)', body['is_correct'] is False)
+
+
+def test_manual_grade_awards_question_xp_points(client, f):
+    """ครูตรวจมือให้ถูก ต้องได้ xp_points ของข้อนั้น ไม่ใช่ mission.points หารเท่าจำนวนข้อ
+
+    ด่านทดสอบมี mission.points=100 ข้อเดียว xp_points=25 สูตรเก่า
+    int(mission.points / total_questions) = int(100/1) = 100 ต่างจากค่าที่ถูกต้อง
+    ชัดเจน จึงจับการถดถอยกลับไปใช้สูตรเก่าได้
+    """
+    clear_questions(f)
+    client.post(q_url(f), json=mc_question('ข้อให้ครูตรวจมือ', xp=25),
+                headers=auth(f['teacher_token']))
+    q = MCQQuestion.query.filter_by(mission_id=f['mission'].mission_id).first()
+    wrong = MCQChoice.query.filter_by(question_id=q.question_id, is_correct=False).first()
+
+    # นักเรียนตอบผิดก่อน ข้อเดียวในด่านนี้ ทำให้ auto-finalize เป็น failed ทันที
+    client.post(single_url(f), json={
+        'answer': {'question_id': q.question_id, 'choice_id': wrong.choice_id},
+    }, headers=auth(f['student_token']))
+
+    res = client.post(manual_grade_url(f), json={
+        'student_id': f['student'].user_id, 'question_id': q.question_id,
+    }, headers=auth(f['teacher_token']))
+    check('ตรวจมือสำเร็จ', res.status_code == 200)
+
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    answer = MCQUserAnswer.query.filter_by(
+        user_mission_id=um.user_mission_id, question_id=q.question_id).first()
+    check('ได้ xp_points ของข้อนั้น ไม่ใช่ mission.points หารเท่าจำนวนข้อ',
+          answer.xp_awarded == 25)
+    check('คะแนนรวมของ attempt ตรงกับ xp ที่ได้', um.score_awarded == 25)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -255,6 +338,10 @@ def main():
             test_full_marks_marks_correct(client, f)
             clear_answers(f)
             test_choice_types_unchanged(client, f)
+            clear_answers(f)
+            test_flowchart_partial_credit_end_to_end(client, f)
+            clear_answers(f)
+            test_manual_grade_awards_question_xp_points(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)
