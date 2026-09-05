@@ -271,6 +271,152 @@ def test_draft_not_counted_or_answerable(client, f):
     check('ตอบข้อร่างตรง ๆ ไม่ได้', res.status_code == 400)
 
 
+# ---------------- Task 3-5: endpoint รายข้อ ----------------
+
+def test_post_creates_one_question(client, f):
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    put_all(client, f, [mc_question('ข้อเดิม')])
+
+    res = post_question(client, f, mc_question('ข้อใหม่'))
+    check('POST สำเร็จ', res.status_code == 201)
+    body = res.get_json()
+    check('คืน question_id', isinstance(body.get('question_id'), int))
+    check('คืน is_draft', body.get('is_draft') is False)
+    check('คืน choice_id ครบ 4',
+          len([c['choice_id'] for c in body['choices']]) == 4)
+    check('order_index ต่อท้าย', body['order_index'] == 1)
+    check('มีสองข้อในด่าน',
+          MCQQuestion.query.filter_by(mission_id=mid).count() == 2)
+
+
+def test_post_permissions(client, f):
+    clear_questions(f)
+    res = post_question(client, f, mc_question(), token_key='student_token')
+    check('นักเรียน POST ไม่ได้', res.status_code == 403)
+    res = client.post(f"/api/v1/mcq/{f['mission'].mission_id}/questions",
+                      json=mc_question())
+    check('ไม่ล็อกอิน POST ไม่ได้', res.status_code == 401)
+
+
+def test_post_rejects_bad_content(client, f):
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    bad = {**mc_question(),
+           'content_blocks': {'type': 'doc', 'content': [{'type': 'script'}]}}
+    res = post_question(client, f, bad)
+    check('เนื้อหาผิดรูปแบบได้ 400', res.status_code == 400)
+    check('ไม่มีข้อถูกสร้าง',
+          MCQQuestion.query.filter_by(mission_id=mid).count() == 0)
+
+
+def test_put_single_keeps_ids_and_answers(client, f):
+    """แก้ข้อเดิมแล้ว question_id / choice_id / คำตอบนักเรียนต้องอยู่ครบ"""
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    created = post_question(client, f, mc_question('ก่อนแก้')).get_json()
+    qid = created['question_id']
+    choice_ids = [c['choice_id'] for c in created['choices']]
+
+    # ด่านนี้มี unique(user_id, mission_id) และเทสต์ก่อนหน้าอาจสร้างแถวไว้แล้ว
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=mid).first()
+    if not um:
+        um = UserMission(user_id=f['student'].user_id, mission_id=mid,
+                         status='in_progress')
+        db.session.add(um)
+        db.session.commit()
+    ans = MCQUserAnswer(user_mission_id=um.user_mission_id, question_id=qid,
+                        selected_choice_id=choice_ids[0], is_correct=True, xp_awarded=10)
+    db.session.add(ans)
+    db.session.commit()
+    answer_id = ans.answer_id
+
+    res = client.put(f'/api/v1/mcq/{mid}/questions/{qid}',
+                     json=mc_question('หลังแก้'), headers=auth(f['teacher_token']))
+    check('PUT รายข้อสำเร็จ', res.status_code == 200)
+    body = res.get_json()
+    check('question_id เดิม', body['question_id'] == qid)
+    check('choice_id เดิมครบ', [c['choice_id'] for c in body['choices']] == choice_ids)
+    check('เนื้อหาถูกแก้', body['question_text'] == 'หลังแก้')
+
+    db.session.expire_all()
+    kept = db.session.get(MCQUserAnswer, answer_id)
+    check('คำตอบนักเรียนยังอยู่', kept is not None)
+    check('ตัวเลือกที่เลือกไว้ไม่หาย', kept is not None and kept.selected_choice_id == choice_ids[0])
+    check('ผลตรวจเดิมคงอยู่', kept is not None and kept.is_correct is True)
+
+
+def test_put_single_choice_count_changes(client, f):
+    """ส่งตัวเลือกน้อยลง/มากขึ้น จำนวนแถวต้องตรงและตัวที่เหลือคง id เดิม"""
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    created = post_question(client, f, mc_question()).get_json()
+    qid = created['question_id']
+    first_two = [c['choice_id'] for c in created['choices']][:2]
+
+    shrunk = {**mc_question(), 'question_type': 'true_false',
+              'choices': [{'content_blocks': doc(txt('จริง')), 'is_correct': True},
+                          {'content_blocks': doc(txt('เท็จ')), 'is_correct': False}]}
+    body = client.put(f'/api/v1/mcq/{mid}/questions/{qid}', json=shrunk,
+                      headers=auth(f['teacher_token'])).get_json()
+    check('เหลือ 2 ตัวเลือก', len(body['choices']) == 2)
+    check('สองตัวแรกคง id เดิม',
+          [c['choice_id'] for c in body['choices']] == first_two)
+
+    body = client.put(f'/api/v1/mcq/{mid}/questions/{qid}', json=mc_question(),
+                      headers=auth(f['teacher_token'])).get_json()
+    check('กลับเป็น 4 ตัวเลือก', len(body['choices']) == 4)
+
+
+def test_put_single_scoping(client, f):
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    qid = post_question(client, f, mc_question()).get_json()['question_id']
+    res = client.put(f'/api/v1/mcq/{mid}/questions/{qid}', json=mc_question(),
+                     headers=auth(f['student_token']))
+    check('นักเรียนแก้ไม่ได้', res.status_code == 403)
+    res = client.put(f'/api/v1/mcq/{mid}/questions/99999999', json=mc_question(),
+                     headers=auth(f['teacher_token']))
+    check('qid ที่ไม่ใช่ของด่านนี้ได้ 404', res.status_code == 404)
+
+
+def test_delete_single_and_repack(client, f):
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    put_all(client, f, [mc_question('ข้อ 1'), mc_question('ข้อ 2'), mc_question('ข้อ 3')])
+    middle = rows(f)[1].question_id
+
+    res = client.delete(f'/api/v1/mcq/{mid}/questions/{middle}',
+                        headers=auth(f['teacher_token']))
+    check('DELETE สำเร็จ', res.status_code == 200)
+
+    left = rows(f)
+    check('เหลือสองข้อ', len(left) == 2)
+    check('order_index ต่อเนื่องจาก 0', [q.order_index for q in left] == [0, 1])
+    check('ข้อที่เหลือถูกต้อง',
+          [q.question_text for q in left] == ['ข้อ 1', 'ข้อ 3'])
+
+
+def test_delete_permissions(client, f):
+    clear_questions(f)
+    mid = f['mission'].mission_id
+    qid = post_question(client, f, mc_question()).get_json()['question_id']
+    res = client.delete(f'/api/v1/mcq/{mid}/questions/{qid}',
+                        headers=auth(f['student_token']))
+    check('นักเรียนลบไม่ได้', res.status_code == 403)
+    res = client.delete(f'/api/v1/mcq/{mid}/questions/99999999',
+                        headers=auth(f['teacher_token']))
+    check('ลบ qid ที่ไม่มีได้ 404', res.status_code == 404)
+
+
+def test_post_draft_state(client, f):
+    """ข้อที่กรอกไม่ครบ POST ได้ แต่ถูกทำเครื่องหมายเป็นร่าง"""
+    clear_questions(f)
+    body = post_question(client, f, mc_question('ยังไม่ครบ', filled_choices=1)).get_json()
+    check('POST ข้อร่างสำเร็จ', body.get('is_draft') is True)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -281,6 +427,15 @@ def main():
             test_draft_rules_per_type(client, f)
             test_drafts_hidden_from_students(client, f)
             test_draft_not_counted_or_answerable(client, f)
+            test_post_creates_one_question(client, f)
+            test_post_permissions(client, f)
+            test_post_rejects_bad_content(client, f)
+            test_post_draft_state(client, f)
+            test_put_single_keeps_ids_and_answers(client, f)
+            test_put_single_choice_count_changes(client, f)
+            test_put_single_scoping(client, f)
+            test_delete_single_and_repack(client, f)
+            test_delete_permissions(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

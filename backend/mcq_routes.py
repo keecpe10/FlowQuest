@@ -570,6 +570,193 @@ def update_mcq_questions(mission_id):
     socketio.emit('missions_updated')
     return jsonify({'message': 'MCQ Questions updated successfully'}), 200
 
+# ---- คำถามทีละข้อ ----
+#
+# หน้าสร้างข้อสอบบันทึกทีละข้อผ่านสามตัวนี้ ต่างจาก PUT ทั้งชุดด้านบนที่ลบคำถาม
+# เดิมทิ้งหมดแล้วสร้างใหม่ ซึ่งทำให้ question_id เปลี่ยนและคำตอบของนักเรียนหายตาม
+# ondelete='CASCADE' ทุกครั้งที่ครูกดบันทึก
+
+
+def _teacher_mission(mission_id):
+    """ตรวจสิทธิ์ชุดเดียวกันของทุก endpoint รายข้อ
+
+    คืน (mission, None) เมื่อผ่าน หรือ (None, (response, status)) เมื่อไม่ผ่าน
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return None, (jsonify({'message': 'Unauthorized'}), 401)
+    mission = Mission.query.get(mission_id)
+    if not mission or mission.mission_type != 'mcq':
+        return None, (jsonify({'message': 'MCQ Mission not found'}), 404)
+    if not is_course_teacher(user_id, mission.course_id):
+        return None, (jsonify({'message': 'Forbidden. Teacher access required.'}), 403)
+    return mission, None
+
+
+def _normalize_question(q_data, where='คำถาม'):
+    """ตรวจเนื้อหาของคำถามและตัวเลือกทั้งหมดก่อนแตะฐานข้อมูล"""
+    q_doc, q_text = normalize_content(q_data.get('content_blocks'), where)
+    c_normalized = []
+    for c_idx, c_data in enumerate(q_data.get('choices', [])):
+        c_doc, c_text = normalize_content(
+            c_data.get('content_blocks'), f'{where} ตัวเลือกที่ {c_idx + 1}')
+        c_normalized.append((c_doc, c_text))
+    return q_doc, q_text, c_normalized
+
+
+def _question_json(q):
+    """คำถามหนึ่งข้อในรูปแบบเดียวกับที่ครูได้จาก GET"""
+    choices = MCQChoice.query.filter_by(
+        question_id=q.question_id).order_by(MCQChoice.choice_id).all()
+    return {
+        'question_id': q.question_id,
+        'question_text': q.question_text,
+        'question_type': q.question_type,
+        'question_metadata': q.question_metadata or {},
+        'image_url': q.image_url,
+        'content_blocks': q.content_blocks,
+        'xp_points': q.xp_points,
+        'order_index': q.order_index,
+        'explanation': q.explanation,
+        'is_draft': q.is_draft,
+        'choices': [{
+            'choice_id': c.choice_id,
+            'choice_text': c.choice_text,
+            'image_url': c.image_url,
+            'content_blocks': c.content_blocks,
+            'is_correct': c.is_correct,
+        } for c in choices],
+    }
+
+
+def _write_question(q, q_data, q_doc, q_text, c_normalized):
+    """เขียนค่าจาก payload ลงคำถาม (ยังไม่ commit) และคำนวณสถานะร่างให้เอง"""
+    choices_data = q_data.get('choices', [])
+    q.question_text = q_text if q_doc else q_data.get('question_text', '')
+    q.question_type = q_data.get('question_type', 'multiple_choice')
+    q.question_metadata = q_data.get('question_metadata')
+    q.image_url = None if q_doc else q_data.get('image_url')
+    q.content_blocks = q_doc
+    q.xp_points = q_data.get('xp_points', 10)
+    q.explanation = q_data.get('explanation')
+    q.is_draft = compute_is_draft(
+        q.question_type, q_doc, q_data.get('question_text'), q.question_metadata,
+        q.xp_points, _draft_choice_tuples(c_normalized, choices_data),
+    )
+
+
+def _sync_choices(question, choices_data, c_normalized):
+    """อัปเดตตัวเลือกตามตำแหน่ง แทนการลบทิ้งแล้วสร้างใหม่
+
+    mcq_user_answers.selected_choice_id เป็น ondelete='SET NULL' ถ้าสร้างตัวเลือก
+    ใหม่ทุกครั้ง นักเรียนที่ตอบไปแล้วจะเสียข้อมูลว่าเลือกข้อไหน กรณีปกติจำนวน
+    ตัวเลือกเท่าเดิม choice_id จึงอยู่ครบทุกตัว
+    """
+    existing = MCQChoice.query.filter_by(
+        question_id=question.question_id).order_by(MCQChoice.choice_id).all()
+
+    for idx, ((c_doc, c_text), c_data) in enumerate(zip(c_normalized, choices_data)):
+        fields = dict(
+            choice_text=c_text if c_doc else c_data.get('choice_text', ''),
+            image_url=None if c_doc else c_data.get('image_url'),
+            content_blocks=c_doc,
+            is_correct=c_data.get('is_correct', False),
+        )
+        if idx < len(existing):
+            for key, value in fields.items():
+                setattr(existing[idx], key, value)
+        else:
+            db.session.add(MCQChoice(question_id=question.question_id, **fields))
+
+    for extra in existing[len(c_normalized):]:
+        db.session.delete(extra)
+
+
+@mcq_bp.route('/<int:mission_id>/questions', methods=['POST'])
+def create_mcq_question(mission_id):
+    """สร้างคำถามทีละข้อ ต่อท้ายข้อที่มีอยู่"""
+    mission, err = _teacher_mission(mission_id)
+    if err:
+        return err
+
+    q_data = request.get_json() or {}
+    try:
+        q_doc, q_text, c_normalized = _normalize_question(q_data)
+    except ValueError as e:
+        return jsonify({'message': str(e)}), 400
+
+    last = MCQQuestion.query.filter_by(mission_id=mission_id).order_by(
+        MCQQuestion.order_index.desc()).first()
+    new_q = MCQQuestion(mission_id=mission_id, question_text='',
+                        order_index=(last.order_index + 1) if last else 0)
+    _write_question(new_q, q_data, q_doc, q_text, c_normalized)
+    db.session.add(new_q)
+    db.session.flush()
+
+    for (c_doc, c_text), c_data in zip(c_normalized, q_data.get('choices', [])):
+        db.session.add(MCQChoice(
+            question_id=new_q.question_id,
+            choice_text=c_text if c_doc else c_data.get('choice_text', ''),
+            image_url=None if c_doc else c_data.get('image_url'),
+            content_blocks=c_doc,
+            is_correct=c_data.get('is_correct', False),
+        ))
+
+    db.session.commit()
+    socketio.emit('missions_updated')
+    return jsonify(_question_json(new_q)), 201
+
+
+@mcq_bp.route('/<int:mission_id>/questions/<int:question_id>', methods=['PUT'])
+def update_mcq_question(mission_id, question_id):
+    """แก้คำถามข้อเดียวในที่ question_id เดิมอยู่ครบ คำตอบนักเรียนจึงไม่หาย"""
+    mission, err = _teacher_mission(mission_id)
+    if err:
+        return err
+
+    question = MCQQuestion.query.filter_by(
+        question_id=question_id, mission_id=mission_id).first()
+    if not question:
+        return jsonify({'message': 'Question not found'}), 404
+
+    q_data = request.get_json() or {}
+    try:
+        q_doc, q_text, c_normalized = _normalize_question(q_data)
+    except ValueError as e:
+        return jsonify({'message': str(e)}), 400
+
+    _write_question(question, q_data, q_doc, q_text, c_normalized)
+    _sync_choices(question, q_data.get('choices', []), c_normalized)
+
+    db.session.commit()
+    socketio.emit('missions_updated')
+    return jsonify(_question_json(question)), 200
+
+
+@mcq_bp.route('/<int:mission_id>/questions/<int:question_id>', methods=['DELETE'])
+def delete_mcq_question(mission_id, question_id):
+    """ลบคำถามข้อเดียว แล้วจัด order_index ของข้อที่เหลือให้ต่อเนื่อง"""
+    mission, err = _teacher_mission(mission_id)
+    if err:
+        return err
+
+    question = MCQQuestion.query.filter_by(
+        question_id=question_id, mission_id=mission_id).first()
+    if not question:
+        return jsonify({'message': 'Question not found'}), 404
+
+    db.session.delete(question)
+    db.session.flush()
+
+    for idx, q in enumerate(MCQQuestion.query.filter_by(mission_id=mission_id).order_by(
+            MCQQuestion.order_index).all()):
+        q.order_index = idx
+
+    db.session.commit()
+    socketio.emit('missions_updated')
+    return jsonify({'message': 'Question deleted'}), 200
+
+
 @mcq_bp.route('/<int:mission_id>/reset-preview', methods=['POST'])
 def reset_teacher_preview(mission_id):
     """ล้างผลการทดลองเล่นของครูเอง เพื่อเริ่มทดลองใหม่ตั้งแต่ต้น
