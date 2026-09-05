@@ -4,28 +4,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import axios from 'axios';
 import SudokuBoard from '../components/Sudoku/SudokuBoard';
 import SymbolPalette from '../components/Sudoku/SymbolPalette';
+import { ICON_SYMBOLS, NUMBER_SYMBOLS, SIZE_CONFIG, GIVENS_DEFAULTS } from '../components/Sudoku/sudokuConstants';
 import { ArrowLeft, Save, Wand2, RotateCcw, Check, Grid3X3, Hash, Shapes, Loader2 } from 'lucide-react';
-
-const ICON_SYMBOLS: Record<number, string[]> = {
-  4: ['circle', 'square', 'triangle', 'star'],
-  6: ['circle', 'square', 'triangle', 'star', 'diamond', 'hexagon'],
-  9: ['circle', 'square', 'triangle', 'star', 'diamond', 'hexagon', 'cross', 'heart', 'moon'],
-};
-const NUMBER_SYMBOLS: Record<number, string[]> = {
-  4: ['1', '2', '3', '4'],
-  6: ['1', '2', '3', '4', '5', '6'],
-  9: ['1', '2', '3', '4', '5', '6', '7', '8', '9'],
-};
-const SIZE_CONFIG: Record<number, { boxRows: number; boxCols: number }> = {
-  4: { boxRows: 2, boxCols: 2 },
-  6: { boxRows: 2, boxCols: 3 },
-  9: { boxRows: 3, boxCols: 3 },
-};
-const GIVENS_DEFAULTS: Record<number, { min: number; max: number; default: number }> = {
-  4: { min: 4, max: 12, default: 7 },
-  6: { min: 8, max: 28, default: 16 },
-  9: { min: 17, max: 65, default: 32 },
-};
 
 const TeacherSudokuBuilder: React.FC = () => {
   const { id } = useParams<{ id: string }>();
