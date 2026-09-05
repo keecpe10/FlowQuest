@@ -1,11 +1,12 @@
 from flask import Blueprint, request, jsonify
 from app import db, socketio
 from models import BrainstormBoard, BrainstormCard, BrainstormReaction, BrainstormComment, PointHistory, User, BrainstormQuestion, Mission, UserMission
-from flask_socketio import emit, join_room, leave_room
+from flask_socketio import emit, join_room, leave_room, disconnect
 import json
 import os
 import requests
-from auth_utils import get_current_user_id, can_play_mission, has_course_access, is_course_teacher
+from auth_utils import (get_current_user_id, can_play_mission, has_course_access,
+                        is_course_teacher, user_id_from_token)
 
 brainstorm_bp = Blueprint('brainstorm', __name__, url_prefix='/api/v1/brainstorm')
 
@@ -723,19 +724,73 @@ def get_board_by_mission(mission_id):
     return get_board(board.board_id)
 
 # --- Socket.IO Events ---
+#
+# ตัวตนของ socket ยึดจาก token ที่ส่งมาตอนเชื่อมต่อ ไม่ใช่ user_id ที่ client
+# ส่งมาในแต่ละอีเวนต์ ไม่งั้นใครก็เข้าห้องของกระดานไหนก็ได้แล้วดักฟังการ์ดที่ครู
+# ตั้งค่าไม่ให้นักเรียนเห็นกัน
+#
+# เก็บ mapping ไว้ในหน่วยความจำของโปรเซส เพียงพอสำหรับการรันเครื่องเดียวแบบ
+# ปัจจุบัน ถ้าขยายเป็นหลายโปรเซสต้องย้ายไปเก็บใน Redis ที่มีอยู่แล้ว
+_socket_users = {}
+
+
+def _socket_user_id():
+    return _socket_users.get(request.sid)
+
+
+@socketio.on('connect')
+def on_connect(auth=None):
+    """รับ token ตอนจับมือ แล้วจำไว้ว่า connection นี้เป็นของใคร
+
+    ไม่ตัดการเชื่อมต่อของคนที่ไม่ได้ส่ง token เพราะหลายหน้าในแอปเชื่อม socket
+    ไว้เพียงเพื่อรอฟังอีเวนต์สาธารณะอย่าง missions_updated การบังคับตัวตนจึงไป
+    บังคับที่ตอนเข้าห้องของกระดานแทน ซึ่งเป็นจุดที่มีข้อมูลของจริง
+    """
+    token = (auth or {}).get('token') if isinstance(auth, dict) else None
+    if not token:
+        token = request.args.get('token')
+    user_id = user_id_from_token(token)
+    if user_id:
+        _socket_users[request.sid] = user_id
+    return True
+
+
+@socketio.on('disconnect')
+def on_disconnect(reason=None):
+    _socket_users.pop(request.sid, None)
+
 
 @socketio.on('join_board')
 def on_join(data):
     board_id = data.get('board_id')
-    user_id = data.get('user_id')
-    
+    user_id = _socket_user_id()
+
+    if not user_id:
+        emit('board_error', {"error": "ต้องเข้าสู่ระบบก่อนจึงจะเข้าร่วมกระดานได้"})
+        return
+
+    board = BrainstormBoard.query.get(board_id)
+    if not board:
+        emit('board_error', {"error": "ไม่พบกระดานนี้"})
+        return
+
+    # ใช้เกณฑ์เดียวกับฝั่ง REST — ครูประจำวิชาหรือนักเรียนที่ลงทะเบียนเท่านั้น
+    course_id = _board_course_id(board)
+    if course_id is None:
+        allowed = board.created_by == user_id
+    else:
+        allowed = is_course_teacher(user_id, course_id) or has_course_access(user_id, course_id)
+    if not allowed:
+        emit('board_error', {"error": "ไม่มีสิทธิ์เข้าถึงกระดานนี้"})
+        return
+
     room = f"board_{board_id}"
     join_room(room)
     # Also join personal room so targeted events (e.g. card_added when
     # show_student_posts=False) can reach this specific client.
-    if user_id:
-        join_room(f"user_{user_id}")
+    join_room(f"user_{user_id}")
     emit('user_joined', {"user_id": user_id}, to=room)
+
 
 @socketio.on('leave_board')
 def on_leave(data):
@@ -743,9 +798,15 @@ def on_leave(data):
     room = f"board_{board_id}"
     leave_room(room)
 
+
 @socketio.on('cursor_move')
 def on_cursor_move(data):
-    # data: {board_id, user_id, x, y, name}
+    # data: {board_id, x, y, name} — user_id ยึดจาก token ไม่ใช่ค่าที่ส่งมา
+    # ไม่งั้นขยับเคอร์เซอร์ในนามคนอื่นได้
+    user_id = _socket_user_id()
+    if not user_id:
+        return
     board_id = data.get('board_id')
     room = f"board_{board_id}"
-    emit('cursor_moved', data, to=room, include_self=False)
+    payload = {**data, 'user_id': user_id}
+    emit('cursor_moved', payload, to=room, include_self=False)

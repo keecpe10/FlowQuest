@@ -3,17 +3,26 @@ import jwt
 from flask import request
 from models import User, Course, CourseEnrollment
 
+def user_id_from_token(token):
+    """ถอด user_id จาก JWT คืน None ถ้า token ไม่ถูกต้องหรือหมดอายุ
+
+    แยกออกมาเพื่อให้ฝั่ง Socket.IO ใช้ได้ด้วย เพราะตอนเชื่อมต่อ socket
+    ไม่ได้ส่ง token มาทาง header เหมือน HTTP ปกติ
+    """
+    if not token:
+        return None
+    if token.startswith('Bearer '):
+        token = token.split(' ', 1)[1]
+    try:
+        secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
+        data = jwt.decode(token, secret_key, algorithms=['HS256'])
+        return data['sub']
+    except Exception:
+        return None
+
+
 def get_current_user_id():
-    auth_header = request.headers.get('Authorization')
-    if auth_header and auth_header.startswith('Bearer '):
-        token = auth_header.split(' ')[1]
-        try:
-            secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
-            data = jwt.decode(token, secret_key, algorithms=['HS256'])
-            return data['sub']
-        except Exception:
-            return None
-    return None
+    return user_id_from_token(request.headers.get('Authorization'))
 def has_course_access(user_id, course_id):
     if not course_id: return True
     user = User.query.get(user_id)

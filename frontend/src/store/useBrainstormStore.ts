@@ -113,11 +113,16 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       existingSocket.disconnect();
     }
 
-    const socket = io(SOCKET_URL, { transports: ['polling'] });
+    // ส่ง token ตอนจับมือ เซิร์ฟเวอร์จะได้รู้ว่า connection นี้เป็นของใคร
+    // และไม่ต้องเชื่อ user_id ที่ client ส่งมาในแต่ละอีเวนต์
+    const socket = io(SOCKET_URL, {
+      transports: ['polling'],
+      auth: { token: localStorage.getItem('token') },
+    });
     
     socket.on('connect', () => {
       set({ isConnected: true, socket });
-      socket.emit('join_board', { board_id: boardId, user_id: userId });
+      socket.emit('join_board', { board_id: boardId });
     });
 
     socket.on('disconnect', () => {

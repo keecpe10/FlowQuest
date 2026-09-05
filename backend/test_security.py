@@ -5,7 +5,7 @@
 """
 import io, uuid
 from werkzeug.security import generate_password_hash
-from app import create_app, db
+from app import create_app, db, socketio
 from models import (User, Role, Course, CourseEnrollment, Mission, BrainstormBoard,
                     BrainstormCard, BrainstormComment, PointHistory, UserMission)
 from routes import generate_token
@@ -104,6 +104,60 @@ with app.app_context():
     for u in (victim, attacker, teacher): db.session.delete(u)
     db.session.commit()
     print('\nลบข้อมูลทดสอบแล้ว')
+
+
+# ---------------------------------------------------------------------------
+# [9] Socket.IO — ตัวตนต้องมาจาก token ตอนจับมือ ไม่ใช่ user_id ที่ client ส่ง
+# ---------------------------------------------------------------------------
+with app.app_context():
+    for old in User.query.filter(User.username.like('sock_%')).all():
+        for co in Course.query.filter_by(teacher_id=old.user_id).all():
+            db.session.delete(co)
+        db.session.delete(old)
+    db.session.commit()
+
+    sr = Role.query.filter_by(role_name='student').first()
+    tr = Role.query.filter_by(role_name='teacher').first()
+    s2 = uuid.uuid4().hex[:6]
+    member = User(username=f'sock_m_{s2}', password_hash=generate_password_hash('x'), role_id=sr.role_id, first_name='M', last_name='M')
+    outsider = User(username=f'sock_o_{s2}', password_hash=generate_password_hash('x'), role_id=sr.role_id, first_name='O', last_name='O')
+    steacher = User(username=f'sock_t_{s2}', password_hash=generate_password_hash('x'), role_id=tr.role_id, first_name='T', last_name='T', is_approved=True)
+    db.session.add_all([member, outsider, steacher]); db.session.commit()
+    scourse = Course(course_name=f'sock {s2}', teacher_id=steacher.user_id); db.session.add(scourse); db.session.commit()
+    db.session.add(CourseEnrollment(course_id=scourse.course_id, user_id=member.user_id)); db.session.commit()
+    sm = Mission(course_id=scourse.course_id, title='sock', mission_type='brainstorm', points=10,
+                 difficulty_level=1, order_index=0, is_active=True)
+    db.session.add(sm); db.session.commit()
+    sb = BrainstormBoard(mission_id=sm.mission_id, title='b', status='open', created_by=steacher.user_id)
+    db.session.add(sb); db.session.commit()
+    bid = sb.board_id
+
+    def join_as(token):
+        cl = socketio.test_client(app, auth={'token': token} if token else None)
+        cl.get_received()
+        cl.emit('join_board', {'board_id': bid})
+        evs = cl.get_received()
+        cl.disconnect()
+        return [e['name'] for e in evs]
+
+    print('\n[9] Socket.IO เข้าห้องกระดาน')
+    check('ไม่ส่ง token -> เข้าไม่ได้', 'user_joined' not in join_as(None))
+    check('token ปลอม -> เข้าไม่ได้', 'user_joined' not in join_as('ไม่ใช่ token'))
+    check('นักเรียนนอกวิชา -> เข้าไม่ได้', 'user_joined' not in join_as(generate_token(outsider.user_id)))
+    check('นักเรียนในวิชา -> เข้าได้', 'user_joined' in join_as(generate_token(member.user_id)))
+    check('ครูประจำวิชา -> เข้าได้', 'user_joined' in join_as(generate_token(steacher.user_id)))
+
+    cl = socketio.test_client(app)
+    check('หน้าอื่นที่ไม่ส่ง token ยังเชื่อมต่อได้', cl.is_connected())
+    cl.get_received()
+    socketio.emit('missions_updated')
+    check('และยังได้รับอีเวนต์สาธารณะ',
+          'missions_updated' in [e['name'] for e in cl.get_received()])
+    cl.disconnect()
+
+    db.session.delete(scourse)
+    for u in (member, outsider, steacher): db.session.delete(u)
+    db.session.commit()
 
 print()
 if FAIL:
