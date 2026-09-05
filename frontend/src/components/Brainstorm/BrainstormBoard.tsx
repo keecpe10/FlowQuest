@@ -278,8 +278,8 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
 
       {/* Summary Modal */}
       {summary && (
-        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => useBrainstormStore.setState({ summary: null })}>
-          <div className="bg-white rounded-2xl p-8 max-w-2xl w-full mx-4 shadow-2xl relative" onClick={e => e.stopPropagation()}>
+        <div className="absolute inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => useBrainstormStore.setState({ summary: null })}>
+          <div className="bg-white rounded-2xl p-8 max-w-2xl w-full max-h-full overflow-y-auto shadow-2xl relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => useBrainstormStore.setState({ summary: null })} className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 font-bold text-xl">&times;</button>
             <h2 className="text-2xl font-bold mb-4 flex items-center gap-2 text-purple-700"><Sparkles className="text-yellow-500" /> AI Summary</h2>
             <div className="prose prose-lg text-gray-700">

@@ -346,12 +346,12 @@ const FlowBuilderCore: React.FC = () => {
       {/* Input Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl w-full max-w-sm border border-slate-100"
+              className="bg-white rounded-3xl p-6 shadow-2xl w-full max-w-sm max-h-full overflow-y-auto border border-slate-100"
             >
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-bold text-slate-800">

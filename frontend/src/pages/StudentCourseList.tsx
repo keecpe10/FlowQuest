@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { stagger } from '../components/reactbits/Reveal';
 import { useAuthStore } from '../store/useAuthStore';
 import { Link } from 'react-router-dom';
 import { BookOpen, Users, Target, Search } from 'lucide-react';
@@ -112,7 +113,8 @@ const StudentCourseList = () => {
               <Link
                 key={course.course_id}
                 to={`/courses/${course.course_id}/missions`}
-                className="relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col cursor-pointer hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/40 group"
+                style={{ animationDelay: `${stagger(idx)}ms` }}
+                className="rb-fade relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col cursor-pointer hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-black/40 group"
               >
                 <div className={`bg-gradient-to-br ${gradient} p-px rounded-2xl h-full`}>
                   <div className="bg-slate-900/90 rounded-2xl flex flex-col h-full relative overflow-hidden">

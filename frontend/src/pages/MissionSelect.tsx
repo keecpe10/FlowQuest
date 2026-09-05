@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Play, Lock, CheckCircle, Star, Zap, Target, ArrowLeft, Trophy, AlertTriangle } from 'lucide-react';
+import { stagger } from '../components/reactbits/Reveal';
 import { useAuthStore } from '../store/useAuthStore';
 import { io } from 'socket.io-client';
 
@@ -181,6 +182,11 @@ const MissionSelect = () => {
             return (
               <div
                 key={mission.mission_id}
+                // การ์ดโผล่ไล่กันทีละใบ ใช้ CSS ล้วน ถ้าอนิเมชันไม่เล่นก็ยังเห็นการ์ดปกติ
+                className="rb-reveal"
+                style={{ animationDelay: `${stagger(idx)}ms` }}
+              >
+              <div
                 onClick={() => canPlay && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : mission.mission_type === 'sudoku' ? `/sudoku/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
                 className={`relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
                   !isUnlocked
@@ -320,6 +326,7 @@ const MissionSelect = () => {
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
             );
           })}

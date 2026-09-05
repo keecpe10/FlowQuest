@@ -121,11 +121,12 @@ def get_missions(course_id):
             mission_data['min_xp_to_pass'] = min_xp
         if m.mission_type == 'mcq':
             from mcq_routes import mcq_attempts_left, mcq_can_start_attempt
-            mission_data['attempts_left'] = mcq_attempts_left(m, um)
-            # ครูต้องเข้าไปทดสอบด่านได้เสมอ
+            # ครูต้องเข้าไปทดสอบด่านได้เสมอ และไม่ถูกนับ attempt
             if viewer_is_teacher:
+                mission_data['attempts_left'] = None
                 mission_data['can_retry'] = True
             else:
+                mission_data['attempts_left'] = mcq_attempts_left(m, um)
                 mission_data['can_retry'] = mcq_can_start_attempt(m, um)
         if m.mission_type == 'brainstorm':
             board = BrainstormBoard.query.filter_by(mission_id=m.mission_id).first()
@@ -258,12 +259,16 @@ def get_mission(mission_id):
     if mission.mission_type == 'mcq':
         from mcq_routes import mcq_attempts_left, mcq_can_start_attempt
         attempts_left = mcq_attempts_left(mission, um)
-        response_data['attempts_left'] = attempts_left
         response_data['max_attempts'] = mission.max_attempts or 0
         # ครูต้องเข้าไปทดสอบด่านได้เสมอ ไม่ถูกจำกัดด้วยโควตาของนักเรียน
+        # และการทดลองเล่นของครูไม่ถูกนับ attempt เลย ตัวเลข "เหลืออีกกี่ครั้ง"
+        # จึงไม่มีความหมาย ส่งเป็น None เพื่อไม่ให้หน้าเว็บเอาไปแสดงผิด ๆ
+        response_data['is_teacher_preview'] = viewer_is_teacher
         if viewer_is_teacher:
+            response_data['attempts_left'] = None
             response_data['locked'] = False
         else:
+            response_data['attempts_left'] = attempts_left
             already_passed = bool(um and um.status == 'completed')
             response_data['locked'] = already_passed or not mcq_can_start_attempt(mission, um)
 

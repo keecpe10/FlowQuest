@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { CheckCircle, XCircle, AlertCircle, ArrowLeft, ArrowRight, Play, Loader2, Image as ImageIcon, Zap, GripVertical, Info, Trophy, Target, ChevronRight } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, ArrowLeft, ArrowRight, Play, Loader2, Image as ImageIcon, Zap, GripVertical, Info, Trophy, Target, ChevronRight, ChevronLeft, RotateCcw } from 'lucide-react';
 import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
 import Swal from 'sweetalert2';
@@ -10,11 +10,16 @@ import { GlobalStudentProfile } from '../App';
 import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import LiveTimer from '../components/LiveTimer';
 import { handleMissionAccessError } from '../utils/missionAccess';
+import ContentBlockView from '../components/mcq/ContentBlockView';
+import MCQLeaderboard from '../components/mcq/MCQLeaderboard';
+import CountUp from '../components/reactbits/CountUp';
+import type { StoredContent } from '../components/mcq/blocks';
 
 interface Choice {
   choice_id: number;
   choice_text: string;
   image_url?: string;
+  content_blocks?: StoredContent;
 }
 
 interface Question {
@@ -23,6 +28,7 @@ interface Question {
   question_type: string;
   question_metadata: any;
   image_url?: string;
+  content_blocks?: StoredContent;
   xp_points: number;
   choices: Choice[];
 }
@@ -79,6 +85,7 @@ const StudentMCQPlayer = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const token = useAuthStore(state => state.token);
+  const user = useAuthStore(state => state.user);
   const { width, height } = useWindowSize();
   
   const [loading, setLoading] = useState(true);
@@ -94,6 +101,11 @@ const StudentMCQPlayer = () => {
   const [timeLimitSeconds, setTimeLimitSeconds] = useState<number | null>(null);
   const [isTimeUp, setIsTimeUp] = useState(false);
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
+  // ครูเข้ามาทดลองเล่นด่านของตัวเอง — ไม่ถูกจำกัดอะไรทั้งสิ้น และไม่ได้ XP จริง
+  const [isTeacherPreview, setIsTeacherPreview] = useState(false);
+  // backend ไม่สร้าง UserMission ให้ครู จึงไม่มี started_at ใช้เวลาที่เปิดหน้าแทน
+  // นาฬิกาตัวอย่างจะได้เดินให้ครูเห็นเสมอ ไม่ใช่ขึ้นบ้างไม่ขึ้นบ้าง
+  const previewStartedAt = useRef(new Date().toISOString());
   const [isLocked, setIsLocked] = useState(false);
 
   const [isCompleted, setIsCompleted] = useState(false);
@@ -131,6 +143,7 @@ const StudentMCQPlayer = () => {
         setTimeLimitSeconds(mRes.data.time_limit_seconds ?? null);
         setAttemptsLeft(mRes.data.attempts_left ?? null);
         setIsLocked(mRes.data.locked === true);
+        setIsTeacherPreview(mRes.data.is_teacher_preview === true);
 
         const initialAnswers: Answer[] = [];
         const pastAnswers = mRes.data.mcq_answers || [];
@@ -337,17 +350,40 @@ const StudentMCQPlayer = () => {
       setMatchingState({ ...matchingState, [qId]: newState });
   };
   
-  const handleNext = () => { if (currentQIndex < questions.length - 1) setCurrentQIndex(currentQIndex + 1); };
+  const handleNext = () => goToQuestion(currentQIndex + 1);
+  const handlePrev = () => goToQuestion(currentQIndex - 1);
+
+  /** ข้อนี้เลือก/กรอกคำตอบไว้แล้วหรือยัง (ยังไม่นับว่าตรวจแล้ว) */
+  const hasDraftAnswer = (questionId: number) => {
+    const a = answers.find(x => x.question_id === questionId);
+    if (!a) return false;
+    if (a.choice_id) return true;
+    if (typeof a.answer_data === 'string') return a.answer_data.trim() !== '';
+    if (Array.isArray(a.answer_data)) return a.answer_data.length > 0;
+    if (a.answer_data && typeof a.answer_data === 'object') {
+      return Object.keys(a.answer_data).length > 0;
+    }
+    return false;
+  };
+
+  /** สถานะของแต่ละข้อ ใช้ทั้งแถบนำทางและตัวนับด้านบน */
+  const questionStatus = (q: Question) => {
+    const result = submittedAnswers[q.question_id];
+    if (result) return result.is_correct ? 'correct' : 'wrong';
+    return hasDraftAnswer(q.question_id) ? 'draft' : 'untouched';
+  };
   
-  const handleSubmitSingle = async () => {
+  /**
+   * ตรวจคำตอบของข้อที่กำลังทำอยู่ คืน true เมื่อตรวจสำเร็จ
+   *
+   * รอจนกล่องบอกผลปิดเองก่อนค่อยคืนค่า ผู้เรียกจึงพาไปข้อถัดไปได้พอดีหลังเห็นผล
+   */
+  const submitCurrentAnswer = async (): Promise<boolean> => {
     const currentQ = questions[currentQIndex];
     const ansRecord = answers.find(a => a.question_id === currentQ.question_id);
-    
-    if (!ansRecord || (!ansRecord.choice_id && !ansRecord.answer_data)) {
-        Swal.fire({ icon: 'warning', text: 'กรุณาเลือกหรือกรอกคำตอบก่อนส่ง' });
-        return;
-    }
-    
+
+    if (!ansRecord || (!ansRecord.choice_id && !ansRecord.answer_data)) return false;
+
     setIsSubmitting(true);
     try {
         const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${id}/submit-single`, {
@@ -357,7 +393,7 @@ const StudentMCQPlayer = () => {
         
         if (res.data.error) {
             Swal.fire({ icon: 'error', text: res.data.error });
-            return;
+            return false;
         }
         
         const result: AnswerResult = {
@@ -371,31 +407,50 @@ const StudentMCQPlayer = () => {
         
         setSubmittedAnswers(prev => ({ ...prev, [currentQ.question_id]: result }));
         setResults(prev => [...prev, result]);
-        
-        if (res.data.is_correct) {
-            Swal.fire({
-                icon: 'success',
-                title: 'ถูกต้อง!',
-                text: `คุณได้รับ ${res.data.xp_awarded} XP`,
-                timer: 1500,
-                showConfirmButton: false
-            });
-        } else {
-            Swal.fire({
-                icon: 'error',
-                title: 'ไม่ถูกต้อง!',
-                text: 'คุณไม่ได้รับ XP ในข้อนี้',
-                timer: 1500,
-                showConfirmButton: false
-            });
-        }
-        
+        setIsSubmitting(false);
+
+        await Swal.fire(res.data.is_correct
+            ? { icon: 'success', title: 'ถูกต้อง!', text: `คุณได้รับ ${res.data.xp_awarded} XP`, timer: 1500, showConfirmButton: false }
+            : { icon: 'error', title: 'ไม่ถูกต้อง!', text: 'คุณไม่ได้รับ XP ในข้อนี้', timer: 1500, showConfirmButton: false });
+        return true;
+
     } catch (error) {
         console.error('Failed to submit single answer', error);
         Swal.fire({ icon: 'error', text: 'ส่งคำตอบไม่สำเร็จ' });
+        return false;
     } finally {
         setIsSubmitting(false);
     }
+  };
+
+  /** ปุ่ม "ตรวจคำตอบ" — กดตรวจอย่างเดียว ไม่ไปไหนต่อ */
+  const handleSubmitSingle = async () => {
+    const currentQ = questions[currentQIndex];
+    const ansRecord = answers.find(a => a.question_id === currentQ.question_id);
+    if (!ansRecord || (!ansRecord.choice_id && !ansRecord.answer_data)) {
+      Swal.fire({ icon: 'warning', text: 'กรุณาเลือกหรือกรอกคำตอบก่อนส่ง' });
+      return;
+    }
+    await submitCurrentAnswer();
+  };
+
+  /**
+   * ย้ายไปข้อที่ต้องการ
+   *
+   * ถ้าข้อปัจจุบันเลือกคำตอบไว้แล้วแต่ยังไม่ได้ตรวจ จะตรวจให้ก่อนเสมอ ไม่ว่าจะออก
+   * ทางปุ่มถัดไป ย้อนกลับ หรือกดเลขในแถบนำทาง เพราะคำตอบที่ยังไม่ตรวจจะไม่ถูก
+   * บันทึกเลย พอจบแบบทดสอบจะกลายเป็นข้อที่ตอบผิดทั้งที่นักเรียนเลือกไว้แล้ว
+   * ส่วนข้อที่ยังไม่ได้เลือกอะไร ปล่อยให้ข้ามไปได้ตามปกติ
+   */
+  const goToQuestion = async (target: number) => {
+    if (isSubmitting || target === currentQIndex) return;
+    if (target < 0 || target > questions.length - 1) return;
+
+    const currentQ = questions[currentQIndex];
+    if (!submittedAnswers[currentQ.question_id] && hasDraftAnswer(currentQ.question_id)) {
+      await submitCurrentAnswer();
+    }
+    setCurrentQIndex(target);
   };
   
   const handleComplete = async () => {
@@ -414,7 +469,27 @@ const StudentMCQPlayer = () => {
     }
   };
 
+  /** ครูล้างผลรอบก่อนแล้วเริ่มทดลองใหม่ตั้งแต่ข้อแรก */
+  const handleResetPreview = async () => {
+    setIsSubmitting(true);
+    try {
+      await axios.post(
+        `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${id}/reset-preview`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to reset preview', error);
+      Swal.fire({ icon: 'error', text: 'เริ่มทดลองใหม่ไม่สำเร็จ' });
+      setIsSubmitting(false);
+    }
+  };
+
   const handleTimeUp = async () => {
+    // ครูกำลังทดลองเล่น ปล่อยให้นาฬิกาเดินจนหมดได้เพื่อดูว่านักเรียนจะเห็นอะไร
+    // แต่ไม่ต้องตัดจบให้ ครูจะได้ลองทำต่อจนครบทุกข้อ
+    if (isTeacherPreview) return;
     if (isTimeUp || isCompleted) return;
     setIsTimeUp(true);
     await handleComplete();
@@ -446,7 +521,12 @@ const StudentMCQPlayer = () => {
                 หมดเวลา — ระบบตรวจให้จากข้อที่ทำไปแล้ว ข้อที่ทำไม่ทันนับเป็นข้อที่ตอบผิด
               </div>
             )}
-            {isLocked && (
+            {isTeacherPreview && (
+              <div className="inline-block mb-4 px-4 py-2 rounded-xl bg-violet-500/10 border border-violet-400/30 text-violet-300 font-bold text-sm">
+                โหมดทดลองของครู — ผลนี้ไม่ถูกบันทึก ไม่นับสิทธิ์ และไม่ได้ XP จริง
+              </div>
+            )}
+            {!isTeacherPreview && isLocked && (
               <div className="inline-block mb-4 px-4 py-2 rounded-xl bg-slate-500/10 border border-slate-500/30 text-slate-300 font-bold text-sm">
                 {isPassed
                   ? 'สอบผ่านแล้ว ทำแบบทดสอบนี้ซ้ำไม่ได้'
@@ -464,7 +544,9 @@ const StudentMCQPlayer = () => {
                 {isPassed ? (
                     <div className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500/20 border border-amber-500/30 rounded-2xl">
                       <Zap size={24} className="text-amber-400" />
-                      <span className="text-2xl font-black text-amber-400">{totalXp} XP</span>
+                      <span className="text-2xl font-black text-amber-400">
+                        <CountUp to={totalXp} duration={1.2} /> XP
+                      </span>
                     </div>
                 ) : (
                     <div className="inline-flex items-center gap-2 px-6 py-3 bg-slate-800 border border-slate-700 rounded-2xl opacity-70">
@@ -557,10 +639,19 @@ const StudentMCQPlayer = () => {
             })}
           </div>
           
-          <div className="mt-8 text-center pb-12 flex justify-center gap-4">
+          <div className="mt-8 text-center pb-12 flex justify-center gap-4 flex-wrap">
             <button onClick={() => navigate(-1)} className="px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl transition-colors shadow-lg shadow-violet-600/20">
               กลับสู่หน้าหลัก
             </button>
+            {isTeacherPreview && (
+              <button
+                onClick={handleResetPreview}
+                disabled={isSubmitting}
+                className="px-8 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                <RotateCcw size={18} /> ทดลองใหม่อีกครั้ง
+              </button>
+            )}
             <button onClick={() => navigate(`/leaderboard?mission_id=${id}`)} className="px-8 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold rounded-xl transition-colors shadow-lg shadow-orange-500/20 flex items-center gap-2">
               <Trophy size={20} /> ดูอันดับผู้นำ 3D
             </button>
@@ -576,6 +667,11 @@ const StudentMCQPlayer = () => {
   const isLastQ = currentQIndex === questions.length - 1;
   const qResult = submittedAnswers[currentQ.question_id];
   const isSubmitted = !!qResult;
+  const checkedCount = questions.filter(q => submittedAnswers[q.question_id]).length;
+  const draftCount = questions.filter(
+    q => !submittedAnswers[q.question_id] && hasDraftAnswer(q.question_id)
+  ).length;
+  const allChecked = checkedCount === questions.length;
   
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-900">
@@ -591,16 +687,23 @@ const StudentMCQPlayer = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {attemptsLeft !== null && !isCompleted && (
+          {isTeacherPreview && (
+            <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-violet-500/15 border border-violet-400/40 text-violet-300">
+              โหมดทดลองของครู · ไม่นับสิทธิ์ ไม่ได้ XP
+            </span>
+          )}
+          {!isTeacherPreview && attemptsLeft !== null && !isCompleted && (
             <span className="hidden sm:inline text-xs font-bold px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
               เหลืออีก {attemptsLeft} ครั้ง
             </span>
           )}
-          {!isCompleted && startedAt && (
+          {!isCompleted && (startedAt || isTeacherPreview) && (
             <LiveTimer
-              startedAt={startedAt}
+              startedAt={startedAt || previewStartedAt.current}
               timeLimitSeconds={timeLimitSeconds}
-              onExpire={handleTimeUp}
+              // ครูดูได้ว่านักเรียนจะเจอเวลาเท่าไร แต่หมดแล้วไม่ตัดจบ
+              onExpire={isTeacherPreview ? undefined : handleTimeUp}
+              label={isTeacherPreview ? 'ตัวอย่าง' : undefined}
               className="hidden sm:flex"
             />
           )}
@@ -608,9 +711,54 @@ const StudentMCQPlayer = () => {
       </header>
       
       <div className="h-1 w-full bg-slate-800">
-        <div className="h-full bg-violet-500 transition-all duration-300" style={{ width: `${((currentQIndex + 1) / questions.length) * 100}%` }} />
+        <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(checkedCount / questions.length) * 100}%` }} />
       </div>
+
+      {/* แถบนำทาง — กดข้ามไปข้อไหนก็ได้ และเห็นในภาพเดียวว่าเหลือข้อไหนยังไม่ได้ตอบ */}
+      <nav className="flex-shrink-0 border-b border-white/10 bg-slate-900/95 px-4 sm:px-6 py-3">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-xs text-slate-400">
+              ตรวจแล้ว <span className="font-bold text-white">{checkedCount}</span> จาก {questions.length} ข้อ
+              {draftCount > 0 && <span className="text-violet-300"> · เลือกไว้แล้วยังไม่ตรวจ {draftCount} ข้อ</span>}
+            </p>
+            <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> ถูก</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> ผิด</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-violet-500" /> ยังไม่ตรวจ</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full border border-white/30" /> ยังไม่ตอบ</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {questions.map((q, i) => {
+              const status = questionStatus(q);
+              const isCurrent = i === currentQIndex;
+              const tone =
+                status === 'correct' ? 'bg-emerald-500 text-slate-900 border-emerald-500'
+                : status === 'wrong' ? 'bg-rose-500 text-white border-rose-500'
+                : status === 'draft' ? 'bg-violet-500 text-white border-violet-500'
+                : 'bg-white/5 text-slate-400 border-white/15 hover:bg-white/10 hover:text-white';
+              return (
+                <button
+                  key={q.question_id}
+                  onClick={() => goToQuestion(i)}
+                  disabled={isSubmitting}
+                  aria-label={`ไปข้อ ${i + 1}`}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  className={`w-8 h-8 rounded-lg text-xs font-bold border transition-all ${tone} ${
+                    isCurrent ? 'ring-2 ring-white/70 ring-offset-2 ring-offset-slate-900 scale-105' : ''
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
       
+      <div className="flex-1 flex min-h-0">
       <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center">
         <div className="w-full max-w-4xl">
           
@@ -626,12 +774,14 @@ const StudentMCQPlayer = () => {
               <span className="inline-block px-3 py-1 bg-violet-500/20 text-violet-300 text-xs font-bold rounded-full mb-4">
                 {currentQ.xp_points} XP
               </span>
-              <h2 className="text-xl sm:text-2xl font-bold text-white">{currentQ.question_text}</h2>
-              {currentQ.image_url && (
-                <div className="mt-6 flex justify-center">
-                  <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + currentQ.image_url : currentQ.image_url} alt="Question" className="max-h-64 rounded-xl border border-white/10" />
-                </div>
-              )}
+              <ContentBlockView
+                size="question"
+                content={currentQ.content_blocks}
+                text={currentQ.question_text}
+                imageUrl={currentQ.image_url}
+                className="text-center"
+                textClassName="text-xl sm:text-2xl font-bold text-white"
+              />
             </div>
             
             {['multiple_choice', 'true_false'].includes(currentQ.question_type) && (
@@ -656,13 +806,14 @@ const StudentMCQPlayer = () => {
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${isSelected && !isSubmitted ? 'bg-violet-500 text-white' : 'bg-slate-700 text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'bg-emerald-500 text-slate-900' : ''}`}>
                         {currentQ.question_type === 'multiple_choice' ? letters[i] : (i === 0 ? 'T' : 'F')}
                         </div>
-                        <div className="flex-1">
-                        {c.image_url && (
-                            <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + c.image_url : c.image_url} alt="Choice" className="h-16 mb-2 rounded object-contain border border-white/10 bg-black/20" />
-                        )}
-                        <span className={`text-sm sm:text-base font-semibold ${isSelected && !isSubmitted ? 'text-violet-100' : 'text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'text-emerald-300 font-bold' : ''}`}>
-                            {c.choice_text}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                        <ContentBlockView
+                            size="choice"
+                            content={c.content_blocks}
+                            text={c.choice_text}
+                            imageUrl={c.image_url}
+                            textClassName={`text-sm sm:text-base font-semibold ${isSelected && !isSubmitted ? 'text-violet-100' : 'text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'text-emerald-300 font-bold' : ''}`}
+                        />
                         </div>
                     </button>
                     );
@@ -793,26 +944,48 @@ const StudentMCQPlayer = () => {
 
           </div>
           
-          <div className="mb-12 flex justify-end">
-            {!isSubmitted ? (
-                <button onClick={handleSubmitSingle} disabled={isSubmitting || isTimeUp} className="px-8 py-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50">
+          <div className="mb-12 flex items-center justify-between gap-3">
+            <button
+              onClick={handlePrev}
+              disabled={currentQIndex === 0 || isSubmitting}
+              className="px-4 sm:px-5 py-3 rounded-xl font-bold text-slate-300 bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={18} /> <span className="hidden sm:inline">ข้อก่อนหน้า</span>
+            </button>
+
+            <div className="flex items-center gap-3">
+              {!isSubmitted && (
+                <button onClick={handleSubmitSingle} disabled={isSubmitting || isTimeUp} className="px-6 sm:px-8 py-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50">
                     {isSubmitting ? 'กำลังตรวจ...' : 'ตรวจคำตอบ'} <Target size={18} />
                 </button>
-            ) : (
-                isLastQ ? (
-                <button onClick={handleComplete} disabled={isSubmitting} className="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50">
+              )}
+
+              {/* ข้ามไปข้อถัดไปได้แม้ยังไม่ตรวจ จะได้ย้อนกลับมาทำข้อที่ข้ามไว้ทีหลัง */}
+              {!isLastQ && (
+                <button onClick={handleNext} disabled={isTimeUp || isSubmitting} className="px-6 sm:px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-violet-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    {!isSubmitted && hasDraftAnswer(currentQ.question_id) ? 'ตรวจแล้วไปข้อถัดไป' : 'ข้อถัดไป'}
+                    <ChevronRight size={18} />
+                </button>
+              )}
+
+              {/* ปุ่มจบโผล่เมื่อตรวจครบทุกข้อแล้ว ไม่ผูกกับว่ากำลังอยู่ข้อสุดท้ายหรือไม่
+                  เพราะตอนนี้นักเรียนข้ามไปมาได้ อาจตรวจครบตอนอยู่ข้อกลาง ๆ */}
+              {allChecked && (
+                <button onClick={handleComplete} disabled={isSubmitting} className="px-6 sm:px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50">
                     {isSubmitting ? 'กำลังสรุปผล...' : 'จบแบบทดสอบ'} <CheckCircle size={18} />
                 </button>
-                ) : (
-                <button onClick={handleNext} disabled={isTimeUp} className="px-8 py-3 bg-violet-600 hover:bg-violet-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-violet-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                    ข้อถัดไป <ChevronRight size={18} />
-                </button>
-                )
-            )}
+              )}
+            </div>
           </div>
           
         </div>
       </main>
+
+      {/* แถบอันดับผู้นำ ซ่อนบนจอเล็กเพื่อไม่ให้เบียดพื้นที่ทำข้อสอบ */}
+      <div className="hidden lg:block w-72 flex-shrink-0 p-4 pl-0">
+        <MCQLeaderboard missionId={id!} currentUserId={user?.user_id} />
+      </div>
+      </div>
     </div>
   );
 };

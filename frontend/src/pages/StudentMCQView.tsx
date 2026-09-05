@@ -6,11 +6,14 @@ import { ArrowLeft, CheckCircle, XCircle, Zap, Target } from 'lucide-react';
 import { useWindowSize } from 'react-use';
 import Confetti from 'react-confetti';
 import Swal from 'sweetalert2';
+import ContentBlockView from '../components/mcq/ContentBlockView';
+import type { StoredContent } from '../components/mcq/blocks';
 
 interface Choice {
   choice_id: number;
   choice_text: string;
   image_url?: string;
+  content_blocks?: StoredContent;
   is_correct?: boolean;
 }
 
@@ -20,6 +23,7 @@ interface Question {
   question_type: string;
   question_metadata: any;
   image_url?: string;
+  content_blocks?: StoredContent;
   xp_points: number;
   choices: Choice[];
 }
@@ -195,13 +199,17 @@ const StudentMCQView = () => {
                         )}
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-bold text-white mb-4">ข้อ {i+1}: {q.question_text}</h3>
-                      
-                      {q.image_url && (
-                        <div className="mb-6 flex">
-                          <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + q.image_url : q.image_url} alt="Question" className="max-h-48 rounded-xl border border-white/10" />
-                        </div>
-                      )}
+                      <div className="mb-4 flex items-start gap-2">
+                        <h3 className="text-lg font-bold text-white shrink-0">ข้อ {i+1}:</h3>
+                        <ContentBlockView
+                          size="question"
+                          content={q.content_blocks}
+                          text={q.question_text}
+                          imageUrl={q.image_url}
+                          className="flex-1 min-w-0"
+                          textClassName="text-lg font-bold text-white"
+                        />
+                      </div>
                       
                       {['multiple_choice', 'true_false'].includes(q.question_type) && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
@@ -219,11 +227,13 @@ const StudentMCQView = () => {
                               }
                               
                               return (
-                                <div key={c.choice_id} className={`p-3 rounded-xl border ${bg} text-sm flex items-center gap-3`}>
-                                  {c.image_url && (
-                                    <img src={import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL + c.image_url : c.image_url} alt="Choice" className="h-10 rounded object-contain bg-black/20" />
-                                  )}
-                                  <span>{c.choice_text}</span>
+                                <div key={c.choice_id} className={`p-3 rounded-xl border ${bg} text-sm`}>
+                                  <ContentBlockView
+                                    size="choice"
+                                    content={c.content_blocks}
+                                    text={c.choice_text}
+                                    imageUrl={c.image_url}
+                                  />
                                 </div>
                               );
                             })}

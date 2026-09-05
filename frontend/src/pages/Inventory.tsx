@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCharacterStore } from '../store/characterStore';
 import Swal from 'sweetalert2';
 import { Archive, CheckCircle, Circle, Search } from 'lucide-react';
+import { stagger } from '../components/reactbits/Reveal';
 import CharacterCanvas from '../components/Character/CharacterCanvas';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -170,11 +171,12 @@ const Inventory: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                {items.map(item => (
+                {items.map((item, idx) => (
                   <div 
                     key={item.inventory_id} 
                     onClick={() => handleEquip(item)}
-                    className={`bg-white rounded-xl p-3 cursor-pointer transition-all border-2 relative group flex flex-col ${
+                    style={{ animationDelay: `${stagger(idx, 40)}ms` }}
+                    className={`rb-reveal bg-white rounded-xl p-3 cursor-pointer transition-all border-2 relative group flex flex-col ${
                       item.is_equipped ? 'border-violet-500 shadow-md ring-2 ring-violet-200' : 'border-gray-200 hover:border-violet-300 hover:shadow-md'
                     }`}
                   >

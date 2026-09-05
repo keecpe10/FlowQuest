@@ -32,6 +32,7 @@ import Leaderboard3D from './pages/Leaderboard3D';
 import TeacherManagement from './pages/TeacherManagement';
 import StudentManagement from './pages/StudentManagement';
 import { LayoutGrid, UserCircle, Zap, LogOut, BarChart3, ArrowLeft, BrainCircuit, Play, ShoppingBag, Archive, ArrowRightLeft, BookOpen, Trophy, Users, GraduationCap } from 'lucide-react';
+import ClickSpark from './components/reactbits/ClickSpark';
 import { useAuthStore } from './store/useAuthStore';
 
 const HomeRoute = () => {
@@ -393,16 +394,22 @@ const GameView = () => {
 };
 
 const PageWithTitle = ({ title, children }: { title: string, children: React.ReactNode }) => {
+  const location = useLocation();
   React.useEffect(() => {
     document.title = `${title} - FlowQuest`;
   }, [title]);
-  return <>{children}</>;
+  // ทุกหน้าจางเข้ามาตอนเปลี่ยนเส้นทาง — key ตาม pathname เพื่อให้อนิเมชันเล่นใหม่ทุกครั้ง
+  // ใช้ความทึบอย่างเดียว ไม่ใช้ transform เพราะ ancestor ที่มี transform จะดัก
+  // position:fixed ทำให้ modal ทุกตัวในแอปเพี้ยน
+  return <div key={location.pathname} className="rb-page-enter">{children}</div>;
 };
 
 function App() {
   const user = useAuthStore(state => state.user);
 
   return (
+    // ClickSpark ครอบทั้งแอป ทุกหน้าจึงมีประกายตอนคลิกโดยไม่ต้องไปแก้ทีละหน้า
+    <ClickSpark sparkColor="#a78bfa" sparkSize={9} sparkRadius={18} sparkCount={8} duration={420}>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<PageWithTitle title="เข้าสู่ระบบ"><Login /></PageWithTitle>} />
@@ -438,6 +445,7 @@ function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </ClickSpark>
   );
 }
 

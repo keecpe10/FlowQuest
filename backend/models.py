@@ -260,6 +260,9 @@ class MCQQuestion(db.Model):
     question_type = db.Column(db.String(50), default='multiple_choice') # multiple_choice, true_false, fill_blank, matching, drag_drop
     question_metadata = db.Column(db.JSON, nullable=True)
     image_url = db.Column(db.Text, nullable=True)
+    # ลิสต์บล็อก text/image สลับกันได้ตามที่ครูจัด ถ้าเป็น None แปลว่าข้อนี้ยังใช้
+    # question_text + image_url แบบเดิม (รูปอยู่เหนือข้อความ)
+    content_blocks = db.Column(db.JSON, nullable=True)
     xp_points = db.Column(db.Integer, default=10)
     order_index = db.Column(db.Integer, default=0)
     explanation = db.Column(db.Text, nullable=True)
@@ -274,6 +277,7 @@ class MCQChoice(db.Model):
     question_id = db.Column(db.Integer, db.ForeignKey('mcq_questions.question_id', ondelete='CASCADE'), nullable=False)
     choice_text = db.Column(db.Text, nullable=False)
     image_url = db.Column(db.Text, nullable=True)
+    content_blocks = db.Column(db.JSON, nullable=True)
     is_correct = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

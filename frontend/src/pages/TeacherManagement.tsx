@@ -4,6 +4,7 @@ import {
   X, Loader2, ShieldCheck, Mail, AtSign, Eye, EyeOff,
   CheckCircle, AlertCircle, RotateCcw
 } from 'lucide-react';
+import { stagger } from '../components/reactbits/Reveal';
 import Swal from 'sweetalert2';
 import { useAuthStore } from '../store/useAuthStore';
 
@@ -502,10 +503,11 @@ const TeacherManagement: React.FC = () => {
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {filtered.map(t => (
+                {filtered.map((t, idx) => (
                   <div
                     key={t.user_id}
-                    className={`flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors ${t.user_id === user?.user_id ? 'bg-violet-50/50' : ''}`}
+                    style={{ animationDelay: `${stagger(idx, 25, 300)}ms` }}
+                    className={`rb-reveal flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors ${t.user_id === user?.user_id ? 'bg-violet-50/50' : ''}`}
                   >
                     <Avatar teacher={t} size={42} />
                     <div className="flex-1 min-w-0">
@@ -719,8 +721,8 @@ const ModalOverlay: React.FC<{ children: React.ReactNode; onClose: () => void }>
 const ModalCard: React.FC<{
   title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode;
 }> = ({ title, icon, onClose, children }) => (
-  <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
-    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+  <div className="bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-full">
+    <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100">
       <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
         <span className="text-violet-500">{icon}</span> {title}
       </h3>
@@ -728,7 +730,7 @@ const ModalCard: React.FC<{
         <X size={18} />
       </button>
     </div>
-    <div className="px-6 py-5">{children}</div>
+    <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
   </div>
 );
 
