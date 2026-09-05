@@ -1,12 +1,11 @@
-// Single source of truth for sudoku sizes, symbol sets and given-count ranges,
-// shared by the standalone Sudoku mission builder (TeacherSudokuBuilder.tsx) and
-// the MCQ sudoku question editor (SudokuQuestionEditor.tsx).
+// แหล่งความจริงเดียวของขนาดกริด ชุดสัญลักษณ์ และช่วงจำนวนช่องที่เปิดเผยของซูโดกุ
+// ใช้ร่วมกันระหว่างหน้าออกแบบด่านซูโดกุ (TeacherSudokuBuilder.tsx) กับตัวแก้โจทย์
+// ซูโดกุในข้อสอบ MCQ (SudokuQuestionEditor.tsx) ครูจึงตั้งค่าได้เหมือนกันทั้งสองที่
 //
-// IMPORTANT: every name listed in ICON_SYMBOLS must also exist in the `map`
-// inside getSymbolDisplay (frontend/src/components/Sudoku/SudokuBoard.tsx).
-// Any name missing from that map renders as raw text in the board instead of
-// its symbol — that mismatch is what caused a real bug when the two files
-// still kept independent copies of these constants.
+// สำคัญ: ทุกชื่อใน ICON_SYMBOLS ต้องมีอยู่ในแมปของ getSymbolDisplay
+// (frontend/src/components/Sudoku/SudokuBoard.tsx) ด้วย ชื่อที่ไม่มีในแมปจะถูก
+// แสดงเป็นข้อความดิบ ๆ บนกระดานแทนสัญลักษณ์ — ตอนที่สองไฟล์ยังเก็บค่าคงที่
+// แยกกันเอง ความไม่ตรงกันนี้ทำให้เกิดบั๊กจริงมาแล้ว
 export const ICON_SYMBOLS: Record<number, string[]> = {
   4: ['circle', 'square', 'triangle', 'star'],
   6: ['circle', 'square', 'triangle', 'star', 'diamond', 'hexagon'],
