@@ -3,6 +3,7 @@ import { Plus, Save, Trash2, CheckCircle, AlertTriangle } from 'lucide-react';
 import RichContentEditor from './RichContentEditor';
 import { EMPTY_DOC, type RichDoc } from './blocks';
 import SudokuQuestionEditor, { emptySudokuMeta } from './editors/SudokuQuestionEditor';
+import FlowchartQuestionEditor, { emptyFlowchartMeta } from './editors/FlowchartQuestionEditor';
 
 export interface Choice {
   choice_id?: number;
@@ -49,7 +50,9 @@ const emptyChoice = (is_correct: boolean): Choice => ({
 /** ตั้งค่าเริ่มต้นของแต่ละชนิดข้อ ตอนครูสลับชนิด */
 const withQuestionType = (q: Question, type: string): Question => {
   const startingMetadata = (type: string) =>
-    type === 'sudoku' ? emptySudokuMeta() : {};
+    type === 'sudoku' ? emptySudokuMeta()
+      : type === 'flowchart' ? emptyFlowchartMeta()
+        : {};
   const base: Question = { ...q, question_type: type, question_metadata: startingMetadata(type) };
 
   if (type === 'multiple_choice') {
@@ -173,6 +176,7 @@ export default function QuestionForm({
             <option value="matching">โยงเส้นจับคู่</option>
             <option value="categorize">ลากจัดหมวดหมู่</option>
             <option value="sudoku">เติมซูโดกุ</option>
+            <option value="flowchart">ต่อผังงาน</option>
           </select>
 
           {onDelete && (
@@ -403,6 +407,16 @@ export default function QuestionForm({
             <>
               <label className="block text-sm font-bold text-slate-700 mb-3">โจทย์ซูโดกุ</label>
               <SudokuQuestionEditor
+                metadata={question.question_metadata}
+                onChange={(meta) => set({ question_metadata: meta })}
+              />
+            </>
+          )}
+
+          {question.question_type === 'flowchart' && (
+            <>
+              <label className="block text-sm font-bold text-slate-700 mb-3">เฉลยผังงาน</label>
+              <FlowchartQuestionEditor
                 metadata={question.question_metadata}
                 onChange={(meta) => set({ question_metadata: meta })}
               />

@@ -26,6 +26,7 @@ const TYPE_LABEL: Record<string, string> = {
   matching: 'โยงเส้นจับคู่',
   categorize: 'จัดหมวดหมู่',
   sudoku: 'เติมซูโดกุ',
+  flowchart: 'ต่อผังงาน',
 };
 
 /**
