@@ -635,7 +635,32 @@ const StudentMCQPlayer = () => {
                               </div>
                           </div>
                       )}
-                      
+
+                      {['sudoku', 'flowchart'].includes(q.question_type) && (
+                          <div className="mb-4 space-y-2">
+                              <p className="text-slate-300 text-sm">
+                                ได้ <span className="text-white font-bold">{res?.xp_awarded ?? 0}</span> จาก{' '}
+                                <span className="text-white font-bold">{q.xp_points}</span> คะแนน
+                              </p>
+                              {q.question_type === 'sudoku' ? (
+                                  <SudokuAnswer
+                                      metadata={{ ...q.question_metadata, given_grid: q.question_metadata?.given_grid }}
+                                      value={res?.correct_answer_data?.solution_grid}
+                                      onChange={() => {}}
+                                      disabled
+                                  />
+                              ) : (
+                                  <FlowchartAnswer
+                                      metadata={q.question_metadata}
+                                      value={res?.correct_answer_data?.edges}
+                                      onChange={() => {}}
+                                      disabled
+                                  />
+                              )}
+                              <p className="text-emerald-400 text-sm">นี่คือเฉลย</p>
+                          </div>
+                      )}
+
                       {res?.explanation && (
                         <div className="bg-white/5 p-4 rounded-xl text-slate-300 text-sm mt-4">
                           <span className="font-bold text-violet-300 block mb-1">คำอธิบาย:</span>
