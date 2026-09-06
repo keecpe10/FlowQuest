@@ -178,15 +178,15 @@ const StudentMCQPlayer = () => {
                     initialAnswers.push({ question_id: q.question_id, answer_data: {} });
                 } else if (q.question_type === 'matching') {
                     initialAnswers.push({ question_id: q.question_id, answer_data: [] });
-                } else if (q.question_type === 'sudoku') {
-                    initialAnswers.push({
-                        question_id: q.question_id,
-                        answer_data: (q.question_metadata?.given_grid || [])
-                            .map((row: number[]) => [...row]),
-                    });
                 } else if (q.question_type === 'flowchart') {
                     initialAnswers.push({ question_id: q.question_id, answer_data: [] });
                 }
+                // หมายเหตุ: ข้อ sudoku "จงใจ" ไม่ seed answer_data ตอนโหลด (ต่างจากชนิดอื่น)
+                // เพราะ given_grid ของครูไม่ใช่ค่าว่าง ถ้า seed ไว้ hasDraftAnswer จะเห็นเป็น
+                // array ที่ไม่ว่างทันที ทำให้ระบบเข้าใจผิดว่านักเรียน "เริ่มทำแล้ว" และ
+                // ส่งคำตอบล็อกให้อัตโนมัติทันทีที่กดออกจากข้อ ทั้งที่ยังไม่ได้แตะอะไรเลย
+                // ปล่อยให้ไม่มี record ใน answers จนกว่าจะวางสัญลักษณ์แรกจริง ๆ
+                // (SudokuAnswer จะ fallback ไปแสดง given_grid เองเมื่อ value เป็น undefined)
             }
         });
 
