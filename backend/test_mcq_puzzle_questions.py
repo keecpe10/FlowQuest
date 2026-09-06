@@ -345,6 +345,91 @@ def test_bad_metadata_rejected_by_api(client, f):
           remaining is not None and remaining.question_id == seeded_id)
 
 
+def _contains_key(obj, key):
+    """หา key ในโครงสร้างซ้อนกัน (dict/list) แบบลึกทุกชั้น ไม่สนตำแหน่ง"""
+    if isinstance(obj, dict):
+        if key in obj:
+            return True
+        return any(_contains_key(v, key) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_contains_key(v, key) for v in obj)
+    return False
+
+
+def _question_by_type(payload, qtype):
+    matches = [q for q in payload if q['question_type'] == qtype]
+    assert len(matches) == 1, f'คาดว่ามีข้อ {qtype} หนึ่งข้อ เจอ {len(matches)}'
+    return matches[0]
+
+
+def test_student_receives_puzzle_without_answer_key(client, f):
+    """เคสจับบั๊กหลัก: นักเรียนต้องได้รับตัวปริศนาจริง ๆ (ไม่ใช่ metadata ว่างเปล่า)
+    แต่ต้องไม่ได้รับเฉลยติดไปด้วย ต่างจากทุกเทสต์เดิมที่ยิง /submit-single ตรง ๆ
+    ด้วย answer_data จาก fixture เอง เลยไม่เคยเช็คสิ่งที่ browser ได้จริงจาก
+    GET /questions เลยสักครั้ง
+    """
+    clear_questions(f)
+    client.post(q_url(f), json=puzzle_question('sudoku', sudoku_meta(), xp=10),
+                headers=auth(f['teacher_token']))
+    # ตำแหน่งบล็อกทั้งสองต้องไม่ใช่ {0, 0} ไม่งั้นถ้า client neutralise เป็น {0, 0}
+    # เทสต์การล้างตำแหน่งจะมองไม่เห็นความต่างสำหรับบล็อกที่ตำแหน่งเดิมบังเอิญเป็น
+    # {0, 0} อยู่แล้ว (จับบั๊กไม่ได้)
+    flow_nodes_placed = [
+        {'id': 'n1', 'type': 'terminal', 'position': {'x': 40, 'y': 20},
+         'data': {'label': 'เริ่ม'}},
+        {'id': 'n2', 'type': 'terminal', 'position': {'x': 40, 'y': 120},
+         'data': {'label': 'จบ'}},
+    ]
+    client.post(q_url(f), json=puzzle_question(
+        'flowchart', flow_meta(nodes=flow_nodes_placed), xp=10),
+        headers=auth(f['teacher_token']))
+
+    # --- สิ่งที่นักเรียนได้รับ ---
+    res = client.get(q_url(f), headers=auth(f['student_token']))
+    check('นักเรียนเรียกดูข้อสอบได้ 200', res.status_code == 200)
+    student_payload = res.get_json()
+
+    sudoku_q = _question_by_type(student_payload, 'sudoku')
+    sm = sudoku_q['question_metadata']
+    check('นักเรียนได้ size ของซูโดกุ', sm.get('size') == 4)
+    check('นักเรียนได้ box_rows/box_cols',
+          sm.get('box_rows') == 2 and sm.get('box_cols') == 2)
+    check('นักเรียนได้ symbol_set', sm.get('symbol_set') == sudoku_meta()['symbol_set'])
+    check('นักเรียนได้ render_mode', sm.get('render_mode') == 'icon')
+    check('นักเรียนได้ given_grid ตรงกับที่ครูบันทึก',
+          sm.get('given_grid') == GIVEN_4)
+    check('เฉลยซูโดกุ (solution_grid) ไม่หลุดไปหาใคร ในทุกชั้นของ payload',
+          not _contains_key(sudoku_q, 'solution_grid'))
+
+    flow_q = _question_by_type(student_payload, 'flowchart')
+    fm = flow_q['question_metadata']
+    sent_nodes = fm.get('nodes') or []
+    check('นักเรียนได้ node ครบตามจำนวน', len(sent_nodes) == 2)
+    sent_by_id = {n.get('id'): n for n in sent_nodes if isinstance(n, dict)}
+    check('id ของบล็อกไม่ถูกแตะ (grader เทียบ edge ด้วย id)',
+          set(sent_by_id) == {'n1', 'n2'})
+    check('label ของบล็อกยังอยู่ครบ',
+          (sent_by_id.get('n1') or {}).get('data', {}).get('label') == 'เริ่ม'
+          and (sent_by_id.get('n2') or {}).get('data', {}).get('label') == 'จบ')
+    original_positions = {n['id']: n['position'] for n in flow_nodes_placed}
+    check('ตำแหน่งบล็อกถูกล้างทิ้ง ไม่ใช่ตำแหน่งจริงของครู',
+          bool(sent_nodes) and all(
+              n.get('position') != original_positions.get(n.get('id'))
+              for n in sent_nodes if isinstance(n, dict)))
+    check('เส้นเฉลย (edges) ไม่ถูกส่งให้นักเรียนเลย',
+          not _contains_key(flow_q, 'edges'))
+
+    # --- สิ่งที่ครูยังต้องได้เหมือนเดิม (กันแก้เกินจนครูพรีวิวไม่เห็นเฉลย) ---
+    res = client.get(q_url(f), headers=auth(f['teacher_token']))
+    teacher_payload = res.get_json()
+    t_sudoku = _question_by_type(teacher_payload, 'sudoku')
+    check('ครูยังเห็น solution_grid ของซูโดกุครบ',
+          t_sudoku['question_metadata'].get('solution_grid') == SOLUTION_4)
+    t_flow = _question_by_type(teacher_payload, 'flowchart')
+    check('ครูยังเห็น edges ของผังงานครบ',
+          t_flow['question_metadata'].get('edges') == flow_meta()['edges'])
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -362,6 +447,7 @@ def main():
         try:
             test_draft_rules(client, f)
             test_bad_metadata_rejected_by_api(client, f)
+            test_student_receives_puzzle_without_answer_key(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

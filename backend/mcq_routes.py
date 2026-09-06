@@ -708,6 +708,29 @@ def get_mcq_questions(mission_id):
                 items_text = [item.get('text') for item in items_data]
                 random.shuffle(items_text)
                 filtered_metadata = {'categories': categories, 'items': items_text}
+            elif q.question_type == 'sudoku':
+                # ส่งแค่ตัวปริศนา ห้ามส่ง solution_grid (เฉลย) เด็ดขาด
+                filtered_metadata = {
+                    'size': metadata.get('size'),
+                    'box_rows': metadata.get('box_rows'),
+                    'box_cols': metadata.get('box_cols'),
+                    'symbol_set': metadata.get('symbol_set'),
+                    'render_mode': metadata.get('render_mode'),
+                    'given_grid': metadata.get('given_grid'),
+                }
+            elif q.question_type == 'flowchart':
+                # ส่งแค่ nodes ห้ามส่ง edges (เฉลย) เด็ดขาด และล้างตำแหน่งเดิมของครู
+                # ทิ้ง (ฝั่ง client จะสุ่มตำแหน่งใหม่อยู่แล้ว) ไม่ให้ตำแหน่งเดิมเป็นการ
+                # ใบ้ลำดับขั้นตอนที่ถูกต้องให้นักเรียนเห็นก่อนตอบ
+                sent_nodes = []
+                for n in (metadata.get('nodes') or []):
+                    sent_nodes.append({
+                        'id': n.get('id'),
+                        'type': n.get('type'),
+                        'position': {'x': 0, 'y': 0},
+                        'data': {'label': (n.get('data') or {}).get('label')},
+                    })
+                filtered_metadata = {'nodes': sent_nodes}
             # fill_blank needs no metadata sent to student (except maybe placeholders, but we can leave empty)
             question_dict['question_metadata'] = filtered_metadata
             
