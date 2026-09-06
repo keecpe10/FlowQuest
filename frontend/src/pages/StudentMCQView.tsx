@@ -8,6 +8,8 @@ import Confetti from 'react-confetti';
 import Swal from 'sweetalert2';
 import ContentBlockView from '../components/mcq/ContentBlockView';
 import type { StoredContent } from '../components/mcq/blocks';
+import SudokuAnswer from '../components/mcq/answers/SudokuAnswer';
+import FlowchartAnswer from '../components/mcq/answers/FlowchartAnswer';
 
 interface Choice {
   choice_id: number;
@@ -308,6 +310,32 @@ const StudentMCQView = () => {
                                       })
                                   )}
                               </div>
+                          </div>
+                      )}
+
+                      {['sudoku', 'flowchart'].includes(q.question_type) && (
+                          <div className="space-y-2">
+                              {showCorrectness && (
+                                  <p className="text-slate-300 text-sm">
+                                    ได้ <span className="text-white font-bold">{ansRecord?.xp_awarded ?? 0}</span> จาก{' '}
+                                    <span className="text-white font-bold">{q.xp_points}</span> คะแนน
+                                  </p>
+                              )}
+                              {q.question_type === 'sudoku' ? (
+                                  <SudokuAnswer
+                                      metadata={q.question_metadata}
+                                      value={ansRecord?.answer_data}
+                                      onChange={() => {}}
+                                      disabled
+                                  />
+                              ) : (
+                                  <FlowchartAnswer
+                                      metadata={q.question_metadata}
+                                      value={ansRecord?.answer_data}
+                                      onChange={() => {}}
+                                      disabled
+                                  />
+                              )}
                           </div>
                       )}
 

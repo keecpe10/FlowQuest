@@ -5,6 +5,8 @@ from app import db, socketio
 from models import Mission, UserMission, User, PointHistory, MCQQuestion, MCQChoice, MCQUserAnswer
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
 import random
+from sudoku_solver import count_solutions
+from engine import flowchart_score, sudoku_score
 
 mcq_bp = Blueprint('mcq', __name__, url_prefix='/api/v1/mcq')
 
@@ -225,6 +227,12 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
         if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
                    for i in items):
             return True
+    elif question_type == 'sudoku':
+        if not sudoku_meta_complete(meta):
+            return True
+    elif question_type == 'flowchart':
+        if not flowchart_meta_complete(meta):
+            return True
 
     return False
 
@@ -236,6 +244,216 @@ def live_questions(mission_id):
     filter_by(is_draft=False) เองอีก เพื่อให้กฎนี้อยู่ที่เดียว
     """
     return MCQQuestion.query.filter_by(mission_id=mission_id, is_draft=False)
+
+
+def grade_answer(question, choice_id, answer_data):
+    """ตรวจคำตอบหนึ่งข้อ คืน (is_correct, xp_awarded, correct_choice_id)
+
+    ที่เดียวของทั้งระบบ — submit_mcq กับ submit_mcq_single เรียกตัวนี้ทั้งคู่
+    ชนิดคำถามใหม่จึงเสียบที่นี่ที่เดียว
+
+    ทุกชนิดคืนคะแนนเป็นคู่จำนวนเต็ม (ถูก, เต็ม) ชนิดที่ตัดสินถูก/ผิดล้วน
+    ใช้ (1, 1) หรือ (0, 1)
+    """
+    meta = question.question_metadata or {}
+    qt = question.question_type
+    correct_choice_id = None
+
+    if qt in ('multiple_choice', 'true_false'):
+        choice = MCQChoice.query.get(choice_id) if choice_id else None
+        correct = MCQChoice.query.filter_by(
+            question_id=question.question_id, is_correct=True).first()
+        correct_choice_id = correct.choice_id if correct else None
+        earned, total = (1 if (choice and choice.is_correct) else 0), 1
+
+    elif qt == 'fill_blank':
+        want = str(meta.get('correct_text', '')).strip().lower()
+        got = str(answer_data).strip().lower() if answer_data else ''
+        earned, total = (1 if want == got else 0), 1
+
+    elif qt == 'matching':
+        pairs = meta.get('pairs', [])
+        ok = isinstance(answer_data, list) and len(answer_data) == len(pairs) \
+            and all(p in answer_data for p in pairs)
+        earned, total = (1 if ok else 0), 1
+
+    elif qt == 'categorize':
+        items = meta.get('items', [])
+        ok = isinstance(answer_data, dict) and len(answer_data) == len(items) \
+            and all(answer_data.get(i.get('text')) == i.get('category') for i in items)
+        earned, total = (1 if ok else 0), 1
+
+    elif qt == 'sudoku':
+        earned, total = sudoku_score(meta, answer_data)
+
+    elif qt == 'flowchart':
+        earned, total = flowchart_score(meta.get('edges') or [], answer_data)
+
+    else:
+        earned, total = 0, 1
+
+    xp_points = question.xp_points or 0
+    if total <= 0:
+        return False, 0, correct_choice_id
+
+    # ปัดครึ่งขึ้นด้วยเลขจำนวนเต็มล้วน และตัดสินถูกทั้งข้อจากการเทียบจำนวนเต็ม
+    # ไม่ใช่ ratio == 1.0 เพราะการหารทศนิยมให้ค่าอย่าง 0.9999999 ได้
+    xp_awarded = (earned * xp_points + total // 2) // total
+    return earned == total, xp_awarded, correct_choice_id
+
+
+# ---- โจทย์ซูโดกุ/ผังงานที่ฝังอยู่ในข้อสอบ ----
+#
+# เก็บใน question_metadata ไม่ใช้ตาราง sudoku_puzzles เพราะตารางนั้นผูกกับ
+# mission แบบหนึ่งด่านต่อหนึ่งปริศนา
+#
+# แยกเป็นสองระดับ: ผิดรูป = 400 (ตรงนี้) ส่วนกรอกไม่ครบ = ข้อร่าง (compute_is_draft)
+# ครูจึงบันทึกงานที่ทำค้างไว้ได้ แต่ส่งโครงสร้างพังเข้ามาไม่ได้
+
+MAX_SUDOKU_SIZE = 9
+MAX_FLOW_NODES = 50
+FLOW_NODE_TYPES = {'terminal', 'process', 'decision', 'io',
+                   'display', 'manual_input', 'connector'}
+FLOW_EDGE_LABELS = {'', 'จริง', 'เท็จ'}
+
+
+def _clean_grid(raw, size, where, field):
+    if not isinstance(raw, list) or len(raw) != size:
+        raise ValueError(f'{where}: {field} ต้องมี {size} แถว')
+    grid = []
+    for row in raw:
+        if not isinstance(row, list) or len(row) != size:
+            raise ValueError(f'{where}: {field} ต้องมี {size} ช่องในทุกแถว')
+        cleaned = []
+        for v in row:
+            if not isinstance(v, int) or isinstance(v, bool) or v < -1 or v >= size:
+                raise ValueError(f'{where}: {field} มีค่าที่ใช้ไม่ได้')
+            cleaned.append(v)
+        grid.append(cleaned)
+    return grid
+
+
+def sudoku_meta_complete(meta):
+    """โจทย์ซูโดกุพร้อมให้นักเรียนทำหรือยัง"""
+    solution = meta.get('solution_grid') or []
+    given = meta.get('given_grid') or []
+    if not solution or not given:
+        return False
+    if any(v == -1 for row in solution for v in row):
+        return False
+    return any(v == -1 for row in given for v in row)
+
+
+def flowchart_meta_complete(meta):
+    """โจทย์ผังงานพร้อมให้นักเรียนทำหรือยัง"""
+    return len(meta.get('nodes') or []) >= 2 and len(meta.get('edges') or []) >= 1
+
+
+def _clean_sudoku_metadata(meta, where):
+    box_rows = meta.get('box_rows')
+    box_cols = meta.get('box_cols')
+    size = meta.get('size')
+    for name, val in (('box_rows', box_rows), ('box_cols', box_cols), ('size', size)):
+        if not isinstance(val, int) or isinstance(val, bool) or val < 1:
+            raise ValueError(f'{where}: {name} ต้องเป็นจำนวนเต็มบวก')
+    if size != box_rows * box_cols:
+        raise ValueError(f'{where}: ขนาดกริดต้องเท่ากับ box_rows x box_cols')
+    if size > MAX_SUDOKU_SIZE:
+        raise ValueError(f'{where}: กริดใหญ่ได้ไม่เกิน {MAX_SUDOKU_SIZE}')
+
+    render_mode = meta.get('render_mode')
+    if render_mode not in ('icon', 'number'):
+        raise ValueError(f'{where}: render_mode ต้องเป็น icon หรือ number')
+
+    symbol_set = meta.get('symbol_set')
+    if (not isinstance(symbol_set, list) or len(symbol_set) != size
+            or not all(isinstance(s, str) and s.strip() for s in symbol_set)):
+        raise ValueError(f'{where}: symbol_set ต้องมีสัญลักษณ์ {size} ตัว')
+
+    given = _clean_grid(meta.get('given_grid'), size, where, 'given_grid')
+    solution = _clean_grid(meta.get('solution_grid'), size, where, 'solution_grid')
+
+    cleaned = {
+        'size': size, 'box_rows': box_rows, 'box_cols': box_cols,
+        'symbol_set': [s for s in symbol_set], 'render_mode': render_mode,
+        'given_grid': given, 'solution_grid': solution,
+    }
+
+    # เทียบช่องที่เปิดเผยกับเฉลย ทำได้ไม่ว่าโจทย์จะครบหรือยัง (ต่างจากการตรวจ
+    # คำตอบเดียวด้านล่างที่ต้องรอให้ครบก่อน) เพราะข้อมูลที่ขัดแย้งกันเองถือว่า
+    # ผิดรูปเสมอ ส่วนช่องที่ยังไม่กรอกทั้งสองฝั่ง (เป็น -1) ข้ามไปเพราะเป็นแค่
+    # งานทำค้าง ไม่ใช่ความขัดแย้ง
+    for r in range(size):
+        for c in range(size):
+            if given[r][c] != -1 and solution[r][c] != -1 and given[r][c] != solution[r][c]:
+                raise ValueError(f'{where}: ช่องที่เปิดเผยไม่ตรงกับเฉลย')
+
+    # ตรวจความเป็นคำตอบเดียวได้ต่อเมื่อโจทย์ครบแล้วเท่านั้น ไม่งั้นครูบันทึก
+    # งานที่ทำค้างไว้ไม่ได้เลย
+    if sudoku_meta_complete(cleaned):
+        # count_solutions ต้องการ 0 สำหรับช่องว่าง ไม่ใช่ -1
+        given_for_solver = [[0 if v == -1 else v + 1 for v in row] for row in given]
+        if count_solutions(given_for_solver, box_cols, box_rows, limit=2) != 1:
+            raise ValueError(
+                f'{where}: ปริศนานี้มีคำตอบมากกว่าหนึ่งแบบ ให้เปิดเผยช่องเพิ่ม')
+
+    return cleaned
+
+
+def _clean_flowchart_metadata(meta, where):
+    nodes = meta.get('nodes')
+    edges = meta.get('edges')
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        raise ValueError(f'{where}: nodes และ edges ต้องเป็น list')
+    if len(nodes) > MAX_FLOW_NODES:
+        raise ValueError(f'{where}: ใช้บล็อกได้ไม่เกิน {MAX_FLOW_NODES} บล็อก')
+
+    cleaned_nodes = []
+    seen_ids = set()
+    for n in nodes:
+        if not isinstance(n, dict):
+            raise ValueError(f'{where}: บล็อกต้องเป็น object')
+        node_id = n.get('id')
+        if not isinstance(node_id, str) or not node_id or node_id in seen_ids:
+            raise ValueError(f'{where}: id ของบล็อกต้องเป็นข้อความและห้ามซ้ำ')
+        seen_ids.add(node_id)
+        if n.get('type') not in FLOW_NODE_TYPES:
+            raise ValueError(f'{where}: ชนิดบล็อกที่ไม่รองรับ ({n.get("type")})')
+        pos = n.get('position') or {}
+        try:
+            x, y = float(pos.get('x', 0)), float(pos.get('y', 0))
+        except (TypeError, ValueError):
+            raise ValueError(f'{where}: ตำแหน่งบล็อกต้องเป็นตัวเลข')
+        label = (n.get('data') or {}).get('label')
+        cleaned_nodes.append({
+            'id': node_id, 'type': n['type'],
+            'position': {'x': x, 'y': y},
+            'data': {'label': str(label)[:MAX_TEXT_LEN] if label is not None else ''},
+        })
+
+    cleaned_edges = []
+    for e in edges:
+        if not isinstance(e, dict):
+            raise ValueError(f'{where}: เส้นต้องเป็น object')
+        source, target = e.get('source'), e.get('target')
+        if source not in seen_ids or target not in seen_ids:
+            raise ValueError(f'{where}: เส้นเชื่อมไปยังบล็อกที่ไม่มีอยู่')
+        label = e.get('label') or ''
+        if label not in FLOW_EDGE_LABELS:
+            raise ValueError(f'{where}: ป้ายเส้นต้องเป็น จริง หรือ เท็จ เท่านั้น')
+        cleaned_edges.append({'source': source, 'target': target, 'label': label})
+
+    return {'nodes': cleaned_nodes, 'edges': cleaned_edges}
+
+
+def clean_puzzle_metadata(question_type, metadata, where):
+    """ตรวจ question_metadata ของชนิดที่เป็นปริศนา ชนิดอื่นคืนค่าเดิม"""
+    meta = metadata or {}
+    if question_type == 'sudoku':
+        return _clean_sudoku_metadata(meta, where)
+    if question_type == 'flowchart':
+        return _clean_flowchart_metadata(meta, where)
+    return metadata
 
 
 def _draft_choice_tuples(c_normalized, choices_data):
@@ -337,12 +555,23 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     from datetime import datetime
 
     mission_id = mission.mission_id
-    total_questions = live_questions(mission_id).count()
-    mcq_answers = MCQUserAnswer.query.filter_by(
+    live = live_questions(mission_id).all()
+    total_questions = len(live)
+    live_ids = {q.question_id for q in live}
+    total_possible = sum(q.xp_points or 0 for q in live)
+
+    # นับเฉพาะคำตอบของข้อที่ยังไม่ใช่ร่าง ไม่งั้นคำตอบของข้อที่ครูเปลี่ยนเป็นร่าง
+    # ทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้นแล้ว
+    mcq_answers = [a for a in MCQUserAnswer.query.filter_by(
         user_mission_id=user_mission.user_mission_id
-    ).all()
+    ).all() if a.question_id in live_ids]
+
     correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-    percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+    total_xp = sum(a.xp_awarded or 0 for a in mcq_answers)
+
+    # คิดจาก XP ไม่ใช่จำนวนข้อ เพราะคะแนนบางส่วนจากข้อซูโดกุ/ผังงาน
+    # จะหายไปทั้งก้อนถ้านับเป็นรายข้อ และ XP รายข้อที่ครูตั้งไว้ก็ควรถ่วงน้ำหนักจริง
+    percentage = (total_xp / total_possible * 100) if total_possible > 0 else 0
 
     passing_percentage = mission.passing_percentage or 70
     is_passed = percentage >= passing_percentage
@@ -360,8 +589,6 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
             user_mission.time_spent_seconds = int(
                 (datetime.utcnow() - user_mission.started_at).total_seconds()
             )
-
-        total_xp = sum(a.xp_awarded or 0 for a in mcq_answers)
 
         if not award_xp:
             # ครูดูตัวเลขที่ตัวเองน่าจะได้ได้ แต่ไม่มีการบันทึกลง PointHistory จริง
@@ -481,6 +708,29 @@ def get_mcq_questions(mission_id):
                 items_text = [item.get('text') for item in items_data]
                 random.shuffle(items_text)
                 filtered_metadata = {'categories': categories, 'items': items_text}
+            elif q.question_type == 'sudoku':
+                # ส่งแค่ตัวปริศนา ห้ามส่ง solution_grid (เฉลย) เด็ดขาด
+                filtered_metadata = {
+                    'size': metadata.get('size'),
+                    'box_rows': metadata.get('box_rows'),
+                    'box_cols': metadata.get('box_cols'),
+                    'symbol_set': metadata.get('symbol_set'),
+                    'render_mode': metadata.get('render_mode'),
+                    'given_grid': metadata.get('given_grid'),
+                }
+            elif q.question_type == 'flowchart':
+                # ส่งแค่ nodes ห้ามส่ง edges (เฉลย) เด็ดขาด และล้างตำแหน่งเดิมของครู
+                # ทิ้ง (ฝั่ง client จะสุ่มตำแหน่งใหม่อยู่แล้ว) ไม่ให้ตำแหน่งเดิมเป็นการ
+                # ใบ้ลำดับขั้นตอนที่ถูกต้องให้นักเรียนเห็นก่อนตอบ
+                sent_nodes = []
+                for n in (metadata.get('nodes') or []):
+                    sent_nodes.append({
+                        'id': n.get('id'),
+                        'type': n.get('type'),
+                        'position': {'x': 0, 'y': 0},
+                        'data': {'label': (n.get('data') or {}).get('label')},
+                    })
+                filtered_metadata = {'nodes': sent_nodes}
             # fill_blank needs no metadata sent to student (except maybe placeholders, but we can leave empty)
             question_dict['question_metadata'] = filtered_metadata
             
@@ -508,37 +758,28 @@ def update_mcq_questions(mission_id):
     data = request.get_json()
     questions_data = data.get('questions', [])
 
-    # ตรวจ content_blocks ให้ครบทุกข้อก่อนแตะฐานข้อมูล เพราะขั้นต่อไปลบคำถามเดิม
-    # ทั้งชุดทิ้ง ถ้าไปล้มกลางทางแล้ว commit ข้อสอบทั้งด่านจะหาย
+    # ตรวจ content_blocks และโจทย์ปริศนาให้ครบทุกข้อก่อนแตะฐานข้อมูล เพราะขั้นต่อไป
+    # ลบคำถามเดิมทั้งชุดทิ้ง ถ้าไปล้มกลางทางแล้ว commit ข้อสอบทั้งด่านจะหาย
     try:
-        normalized = []
-        for idx, q_data in enumerate(questions_data):
-            q_doc, q_text = normalize_content(
-                q_data.get('content_blocks'), f'คำถามข้อที่ {idx + 1}'
-            )
-            c_normalized = []
-            for c_idx, c_data in enumerate(q_data.get('choices', [])):
-                c_doc, c_text = normalize_content(
-                    c_data.get('content_blocks'),
-                    f'คำถามข้อที่ {idx + 1} ตัวเลือกที่ {c_idx + 1}',
-                )
-                c_normalized.append((c_doc, c_text))
-            normalized.append((q_doc, q_text, c_normalized))
+        normalized = [
+            _normalize_question(q_data, f'คำถามข้อที่ {idx + 1}')
+            for idx, q_data in enumerate(questions_data)
+        ]
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
     # Delete existing questions and choices (cascade will handle choices)
     MCQQuestion.query.filter_by(mission_id=mission_id).delete()
-    
+
     for idx, q_data in enumerate(questions_data):
-        q_doc, q_text, c_normalized = normalized[idx]
+        q_doc, q_text, c_normalized, meta = normalized[idx]
         new_q = MCQQuestion(
             mission_id=mission_id,
             # ใช้บล็อกเป็นแหล่งความจริงถ้ามี แล้ว derive ข้อความให้สถิติรายข้อ
             # กับ prompt ของ Gemini อ่านต่อได้เหมือนเดิม
             question_text=q_text if q_doc else q_data.get('question_text', ''),
             question_type=q_data.get('question_type', 'multiple_choice'),
-            question_metadata=q_data.get('question_metadata'),
+            question_metadata=meta,
             image_url=None if q_doc else q_data.get('image_url'),
             content_blocks=q_doc,
             xp_points=q_data.get('xp_points', 10),
@@ -546,7 +787,7 @@ def update_mcq_questions(mission_id):
             explanation=q_data.get('explanation'),
             is_draft=compute_is_draft(
                 q_data.get('question_type', 'multiple_choice'),
-                q_doc, q_data.get('question_text'), q_data.get('question_metadata'),
+                q_doc, q_data.get('question_text'), meta,
                 q_data.get('xp_points', 10),
                 _draft_choice_tuples(c_normalized, q_data.get('choices', [])),
             ),
@@ -594,14 +835,17 @@ def _teacher_mission(mission_id):
 
 
 def _normalize_question(q_data, where='คำถาม'):
-    """ตรวจเนื้อหาของคำถามและตัวเลือกทั้งหมดก่อนแตะฐานข้อมูล"""
+    """ตรวจเนื้อหาและโจทย์ของคำถามทั้งหมดก่อนแตะฐานข้อมูล"""
     q_doc, q_text = normalize_content(q_data.get('content_blocks'), where)
     c_normalized = []
     for c_idx, c_data in enumerate(q_data.get('choices', [])):
         c_doc, c_text = normalize_content(
             c_data.get('content_blocks'), f'{where} ตัวเลือกที่ {c_idx + 1}')
         c_normalized.append((c_doc, c_text))
-    return q_doc, q_text, c_normalized
+    meta = clean_puzzle_metadata(
+        q_data.get('question_type', 'multiple_choice'),
+        q_data.get('question_metadata'), where)
+    return q_doc, q_text, c_normalized, meta
 
 
 def _question_json(q):
@@ -629,12 +873,12 @@ def _question_json(q):
     }
 
 
-def _write_question(q, q_data, q_doc, q_text, c_normalized):
+def _write_question(q, q_data, q_doc, q_text, c_normalized, meta):
     """เขียนค่าจาก payload ลงคำถาม (ยังไม่ commit) และคำนวณสถานะร่างให้เอง"""
     choices_data = q_data.get('choices', [])
     q.question_text = q_text if q_doc else q_data.get('question_text', '')
     q.question_type = q_data.get('question_type', 'multiple_choice')
-    q.question_metadata = q_data.get('question_metadata')
+    q.question_metadata = meta
     q.image_url = None if q_doc else q_data.get('image_url')
     q.content_blocks = q_doc
     q.xp_points = q_data.get('xp_points', 10)
@@ -681,7 +925,7 @@ def create_mcq_question(mission_id):
 
     q_data = request.get_json() or {}
     try:
-        q_doc, q_text, c_normalized = _normalize_question(q_data)
+        q_doc, q_text, c_normalized, meta = _normalize_question(q_data)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
@@ -689,7 +933,7 @@ def create_mcq_question(mission_id):
         MCQQuestion.order_index.desc()).first()
     new_q = MCQQuestion(mission_id=mission_id, question_text='',
                         order_index=(last.order_index + 1) if last else 0)
-    _write_question(new_q, q_data, q_doc, q_text, c_normalized)
+    _write_question(new_q, q_data, q_doc, q_text, c_normalized, meta)
     db.session.add(new_q)
     db.session.flush()
 
@@ -721,11 +965,11 @@ def update_mcq_question(mission_id, question_id):
 
     q_data = request.get_json() or {}
     try:
-        q_doc, q_text, c_normalized = _normalize_question(q_data)
+        q_doc, q_text, c_normalized, meta = _normalize_question(q_data)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
-    _write_question(question, q_data, q_doc, q_text, c_normalized)
+    _write_question(question, q_data, q_doc, q_text, c_normalized, meta)
     _sync_choices(question, q_data.get('choices', []), c_normalized)
 
     db.session.commit()
@@ -888,49 +1132,8 @@ def submit_mcq(mission_id):
         if not question or question.mission_id != mission_id or question.is_draft:
             continue
             
-        is_correct = False
-        correct_choice_id = None
-        
-        if question.question_type in ['multiple_choice', 'true_false']:
-            choice = MCQChoice.query.get(c_id) if c_id else None
-            is_correct = choice.is_correct if choice else False
-            correct_choice = MCQChoice.query.filter_by(question_id=q_id, is_correct=True).first()
-            correct_choice_id = correct_choice.choice_id if correct_choice else None
-            
-        elif question.question_type == 'fill_blank':
-            metadata = question.question_metadata or {}
-            correct_text = str(metadata.get('correct_text', '')).strip().lower()
-            user_text = str(answer_data).strip().lower() if answer_data else ''
-            is_correct = (correct_text == user_text)
-            
-        elif question.question_type == 'matching':
-            metadata = question.question_metadata or {}
-            correct_pairs = metadata.get('pairs', [])
-            # answer_data format: [{"left": "A", "right": "B"}, ...]
-            if isinstance(answer_data, list) and len(answer_data) == len(correct_pairs):
-                is_correct = True
-                for p in correct_pairs:
-                    if p not in answer_data:
-                        is_correct = False
-                        break
-            
-        elif question.question_type == 'categorize':
-            metadata = question.question_metadata or {}
-            correct_items = metadata.get('items', [])
-            # answer_data format: { "Apple": "Fruit", "Dog": "Animal" }
-            is_correct = True
-            if not isinstance(answer_data, dict) or len(answer_data) != len(correct_items):
-                is_correct = False
-            else:
-                for item in correct_items:
-                    text = item.get('text')
-                    correct_cat = item.get('category')
-                    if answer_data.get(text) != correct_cat:
-                        is_correct = False
-                        break
-            
-        xp_awarded = question.xp_points if is_correct else 0
-        
+        is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
+
         user_ans = MCQUserAnswer(
             user_mission_id=user_mission.user_mission_id,
             question_id=q_id,
@@ -1146,50 +1349,10 @@ def submit_mcq_single(mission_id):
     if existing_ans:
         return jsonify({'error': 'Question already answered'}), 400
         
-    is_correct = False
-    correct_choice_id = None
-    
-    if question.question_type in ['multiple_choice', 'true_false']:
-        choice = MCQChoice.query.get(c_id) if c_id else None
-        is_correct = choice.is_correct if choice else False
-        correct_choice = MCQChoice.query.filter_by(question_id=q_id, is_correct=True).first()
-        correct_choice_id = correct_choice.choice_id if correct_choice else None
-        
-    elif question.question_type == 'fill_blank':
-        metadata = question.question_metadata or {}
-        correct_text = str(metadata.get('correct_text', '')).strip().lower()
-        user_text = str(answer_data).strip().lower() if answer_data else ''
-        is_correct = (correct_text == user_text)
-        
-    elif question.question_type == 'matching':
-        metadata = question.question_metadata or {}
-        correct_pairs = metadata.get('pairs', [])
-        if isinstance(answer_data, list) and len(answer_data) == len(correct_pairs):
-            is_correct = True
-            for p in correct_pairs:
-                if p not in answer_data:
-                    is_correct = False
-                    break
-        
-    elif question.question_type == 'categorize':
-        metadata = question.question_metadata or {}
-        correct_items = metadata.get('items', [])
-        is_correct = True
-        if not isinstance(answer_data, dict) or len(answer_data) != len(correct_items):
-            is_correct = False
-        else:
-            for item in correct_items:
-                text = item.get('text')
-                correct_cat = item.get('category')
-                if answer_data.get(text) != correct_cat:
-                    is_correct = False
-                    break
-        
-    # Calculate XP (proportional based on mission total points)
+    is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
+
     total_questions = live_questions(mission_id).count()
-    points_per_q = int(mission.points / total_questions) if total_questions > 0 else question.xp_points
-    xp_awarded = points_per_q if is_correct else 0
-    
+
     user_ans = MCQUserAnswer(
         user_mission_id=user_mission.user_mission_id,
         question_id=q_id,
@@ -1302,16 +1465,29 @@ def manual_grade(mission_id):
         question = MCQQuestion.query.get(question_id)
         
         answer.is_correct = True
-        
-        total_questions = live_questions(mission_id).count()
-        points_per_q = int(mission.points / total_questions) if total_questions > 0 else question.xp_points
+
+        # xp_points ของโจทย์ข้อนั้นเป็นแหล่งความจริงเดียวของคะแนน MCQ เหมือนกับ
+        # submit_mcq/submit_mcq_single (ดู grade_answer) ไม่ใช่ mission.points หาร
+        # เฉลี่ยเท่าจำนวนข้อ ซึ่งเป็นสูตรเก่าที่ไม่ตรงกับสองเส้นทางนั้นมานาน
+        live = live_questions(mission_id).all()
+        live_ids = {q.question_id for q in live}
+        total_possible = sum(q.xp_points or 0 for q in live)
+        points_per_q = question.xp_points
         answer.xp_awarded = points_per_q
-        
+
         # Recalculate pass/fail
-        mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id).all()
+        # สูตรนี้ต้องตรงกับ finalize_mcq เป๊ะ: คิดเปอร์เซ็นต์จาก XP ถ่วงน้ำหนัก ไม่ใช่
+        # นับจำนวนข้อที่ถูกทั้งข้อ เพราะคะแนนบางส่วนของข้อซูโดกุ/ผังงานจะหายไปทั้งก้อน
+        # ถ้านับเป็นรายข้อ และกรองคำตอบเฉพาะข้อที่ยังไม่ใช่ร่าง (live_ids) ไม่งั้นคำตอบ
+        # ของข้อที่ครูเปลี่ยนเป็นร่างทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้น
+        # แล้ว ถ้าจะแก้สูตรนี้ต้องไปแก้ finalize_mcq ด้วย (และกลับกัน) ไม่งั้นครูกับ
+        # นักเรียนจะเห็นผ่าน/ตกของ attempt เดียวกันไม่ตรงกัน
+        mcq_answers = [a for a in MCQUserAnswer.query.filter_by(
+            user_mission_id=user_mission.user_mission_id).all() if a.question_id in live_ids]
         # Note: mcq_answers includes the currently modified answer because it's in the session
         correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-        percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+        total_xp_earned = sum((a.xp_awarded or 0) for a in mcq_answers)
+        percentage = (total_xp_earned / total_possible * 100) if total_possible > 0 else 0
         passing_percentage = mission.passing_percentage or 70
         is_passed = percentage >= passing_percentage
         
@@ -1322,9 +1498,15 @@ def manual_grade(mission_id):
                 user_mission.time_spent_seconds = int((datetime.utcnow() - user_mission.started_at).total_seconds())
             # Re-award ALL XP for this mission for this student
             PointHistory.query.filter_by(user_id=student_id, source='mcq_mission', source_id=mission_id).delete()
-            
-            total_xp = sum((ans.xp_awarded or 0) for ans in mcq_answers if ans.is_correct)
-                    
+
+            # ต้องเครดิตยอดเดียวกับที่ใช้คิดเปอร์เซ็นต์ผ่าน (total_xp_earned ด้านบน)
+            # ห้ามกรองเฉพาะ is_correct=True ซ้ำอีกที เพราะคะแนนบางส่วน (partial
+            # credit) ของข้อซูโดกุ/ผังงานที่ยังไม่ถูกทั้งข้อ (is_correct=False) ก็ถูก
+            # นับรวมเข้าตัวเศษตอนตัดสินผ่านไปแล้ว ถ้ามากรองออกตอนเครดิตจริง นักเรียน
+            # จะผ่านด่านแต่ได้ XP น้อยกว่าที่ทำให้ผ่าน ตรงกับ finalize_mcq ที่ไม่กรอง
+            # is_correct เช่นกัน
+            total_xp = total_xp_earned
+
             if total_xp > 0:
                 history = PointHistory(
                     user_id=student_id,

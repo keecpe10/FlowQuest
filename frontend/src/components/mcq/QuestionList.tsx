@@ -25,6 +25,8 @@ const TYPE_LABEL: Record<string, string> = {
   fill_blank: 'เติมคำ',
   matching: 'โยงเส้นจับคู่',
   categorize: 'จัดหมวดหมู่',
+  sudoku: 'เติมซูโดกุ',
+  flowchart: 'ต่อผังงาน',
 };
 
 /**

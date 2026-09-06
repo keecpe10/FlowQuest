@@ -14,6 +14,8 @@ import ContentBlockView from '../components/mcq/ContentBlockView';
 import MCQLeaderboard from '../components/mcq/MCQLeaderboard';
 import CountUp from '../components/reactbits/CountUp';
 import type { StoredContent } from '../components/mcq/blocks';
+import SudokuAnswer from '../components/mcq/answers/SudokuAnswer';
+import FlowchartAnswer from '../components/mcq/answers/FlowchartAnswer';
 
 interface Choice {
   choice_id: number;
@@ -176,7 +178,15 @@ const StudentMCQPlayer = () => {
                     initialAnswers.push({ question_id: q.question_id, answer_data: {} });
                 } else if (q.question_type === 'matching') {
                     initialAnswers.push({ question_id: q.question_id, answer_data: [] });
+                } else if (q.question_type === 'flowchart') {
+                    initialAnswers.push({ question_id: q.question_id, answer_data: [] });
                 }
+                // หมายเหตุ: ข้อ sudoku "จงใจ" ไม่ seed answer_data ตอนโหลด (ต่างจากชนิดอื่น)
+                // เพราะ given_grid ของครูไม่ใช่ค่าว่าง ถ้า seed ไว้ hasDraftAnswer จะเห็นเป็น
+                // array ที่ไม่ว่างทันที ทำให้ระบบเข้าใจผิดว่านักเรียน "เริ่มทำแล้ว" และ
+                // ส่งคำตอบล็อกให้อัตโนมัติทันทีที่กดออกจากข้อ ทั้งที่ยังไม่ได้แตะอะไรเลย
+                // ปล่อยให้ไม่มี record ใน answers จนกว่าจะวางสัญลักษณ์แรกจริง ๆ
+                // (SudokuAnswer จะ fallback ไปแสดง given_grid เองเมื่อ value เป็น undefined)
             }
         });
 
@@ -625,7 +635,32 @@ const StudentMCQPlayer = () => {
                               </div>
                           </div>
                       )}
-                      
+
+                      {['sudoku', 'flowchart'].includes(q.question_type) && (
+                          <div className="mb-4 space-y-2">
+                              <p className="text-slate-300 text-sm">
+                                ได้ <span className="text-white font-bold">{res?.xp_awarded ?? 0}</span> จาก{' '}
+                                <span className="text-white font-bold">{q.xp_points}</span> คะแนน
+                              </p>
+                              {q.question_type === 'sudoku' ? (
+                                  <SudokuAnswer
+                                      metadata={{ ...q.question_metadata, given_grid: q.question_metadata?.given_grid }}
+                                      value={res?.correct_answer_data?.solution_grid}
+                                      onChange={() => {}}
+                                      disabled
+                                  />
+                              ) : (
+                                  <FlowchartAnswer
+                                      metadata={q.question_metadata}
+                                      value={res?.correct_answer_data?.edges}
+                                      onChange={() => {}}
+                                      disabled
+                                  />
+                              )}
+                              <p className="text-emerald-400 text-sm">นี่คือเฉลย</p>
+                          </div>
+                      )}
+
                       {res?.explanation && (
                         <div className="bg-white/5 p-4 rounded-xl text-slate-300 text-sm mt-4">
                           <span className="font-bold text-violet-300 block mb-1">คำอธิบาย:</span>
@@ -934,7 +969,45 @@ const StudentMCQPlayer = () => {
                     )}
                 </div>
             )}
-            
+
+            {currentQ.question_type === 'sudoku' && (
+                <div className="mt-8 flex justify-center">
+                    <SudokuAnswer
+                        key={currentQ.question_id}
+                        metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data}
+                        disabled={isSubmitted || isTimeUp}
+                        onChange={(grid) => setAnswers(prev => {
+                            const existing = prev.find(a => a.question_id === currentQ.question_id);
+                            if (existing) {
+                                return prev.map(a => a.question_id === currentQ.question_id
+                                    ? { ...a, answer_data: grid } : a);
+                            }
+                            return [...prev, { question_id: currentQ.question_id, answer_data: grid }];
+                        })}
+                    />
+                </div>
+            )}
+
+            {currentQ.question_type === 'flowchart' && (
+                <div className="mt-8">
+                    <FlowchartAnswer
+                        key={currentQ.question_id}
+                        metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data}
+                        disabled={isSubmitted || isTimeUp}
+                        onChange={(edges) => setAnswers(prev => {
+                            const existing = prev.find(a => a.question_id === currentQ.question_id);
+                            if (existing) {
+                                return prev.map(a => a.question_id === currentQ.question_id
+                                    ? { ...a, answer_data: edges } : a);
+                            }
+                            return [...prev, { question_id: currentQ.question_id, answer_data: edges }];
+                        })}
+                    />
+                </div>
+            )}
+
             {isSubmitted && qResult.explanation && (
                 <div className="mt-6 bg-violet-500/10 border border-violet-500/20 p-4 rounded-xl text-violet-200 text-sm">
                     <span className="font-bold text-violet-400 block mb-1">คำอธิบาย:</span>
