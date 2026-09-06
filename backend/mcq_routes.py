@@ -1498,9 +1498,15 @@ def manual_grade(mission_id):
                 user_mission.time_spent_seconds = int((datetime.utcnow() - user_mission.started_at).total_seconds())
             # Re-award ALL XP for this mission for this student
             PointHistory.query.filter_by(user_id=student_id, source='mcq_mission', source_id=mission_id).delete()
-            
-            total_xp = sum((ans.xp_awarded or 0) for ans in mcq_answers if ans.is_correct)
-                    
+
+            # ต้องเครดิตยอดเดียวกับที่ใช้คิดเปอร์เซ็นต์ผ่าน (total_xp_earned ด้านบน)
+            # ห้ามกรองเฉพาะ is_correct=True ซ้ำอีกที เพราะคะแนนบางส่วน (partial
+            # credit) ของข้อซูโดกุ/ผังงานที่ยังไม่ถูกทั้งข้อ (is_correct=False) ก็ถูก
+            # นับรวมเข้าตัวเศษตอนตัดสินผ่านไปแล้ว ถ้ามากรองออกตอนเครดิตจริง นักเรียน
+            # จะผ่านด่านแต่ได้ XP น้อยกว่าที่ทำให้ผ่าน ตรงกับ finalize_mcq ที่ไม่กรอง
+            # is_correct เช่นกัน
+            total_xp = total_xp_earned
+
             if total_xp > 0:
                 history = PointHistory(
                     user_id=student_id,

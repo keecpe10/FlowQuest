@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 from app import create_app, db
 from models import (
     User, Role, Course, CourseEnrollment, Mission, UserMission,
-    MCQQuestion, MCQChoice, MCQUserAnswer,
+    MCQQuestion, MCQChoice, MCQUserAnswer, PointHistory,
 )
 from routes import generate_token
 
@@ -412,6 +412,12 @@ def test_manual_grade_matches_student_pass_fail(client, f):
     จาก 2 ข้อ = 50% < 70% -> ตก ขัดกับสิ่งที่นักเรียนเห็นตอนตอบเอง (75% -> ผ่าน)
     สูตร XP ถ่วงน้ำหนักที่ถูกต้อง: 50(MC) + 25(sudoku) = 75 จาก 100 = 75% -> ผ่าน
     ตรงกับที่นักเรียนเห็น สองสูตรขัดกันจริงในเคสนี้ จึงจับการถดถอยกลับไปนับรายข้อได้
+
+    เทสต์นี้ยังยืนยันจำนวน XP ที่ให้จริงด้วย (ไม่ใช่แค่ผ่าน/ตก): เกณฑ์ผ่านใช้ผลรวม
+    xp_awarded ของทุกคำตอบ (ไม่กรอง is_correct) = 50+25 = 75 ดังนั้นยอดที่เครดิตจริง
+    (score_awarded และแต้มใน PointHistory) ต้องเป็น 75 ด้วย ไม่ใช่ 50 (ผลรวมกรอง
+    เฉพาะคำตอบที่ is_correct=True ซึ่งเป็นบั๊กเดิม ตัดคะแนนบางส่วนของซูโดกุทิ้งไป
+    ทั้งที่มันถูกใช้ตัดสินว่าผ่านไปแล้ว)
     """
     clear_questions(f)
     clear_answers(f)
@@ -450,6 +456,15 @@ def test_manual_grade_matches_student_pass_fail(client, f):
     um = UserMission.query.filter_by(
         user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
     check('สถานะ attempt เปลี่ยนจาก failed เป็น completed', um.status == 'completed')
+    check('ยอดเครดิต (score_awarded) ต้องตรงกับผลรวม XP ที่ใช้ตัดสินผ่าน (50+25=75) '
+          'ไม่ใช่แค่ผลรวมเฉพาะคำตอบที่ is_correct=True (50)',
+          um.score_awarded == 75)
+
+    history = PointHistory.query.filter_by(
+        user_id=f['student'].user_id, source='mcq_mission',
+        source_id=f['mission'].mission_id).first()
+    check('แต้มใน PointHistory ต้องเป็น 75 เท่ากับยอดที่ใช้ตัดสินผ่าน',
+          history is not None and history.points == 75)
 
 
 def main():
