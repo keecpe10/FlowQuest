@@ -14,6 +14,8 @@ import ContentBlockView from '../components/mcq/ContentBlockView';
 import MCQLeaderboard from '../components/mcq/MCQLeaderboard';
 import CountUp from '../components/reactbits/CountUp';
 import type { StoredContent } from '../components/mcq/blocks';
+import SudokuAnswer from '../components/mcq/answers/SudokuAnswer';
+import FlowchartAnswer from '../components/mcq/answers/FlowchartAnswer';
 
 interface Choice {
   choice_id: number;
@@ -175,6 +177,14 @@ const StudentMCQPlayer = () => {
                 if (q.question_type === 'categorize') {
                     initialAnswers.push({ question_id: q.question_id, answer_data: {} });
                 } else if (q.question_type === 'matching') {
+                    initialAnswers.push({ question_id: q.question_id, answer_data: [] });
+                } else if (q.question_type === 'sudoku') {
+                    initialAnswers.push({
+                        question_id: q.question_id,
+                        answer_data: (q.question_metadata?.given_grid || [])
+                            .map((row: number[]) => [...row]),
+                    });
+                } else if (q.question_type === 'flowchart') {
                     initialAnswers.push({ question_id: q.question_id, answer_data: [] });
                 }
             }
@@ -934,7 +944,45 @@ const StudentMCQPlayer = () => {
                     )}
                 </div>
             )}
-            
+
+            {currentQ.question_type === 'sudoku' && (
+                <div className="mt-8 flex justify-center">
+                    <SudokuAnswer
+                        key={currentQ.question_id}
+                        metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data}
+                        disabled={isSubmitted || isTimeUp}
+                        onChange={(grid) => setAnswers(prev => {
+                            const existing = prev.find(a => a.question_id === currentQ.question_id);
+                            if (existing) {
+                                return prev.map(a => a.question_id === currentQ.question_id
+                                    ? { ...a, answer_data: grid } : a);
+                            }
+                            return [...prev, { question_id: currentQ.question_id, answer_data: grid }];
+                        })}
+                    />
+                </div>
+            )}
+
+            {currentQ.question_type === 'flowchart' && (
+                <div className="mt-8">
+                    <FlowchartAnswer
+                        key={currentQ.question_id}
+                        metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data}
+                        disabled={isSubmitted || isTimeUp}
+                        onChange={(edges) => setAnswers(prev => {
+                            const existing = prev.find(a => a.question_id === currentQ.question_id);
+                            if (existing) {
+                                return prev.map(a => a.question_id === currentQ.question_id
+                                    ? { ...a, answer_data: edges } : a);
+                            }
+                            return [...prev, { question_id: currentQ.question_id, answer_data: edges }];
+                        })}
+                    />
+                </div>
+            )}
+
             {isSubmitted && qResult.explanation && (
                 <div className="mt-6 bg-violet-500/10 border border-violet-500/20 p-4 rounded-xl text-violet-200 text-sm">
                     <span className="font-bold text-violet-400 block mb-1">คำอธิบาย:</span>
