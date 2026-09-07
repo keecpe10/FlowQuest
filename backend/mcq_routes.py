@@ -541,6 +541,68 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
     return user_mission
 
 
+def sync_mcq_points(user_id, mission, user_mission, award_xp=True):
+    """เขียนคะแนนของ attempt ปัจจุบันลงบัญชีคะแนน คืนยอดรวม
+
+    ที่เดียวของทั้งระบบที่เขียน PointHistory ของด่าน MCQ — submit_mcq_single,
+    finalize_mcq และ manual_grade เรียกตัวนี้ทั้งหมด ไม่ควรมีที่อื่นเขียนเอง
+    ด้วยเหตุผลเดียวกับที่ grade_answer ถูกรวมไว้ที่เดียว
+
+    **เขียนทับยอด ไม่ใช่บวกเพิ่ม** จึง idempotent เรียกกี่ครั้งผลก็เท่ากัน
+    นักเรียนกดส่งรัว ๆ หรือ endpoint ถูกเรียกซ้ำก็ไม่ทำให้คะแนนพอง
+    และได้ "คะแนนรอบล่าสุด" มาด้วย เพราะ ensure_mcq_attempt ลบคำตอบของ
+    attempt เดิมทิ้งตอนเริ่มรอบใหม่ ยอดที่คิดใหม่จึงมาจากรอบปัจจุบันเท่านั้น
+
+    ไม่ commit — ผู้เรียกเป็นคน commit เพื่อให้คำตอบกับคะแนนลงไปพร้อมกัน
+    """
+    mission_id = mission.mission_id
+    live_ids = {q.question_id for q in live_questions(mission_id).all()}
+
+    # นับเฉพาะคำตอบของข้อที่ยังไม่ใช่ร่าง ไม่งั้นคำตอบของข้อที่ครูเปลี่ยนเป็นร่าง
+    # ทีหลังจะยังบวกเข้ายอด ทั้งที่นักเรียนมองไม่เห็นข้อนั้นแล้ว
+    running_total = sum(
+        (a.xp_awarded or 0)
+        for a in MCQUserAnswer.query.filter_by(
+            user_mission_id=user_mission.user_mission_id).all()
+        if a.question_id in live_ids
+    )
+
+    user_mission.score_awarded = running_total
+
+    if not award_xp:
+        # ครูทดลองทำเอง เห็นตัวเลขของตัวเองได้ แต่ไม่มีอะไรลงบัญชีจริง
+        # และไม่ emit ออกไปกวนอันดับผู้นำของห้อง
+        return running_total
+
+    row = PointHistory.query.filter_by(
+        user_id=user_id, source='mcq_mission', source_id=mission_id
+    ).first()
+
+    if row is None:
+        if running_total <= 0:
+            # แถวคะแนน 0 ไม่มีความหมาย ไม่ต้องสร้าง
+            return running_total
+        db.session.add(PointHistory(
+            user_id=user_id,
+            source='mcq_mission',
+            source_id=mission_id,
+            points=running_total,
+            description=f'MCQ: {mission.title}',
+        ))
+    elif row.points == running_total:
+        # ยอดเท่าเดิม (เช่นตอบผิด) ไม่ต้องเขียนและไม่ต้องกวนห้องด้วย event
+        return running_total
+    else:
+        # เขียนทับแม้ยอดใหม่จะเป็น 0 เพราะเป็นกรณีทำรอบใหม่แล้วได้แย่ลง
+        # ถ้าข้ามไป คะแนนรอบเก่าจะค้างอยู่ ซึ่งขัดกับ "ใช้คะแนนรอบล่าสุด"
+        row.points = running_total
+
+    socketio.emit('points_awarded', {
+        'user_id': user_id, 'mission_id': mission_id, 'points': running_total,
+    })
+    return running_total
+
+
 def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=True):
     """Compute pass/fail, set mission status, and award XP idempotently.
 
@@ -1362,10 +1424,16 @@ def submit_mcq_single(mission_id):
         xp_awarded=xp_awarded
     )
     db.session.add(user_ans)
-    
+
     # Save current nodes/progress
     current_index = data.get('current_index', 0)
     user_mission.current_nodes = {'current_index': current_index, 'total_questions': total_questions}
+
+    # ลงคะแนนทันทีที่ตอบเสร็จ ไม่ต้องรอจบชุด อันดับผู้นำจึงขยับตามความคืบหน้าจริง
+    # เรียกก่อน commit เพื่อให้คำตอบกับคะแนนลงไปด้วยกัน — SQLAlchemy autoflush
+    # จะ flush user_ans ที่เพิ่ง add ก่อน query ข้างใน sync_mcq_points เอง
+    # ยอดที่คิดได้จึงรวมข้อที่เพิ่งตอบไปแล้ว
+    sync_mcq_points(user_id, mission, user_mission, award_xp=not is_teacher)
 
     db.session.commit()
     socketio.emit('missions_updated')
