@@ -646,38 +646,18 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     if was_pending and count_attempt:
         user_mission.attempt_count = (user_mission.attempt_count or 0) + 1
 
-    if is_passed:
-        if user_mission.started_at and not user_mission.time_spent_seconds:
-            user_mission.time_spent_seconds = int(
-                (datetime.utcnow() - user_mission.started_at).total_seconds()
-            )
+    if is_passed and user_mission.started_at and not user_mission.time_spent_seconds:
+        user_mission.time_spent_seconds = int(
+            (datetime.utcnow() - user_mission.started_at).total_seconds()
+        )
 
-        if not award_xp:
-            # ครูดูตัวเลขที่ตัวเองน่าจะได้ได้ แต่ไม่มีการบันทึกลง PointHistory จริง
-            user_mission.score_awarded = total_xp
-        else:
-            # Only credit points once per mission to prevent double dipping.
-            existing_history = PointHistory.query.filter_by(
-                user_id=user_id, source='mcq_mission', source_id=mission_id
-            ).first()
-            if not existing_history and total_xp > 0:
-                user_mission.score_awarded = total_xp
-                history = PointHistory(
-                    user_id=user_id,
-                    source='mcq_mission',
-                    source_id=mission_id,
-                    points=total_xp,
-                    description=f'Completed MCQ: {mission.title}'
-                )
-                db.session.add(history)
-                socketio.emit('points_awarded', {
-                    'user_id': user_id, 'mission_id': mission_id, 'points': total_xp
-                })
-            else:
-                # Already credited (or nothing to credit); keep score in sync.
-                user_mission.score_awarded = existing_history.points if existing_history else total_xp
-    else:
-        user_mission.score_awarded = 0
+    # ฟังก์ชันนี้ไม่ใช่ประตูของ XP อีกต่อไป — คะแนนลงบัญชีทีละข้อตอนตอบไปแล้ว
+    # เรียกซ้ำตรงนี้เพื่อให้ยอดตรงเสมอในเส้นทางที่ไม่ได้ผ่าน submit-single
+    # (ครูกดจบให้ หรือหมดเวลาแล้วระบบส่งอัตโนมัติ) การเขียนทับทำให้เรียกซ้ำได้
+    #
+    # ไม่ล้าง score_awarded เป็น 0 ตอนไม่ผ่านแล้ว เพราะกติกาคือตอบถูกกี่ข้อ
+    # ได้เท่านั้น ไม่ผ่านเกณฑ์ก็ยังเก็บคะแนนที่ทำได้ไว้
+    sync_mcq_points(user_id, mission, user_mission, award_xp=award_xp)
 
     db.session.commit()
     socketio.emit('missions_updated')
