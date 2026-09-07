@@ -164,10 +164,19 @@ def score_awarded(f):
     return um.score_awarded if um else None
 
 
-def answer(client, f, question_id, choice_id):
-    return client.post(single_url(f), json={
+def answer(client, f, question_id, choice_id, expect_status=200):
+    """ยิง submit-single หนึ่งครั้ง ตรวจ status ให้ด้วยเสมอ
+
+    เดิม helper นี้คืนค่า response เฉยๆ โดยไม่มีใครเช็ค status เลย ทำให้เคสที่
+    endpoint ปฏิเสธคำขอ (เช่น 400 ตอบซ้ำ) หลุดผ่านไปเงียบๆ เพราะคนเรียกไปวัดผล
+    จากยอดใน ledger แทน ไม่รู้ว่า request ที่ยิงไปจริงๆ ถูกปฏิเสธ
+    """
+    resp = client.post(single_url(f), json={
         'answer': {'question_id': question_id, 'choice_id': choice_id},
     }, headers=auth(f['student_token']))
+    check(f'ตอบคำถาม {question_id} ได้ status {expect_status}',
+          resp.status_code == expect_status)
+    return resp
 
 
 def seed_three(f, client):
@@ -240,13 +249,54 @@ def test_points_kept_when_failing(client, f):
     check('score_awarded ไม่ถูกล้างเป็น 0', um.score_awarded == 10)
 
 
-def test_repeated_submit_does_not_inflate(client, f):
-    """ยิงข้อเดิมซ้ำต้องไม่ทำให้คะแนนพอง"""
+def test_duplicate_answer_rejected_with_400(client, f):
+    """ยิงข้อเดิมซ้ำผ่าน endpoint ต้องถูกปฏิเสธด้วย 400 ไม่ใช่เงียบๆ ผ่าน"""
     qs = seed_three(f, client)
     answer(client, f, qs[0][0], qs[0][1])
-    answer(client, f, qs[0][0], qs[0][1])
-    answer(client, f, qs[0][0], qs[0][1])
-    check('ยิงซ้ำสามครั้งยังได้ 10', ledger(f) == 10)
+    answer(client, f, qs[0][0], qs[0][1], expect_status=400)
+    answer(client, f, qs[0][0], qs[0][1], expect_status=400)
+    check('ยิงซ้ำสามครั้งยังได้ 10 (ครั้งหลังถูกปฏิเสธไม่ถึง sync)', ledger(f) == 10)
+    check('ยังมีแถวเดียว', ledger_rows(f) == 1)
+
+
+def test_sync_mcq_points_overwrites_not_accumulates(client, f):
+    """เรียก sync_mcq_points ตรงๆ ซ้ำหลายครั้งบนคำตอบชุดเดิม ต้องเขียนทับ ไม่ใช่บวกเพิ่ม
+
+    endpoint เองปฏิเสธการตอบข้อเดิมซ้ำด้วย 400 ก่อนจะเรียก sync_mcq_points ด้วยซ้ำ
+    (ดู mcq_routes.py บรรทัด ~1410) เคสเดิมที่ยิง endpoint ซ้ำจึงพิสูจน์อะไรไม่ได้
+    เพราะ sync_mcq_points ถูกเรียกจริงแค่ครั้งเดียว ที่นี่จึงเรียกฟังก์ชันตรงๆ
+
+    หมายเหตุสำคัญ: sync_mcq_points มีทางลัด (ดูบรรทัด "elif row.points ==
+    running_total") ที่จะไม่เขียนอะไรเลยถ้ายอดในบัญชีตรงกับยอดจริงอยู่แล้ว ดังนั้น
+    การเรียกซ้ำ "เฉยๆ" บนแถวที่ค่าตรงกันอยู่แล้วจะไม่แตะโค้ดบรรทัดที่เขียนทับเลย
+    ไม่ว่าจะ = หรือ += ก็ผ่านเหมือนกัน (ทดลองแล้วจริง) เพื่อบังคับให้ต้องเดินเข้า
+    branch เขียนทับทุกรอบ จึงจำลองว่ายอดในบัญชีเพี้ยนไปจากคำตอบจริง (เช่นโดน
+    เขียนทับจากที่อื่น) ก่อนเรียก sync ทุกรอบ แล้วเช็คว่ามันแก้กลับมาเป็นยอดจริง
+    จากคำตอบเสมอ ไม่ใช่บวกเลขเพี้ยนนั้นเข้าไปอีก
+    """
+    import mcq_routes
+
+    qs = seed_three(f, client)
+    answer(client, f, qs[0][0], qs[0][1])   # ตอบถูกข้อแรกผ่าน endpoint ได้ 10 จริง
+    check('ตอบถูกข้อแรกได้ 10 ก่อนเริ่มเรียก sync ตรงๆ', ledger(f) == 10)
+
+    mission = f['mission']
+    student_id = f['student'].user_id
+    user_mission = UserMission.query.filter_by(
+        user_id=student_id, mission_id=mission.mission_id).first()
+
+    for i in range(3):
+        row = PointHistory.query.filter_by(
+            user_id=student_id, source='mcq_mission',
+            source_id=mission.mission_id).first()
+        row.points = 9999   # จำลองยอดที่เพี้ยนไปจากคำตอบจริง (คำตอบยังไม่เปลี่ยน)
+        db.session.commit()
+
+        mcq_routes.sync_mcq_points(student_id, mission, user_mission)
+        db.session.commit()
+        check(f'sync รอบที่ {i + 1} เขียนทับ 9999 กลับเป็น 10 (ไม่ใช่ 9999+10)',
+              ledger(f) == 10)
+
     check('ยังมีแถวเดียว', ledger_rows(f) == 1)
 
 
@@ -327,7 +377,9 @@ def main():
             clear_answers(f)
             test_points_kept_when_failing(client, f)
             clear_answers(f)
-            test_repeated_submit_does_not_inflate(client, f)
+            test_duplicate_answer_rejected_with_400(client, f)
+            clear_answers(f)
+            test_sync_mcq_points_overwrites_not_accumulates(client, f)
             clear_answers(f)
             test_all_wrong_creates_no_row(client, f)
             clear_answers(f)
