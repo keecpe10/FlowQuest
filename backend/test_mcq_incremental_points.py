@@ -350,6 +350,26 @@ def test_emits_only_when_total_changes(client, f):
     check('ตอบผิดแล้วไม่ emit ซ้ำ', after_wrong == after_correct)
 
 
+def test_manual_grade_uses_one_row(client, f):
+    """ครูตรวจมือแล้วยอดต้องขยับ และยังมีแถวคะแนนแถวเดียว"""
+    qs = seed_three(f, client)
+    answer(client, f, qs[0][0], qs[0][1])      # ถูก 10
+    answer(client, f, qs[1][0], qs[1][2])      # ผิด 0
+    answer(client, f, qs[2][0], qs[2][2])      # ผิด 0
+    check('ก่อนครูตรวจได้ 10', ledger(f) == 10)
+
+    # ครูตรวจให้ข้อที่ 2 ถูก
+    res = client.post(
+        f"/api/v1/mcq/{f['mission'].mission_id}/grade-manual",
+        json={'student_id': f['student'].user_id, 'question_id': qs[1][0]},
+        headers=auth(f['teacher_token']))
+    check('ครูตรวจมือสำเร็จ', res.status_code == 200)
+
+    check('หลังครูตรวจได้ 20', ledger(f) == 20)
+    check('ยังมีแถวคะแนนแถวเดียว', ledger_rows(f) == 1)
+    check('score_awarded ตรงกับบัญชี', score_awarded(f) == 20)
+
+
 def test_teacher_preview_writes_nothing(client, f):
     """ครูทดลองทำเองต้องไม่มีคะแนนโผล่ในห้อง"""
     qs = seed_three(f, client)
@@ -386,6 +406,8 @@ def main():
             test_retake_overwrites_with_latest(client, f)
             clear_answers(f)
             test_emits_only_when_total_changes(client, f)
+            clear_answers(f)
+            test_manual_grade_uses_one_row(client, f)
             clear_answers(f)
             test_teacher_preview_writes_nothing(client, f)
         finally:

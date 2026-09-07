@@ -1544,45 +1544,17 @@ def manual_grade(mission_id):
             user_mission.status = 'completed'
             from datetime import datetime
             if user_mission.started_at and not user_mission.time_spent_seconds:
-                user_mission.time_spent_seconds = int((datetime.utcnow() - user_mission.started_at).total_seconds())
-            # Re-award ALL XP for this mission for this student
-            PointHistory.query.filter_by(user_id=student_id, source='mcq_mission', source_id=mission_id).delete()
+                user_mission.time_spent_seconds = int(
+                    (datetime.utcnow() - user_mission.started_at).total_seconds())
 
-            # ต้องเครดิตยอดเดียวกับที่ใช้คิดเปอร์เซ็นต์ผ่าน (total_xp_earned ด้านบน)
-            # ห้ามกรองเฉพาะ is_correct=True ซ้ำอีกที เพราะคะแนนบางส่วน (partial
-            # credit) ของข้อซูโดกุ/ผังงานที่ยังไม่ถูกทั้งข้อ (is_correct=False) ก็ถูก
-            # นับรวมเข้าตัวเศษตอนตัดสินผ่านไปแล้ว ถ้ามากรองออกตอนเครดิตจริง นักเรียน
-            # จะผ่านด่านแต่ได้ XP น้อยกว่าที่ทำให้ผ่าน ตรงกับ finalize_mcq ที่ไม่กรอง
-            # is_correct เช่นกัน
-            total_xp = total_xp_earned
+        # ใช้ตัวกลางเดียวกับ submit_mcq_single และ finalize_mcq
+        # การเขียนทับยอดแทนการเพิ่มแถวใหม่ทุกครั้งที่ครูตรวจ ทำให้ครูแก้คำตอบ
+        # ซ้ำกี่รอบก็ไม่ทำให้คะแนนพอง และยอดตรงกับที่ใช้ตัดสินผ่านเสมอ
+        sync_mcq_points(student_id, mission, user_mission, award_xp=True)
 
-            if total_xp > 0:
-                history = PointHistory(
-                    user_id=student_id,
-                    source='mcq_mission',
-                    source_id=mission_id,
-                    points=total_xp,
-                    description=f'Passed MCQ: {mission.title}'
-                )
-                db.session.add(history)
-                
-            user_mission.score_awarded = total_xp
-        else:
-            if user_mission.status != 'failed':
-                user_mission.score_awarded = (user_mission.score_awarded or 0) + points_per_q
-                history = PointHistory(
-                    user_id=student_id,
-                    source='mcq_mission',
-                    source_id=mission_id,
-                    points=points_per_q,
-                    description=f'Correct answer in MCQ: {mission.title}'
-                )
-                db.session.add(history)
-                
         db.session.commit()
         socketio.emit('missions_updated')
-        socketio.emit('points_awarded', {'user_id': student_id, 'mission_id': mission_id, 'points': points_per_q})
-        
+
         return jsonify({'message': 'Graded successfully', 'is_passed': is_passed}), 200
     except Exception as e:
         import traceback
