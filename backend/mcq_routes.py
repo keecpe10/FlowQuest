@@ -604,10 +604,11 @@ def sync_mcq_points(user_id, mission, user_mission, award_xp=True):
 
 
 def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=True):
-    """Compute pass/fail, set mission status, and award XP idempotently.
+    """ตัดสินผ่าน/ไม่ผ่าน ตั้งสถานะด่าน และทำให้ยอดคะแนนตรง
 
-    Safe to call multiple times: XP is only credited once (guarded by
-    PointHistory). Returns a summary dict.
+    เรียกซ้ำได้ปลอดภัย เพราะการให้คะแนนถูกมอบให้ sync_mcq_points ซึ่งเขียนทับ
+    ยอดด้วยผลรวมที่คิดใหม่ทุกครั้ง ไม่ใช่บวกเพิ่ม (เดิมกันซ้ำด้วยการเช็คว่ามีแถว
+    ใน PointHistory แล้วหรือยัง กลไกนั้นถูกถอดออกไปแล้ว) คืน dict สรุปผล
 
     count_attempt / award_xp exist so a teacher previewing their own mission
     can go through the exact same grading path as a student without the
