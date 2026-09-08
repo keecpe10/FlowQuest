@@ -66,6 +66,7 @@
 สคริปต์นี้สร้างข้อมูลทดสอบชั่วคราวใน DB จริง แล้วลบทิ้งเสมอเมื่อจบ
 """
 import os
+import time
 import uuid
 from datetime import datetime, timedelta
 import jwt
@@ -123,6 +124,9 @@ with app.app_context():
     check('token ที่หมดอายุแล้วถูกปฏิเสธ', me(stale) == 401, me(stale))
 
     print('\n[3] ต่ออายุได้เมื่อยังใช้งานอยู่')
+    # JWT เก็บเวลาเป็นวินาทีเต็ม ถ้าออก token สองใบภายในวินาทีเดียวกัน exp จะเท่ากันพอดี
+    # ต้องรอให้ข้ามวินาทีก่อน ไม่งั้นเทสต์ข้อถัดไปจะผ่านหรือไม่ผ่านตามความเร็วเครื่อง
+    time.sleep(1.1)
     st, tok2 = refresh(tok)
     check('เรียก refresh ได้', st == 200, st)
     check('ได้ token ใหม่ที่ exp ขยับออกไป', peek(tok2)['exp'] > peek(tok)['exp'],
