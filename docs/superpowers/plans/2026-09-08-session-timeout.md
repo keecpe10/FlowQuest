@@ -1206,7 +1206,7 @@ Expected: PASS ทั้งหมด — เทสต์ข้อ "ค่าค�
 - [ ] **Step 8: รันชุดตรวจทั้งหมดปิดงาน**
 
 ```bash
-cd /Users/panupongdonkrathok16/Desktop/FlowChart/frontend && node --test tests/ && npm run build && npm run lint
+cd /Users/panupongdonkrathok16/Desktop/FlowChart/frontend && cd /Users/panupongdonkrathok16/Desktop/FlowChart/frontend && node --test tests/*.test.mjs && npm run build && npm run lint
 ```
 
 ```bash
