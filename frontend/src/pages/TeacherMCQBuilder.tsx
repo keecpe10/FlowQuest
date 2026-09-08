@@ -155,7 +155,8 @@ const TeacherMCQBuilder = () => {
     };
     fetchQuestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [id]);
 
   /** คืน true เมื่อบันทึกสำเร็จ */
   const save = async (): Promise<boolean> => {

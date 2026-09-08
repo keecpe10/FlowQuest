@@ -85,7 +85,8 @@ const StudentMCQView = () => {
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [missionId, studentId, token, status]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [missionId, studentId, status]);
 
   const handleManualGrade = async (questionId: number) => {
       try {

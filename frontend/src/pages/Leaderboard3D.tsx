@@ -185,7 +185,8 @@ const Leaderboard3D = () => {
         const socket = io(API_BASE, { transports: ['polling'] });
         socket.on('points_awarded', () => { fetchLeaderboard(); });
         return () => { socket.disconnect(); };
-    }, [token]);
+    // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+    }, []);
 
     const top3 = users.filter(u => u.rank <= 3);
     const rest = users.filter(u => u.rank > 3).sort((a, b) => a.rank - b.rank);

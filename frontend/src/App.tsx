@@ -296,7 +296,8 @@ export const GlobalStudentProfile = () => {
       .then(res => setPoints(res.data.points))
       .catch(err => console.error('Failed to fetch profile', err));
     }
-  }, [user, isTeacher, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [user, isTeacher]);
 
   if (!user || isTeacher) return null;
 
@@ -360,7 +361,8 @@ const GameView = () => {
         console.error(error);
       });
     }
-  }, [id, user, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [id, user]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-900">

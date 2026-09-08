@@ -44,7 +44,8 @@ const StudentFlowchartView = () => {
     if (missionId && studentId && token) {
       fetchFlowchart();
     }
-  }, [missionId, studentId, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [missionId, studentId]);
 
   return (
     <div className="min-h-screen flex flex-col font-sans w-full bg-slate-50">
