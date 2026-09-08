@@ -224,6 +224,8 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
             return True
         if len(items) < 2:
             return True
+        if len({(i or {}).get('text') for i in items}) != len(items):
+            return True
         if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
                    for i in items):
             return True
@@ -447,12 +449,21 @@ def _clean_flowchart_metadata(meta, where):
 
 
 def clean_puzzle_metadata(question_type, metadata, where):
-    """ตรวจ question_metadata ของชนิดที่เป็นปริศนา ชนิดอื่นคืนค่าเดิม"""
+    """ตรวจ metadata ปริศนาและ URL รูปในรายการจัดหมวดหมู่"""
     meta = metadata or {}
     if question_type == 'sudoku':
         return _clean_sudoku_metadata(meta, where)
     if question_type == 'flowchart':
         return _clean_flowchart_metadata(meta, where)
+    if question_type == 'categorize':
+        if not isinstance(meta, dict) or not isinstance(meta.get('items', []), list):
+            raise ValueError(f'{where}: รายการจัดหมวดหมู่ไม่ถูกต้อง')
+        for item in meta.get('items', []):
+            if not isinstance(item, dict) or not isinstance(item.get('text', ''), str):
+                raise ValueError(f'{where}: รายการจัดหมวดหมู่ไม่ถูกต้อง')
+            src = item.get('image_url')
+            if src and (not isinstance(src, str) or not src.startswith(UPLOAD_URL_PREFIX) or '..' in src):
+                raise ValueError(f'{where}: รูปรายการต้องเป็นไฟล์ที่อัปโหลดในระบบ')
     return metadata
 
 
@@ -507,15 +518,23 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
     ถ้าต่างคนต่างรีเซ็ต ตัวนับจำนวนครั้งจะเพี้ยน
     """
     from datetime import datetime
+    from sqlalchemy.exc import IntegrityError
 
     if user_mission is None:
-        user_mission = UserMission(
-            user_id=user_id, mission_id=mission.mission_id,
-            status='pending', started_at=datetime.utcnow(),
-        )
-        db.session.add(user_mission)
-        db.session.commit()
-        return user_mission
+        try:
+            user_mission = UserMission(
+                user_id=user_id, mission_id=mission.mission_id,
+                status='pending', started_at=datetime.utcnow(),
+            )
+            db.session.add(user_mission)
+            db.session.commit()
+            return user_mission
+        except IntegrityError:
+            db.session.rollback()
+            # If concurrent creation happened, fetch the one that was just created
+            user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission.mission_id).order_by(UserMission.user_mission_id.asc()).first()
+            if not user_mission:
+                raise # Should not happen unless something else went wrong
 
     # ปิดแท็บหนีระหว่างจับเวลา แล้วกลับมาเปิดใหม่ ต้องไม่ได้ทำต่อ
     if user_mission.status == 'pending' and mcq_deadline_passed(mission, user_mission):
@@ -751,6 +770,11 @@ def get_mcq_questions(mission_id):
                 items_text = [item.get('text') for item in items_data]
                 random.shuffle(items_text)
                 filtered_metadata = {'categories': categories, 'items': items_text}
+                # Keep legacy item strings and answer keys; expose only image paths, never categories per item.
+                filtered_metadata['item_images'] = {
+                    item['text']: item['image_url'] for item in items_data
+                    if isinstance(item.get('image_url'), str) and item['image_url']
+                }
             elif q.question_type == 'sudoku':
                 # ส่งแค่ตัวปริศนา ห้ามส่ง solution_grid (เฉลย) เด็ดขาด
                 filtered_metadata = {

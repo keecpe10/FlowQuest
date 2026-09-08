@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2 } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { io } from 'socket.io-client';
@@ -18,6 +18,9 @@ interface StudentProgress {
   is_passed?: boolean;
   time_spent?: number;
   attempt_count?: number;
+  class_id?: number;
+  grade_level?: string;
+  class_name?: string;
 }
 
 interface MissionDetail {
@@ -41,6 +44,10 @@ const MissionProgress = () => {
   const [showXPModal, setShowXPModal] = useState(false);
   const [xpAmount, setXpAmount] = useState('10');
   const [selectedStudent, setSelectedStudent] = useState<{id: number, name: string} | null>(null);
+  
+  // Filtering States
+  const [filterGrade, setFilterGrade] = useState<string>('');
+  const [filterClass, setFilterClass] = useState<string>('');
 
   // AI Modal States
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -379,6 +386,55 @@ const MissionProgress = () => {
     };
   };
 
+  let filteredStudents = students.filter(student => student.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  if (filterGrade) {
+    filteredStudents = filteredStudents.filter(s => String(s.grade_level) === filterGrade);
+  }
+  if (filterClass) {
+    filteredStudents = filteredStudents.filter(s => String(s.class_id) === filterClass);
+  }
+
+  const handleExportProgress = async () => {
+    try {
+      Swal.fire({
+        title: 'กำลังเตรียมไฟล์...',
+        text: 'กรุณารอสักครู่',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+      
+      const studentIds = filteredStudents.map(s => s.user_id);
+      
+      const response = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}/export-progress`, 
+        { student_ids: studentIds },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob'
+        }
+      );
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `mission_${missionId}_progress.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+      Swal.close();
+    } catch (error) {
+      console.error("Failed to export progress", error);
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: 'ไม่สามารถส่งออกข้อมูลได้',
+        confirmButtonColor: '#3b82f6'
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       <div className="max-w-6xl mx-auto">
@@ -418,6 +474,14 @@ const MissionProgress = () => {
               </button>
             )}
             <button 
+              onClick={handleExportProgress}
+              disabled={students.length === 0}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-emerald-600 bg-emerald-50 hover:bg-emerald-100 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm border border-emerald-100"
+            >
+              <Download size={18} />
+              ส่งออก Excel
+            </button>
+            <button 
               onClick={handleAnalyzeAll}
               disabled={isAnalyzingAll || students.length === 0}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-indigo-600 bg-indigo-50 hover:bg-indigo-100 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm border border-indigo-100"
@@ -448,8 +512,8 @@ const MissionProgress = () => {
           </div>
         </header>
 
-        <div className="mb-8">
-          <div className="relative max-w-md">
+        <div className="mb-8 flex flex-col md:flex-row gap-4">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
               type="text"
@@ -459,6 +523,42 @@ const MissionProgress = () => {
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
             />
           </div>
+          <div className="flex gap-4">
+            <select
+              value={filterGrade}
+              onChange={(e) => {
+                setFilterGrade(e.target.value);
+                setFilterClass(''); // reset class when grade changes
+              }}
+              className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
+            >
+              <option value="">ทุกระดับชั้น</option>
+              {Array.from(new Set(students.map(s => s.grade_level).filter(Boolean)))
+                .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+                .map(grade => (
+                  <option key={grade} value={grade}>ชั้น {grade}</option>
+                ))}
+            </select>
+            
+            <select
+              value={filterClass}
+              onChange={(e) => setFilterClass(e.target.value)}
+              className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
+            >
+              <option value="">ทุกห้อง</option>
+              {Array.from(new Map(
+                students
+                  .filter(s => s.class_id && (!filterGrade || String(s.grade_level) === filterGrade))
+                  .map(s => [s.class_id, { id: s.class_id, name: s.class_name, grade: s.grade_level }])
+              ).values())
+                .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
+                .map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.grade ? `ชั้น ${c.grade} ` : ''}ห้อง {c.name}
+                  </option>
+                ))}
+            </select>
+          </div>
         </div>
 
         {isLoading ? (
@@ -467,19 +567,13 @@ const MissionProgress = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {(() => {
-              const filteredStudents = students.filter(student => student.name.toLowerCase().includes(searchQuery.toLowerCase()));
-              
-              if (filteredStudents.length === 0) {
-                return (
-                  <div className="col-span-full py-12 text-center text-slate-500">
-                    <Users size={48} className="mx-auto mb-4 text-slate-300" />
-                    <p className="text-lg font-medium">ไม่พบชื่อนักเรียนที่ค้นหา</p>
-                  </div>
-                );
-              }
-
-              return filteredStudents.map((student, index) => {
+            {filteredStudents.length === 0 ? (
+              <div className="col-span-full py-12 text-center text-slate-500">
+                <Users size={48} className="mx-auto mb-4 text-slate-300" />
+                <p className="text-lg font-medium">ไม่พบชื่อนักเรียนที่ค้นหา</p>
+              </div>
+            ) : (
+              filteredStudents.map((student, index) => {
                 const display = getStatusDisplay(student);
                 return (
                   <motion.div
@@ -591,8 +685,8 @@ const MissionProgress = () => {
                     </Link>
                   </motion.div>
                 );
-              });
-            })()}
+              })
+            )}
           </div>
         )}
       </div>

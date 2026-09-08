@@ -1,3 +1,4 @@
+import CategorizeItemContent from '../components/mcq/CategorizeItemContent';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -244,10 +245,10 @@ const StudentMCQView = () => {
 
                       {q.question_type === 'fill_blank' && (
                           <div className="space-y-2">
-                              <p className="text-slate-300 text-sm">คำตอบที่นักเรียนพิมพ์: <span className={`font-bold ${!ansRecord ? 'text-slate-500' : 'text-white'}`}>{ansRecord?.answer_data || '(ยังไม่ตอบ)'}</span></p>
+                              <p className="text-slate-300 text-sm">คำตอบที่นักเรียนพิมพ์: <span className={`font-bold ${!ansRecord ? 'text-slate-500' : 'text-white'}`}>{typeof ansRecord?.answer_data === 'object' ? JSON.stringify(ansRecord.answer_data) : (ansRecord?.answer_data || '(ยังไม่ตอบ)')}</span></p>
                               {showCorrectness && !isCorrect && (
                                   <div className="flex items-center gap-4">
-                                      <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{q.question_metadata?.correct_text}</span></p>
+                                      <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{typeof q.question_metadata?.correct_text === 'object' ? JSON.stringify(q.question_metadata.correct_text) : q.question_metadata?.correct_text}</span></p>
                                       {user?.role === 'teacher' && (
                                           <button 
                                               onClick={() => handleManualGrade(q.question_id)}
@@ -265,10 +266,20 @@ const StudentMCQView = () => {
                           <div>
                               <p className="text-slate-400 text-xs mb-2">การจัดหมวดหมู่ของนักเรียน:</p>
                               <div className="flex flex-col gap-1">
-                                  {Object.keys(ansRecord?.answer_data || {}).length === 0 ? (
-                                      <p className="text-slate-500 text-sm">(ยังไม่ตอบ)</p>
-                                  ) : (
-                                      Object.entries(ansRecord?.answer_data || {}).map(([item, category]: any, idx: number) => {
+                                  {(() => {
+                                      let answerDataObj = ansRecord?.answer_data || {};
+                                      if (Array.isArray(answerDataObj)) {
+                                          answerDataObj = answerDataObj.reduce((acc: any, curr: any) => {
+                                              if (curr && typeof curr === 'object' && curr.text) acc[curr.text] = curr.category;
+                                              return acc;
+                                          }, {});
+                                      }
+                                      
+                                      if (Object.keys(answerDataObj).length === 0) {
+                                          return <p className="text-slate-500 text-sm">(ยังไม่ตอบ)</p>;
+                                      }
+                                      
+                                      return Object.entries(answerDataObj).map(([item, category]: any, idx: number) => {
                                           let isItemCorrect = true;
                                           if (showCorrectness) {
                                               const correctCat = (q.question_metadata?.items || []).find((i: any) => i.text === item)?.category;
@@ -277,11 +288,11 @@ const StudentMCQView = () => {
                                           
                                           return (
                                             <div key={idx} className={`text-sm px-3 py-1.5 rounded-lg border ${showCorrectness ? (isItemCorrect ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-300' : 'bg-rose-900/40 border-rose-500/30 text-rose-300') : 'bg-blue-900/20 border-blue-500/30 text-blue-300'}`}>
-                                                {item} → <span className="font-bold">{category}</span>
+                                                <CategorizeItemContent text={item} imageUrl={(q.question_metadata?.items || []).find((entry: any) => entry.text === item)?.image_url || q.question_metadata?.item_images?.[item]} /> → <span className="font-bold">{typeof category === 'object' ? JSON.stringify(category) : category}</span>
                                             </div>
                                           );
-                                      })
-                                  )}
+                                      });
+                                  })()}
                               </div>
                           </div>
                       )}
@@ -302,9 +313,9 @@ const StudentMCQView = () => {
                                           
                                           return (
                                             <div key={idx} className={`text-sm px-3 py-1.5 rounded-lg border flex justify-between ${showCorrectness ? (isPairCorrect ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-300' : 'bg-rose-900/40 border-rose-500/30 text-rose-300') : 'bg-blue-900/20 border-blue-500/30 text-blue-300'}`}>
-                                                <span>{pair.left}</span>
+                                                <span>{typeof pair.left === 'object' ? JSON.stringify(pair.left) : pair.left}</span>
                                                 <span className="opacity-50">→</span>
-                                                <span>{pair.right}</span>
+                                                <span>{typeof pair.right === 'object' ? JSON.stringify(pair.right) : pair.right}</span>
                                             </div>
                                           );
                                       })

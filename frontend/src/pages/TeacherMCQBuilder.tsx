@@ -51,6 +51,7 @@ const validateQuestion = (q: Question): string[] => {
     if (categories.some((c: string) => !c?.trim())) problems.push('มีหมวดหมู่ที่ยังไม่ได้ตั้งชื่อ');
     if (items.length < 2) problems.push('ต้องมีรายการให้จัดหมวดหมู่อย่างน้อย 2 รายการ');
     if (items.some((it: any) => !it?.text?.trim())) problems.push('มีรายการที่ยังไม่ได้กรอกข้อความ');
+    if (new Set(items.map((it: any) => it?.text)).size !== items.length) problems.push('ชื่อรายการต้องไม่ซ้ำกัน');
     if (items.some((it: any) => !it?.category)) problems.push('มีรายการที่ยังไม่ได้ระบุหมวดหมู่');
   }
 

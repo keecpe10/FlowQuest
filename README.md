@@ -1,5 +1,43 @@
 # FlowQuest
 
+## รันเพื่อพัฒนาและทดสอบบนเครื่อง
+
+ใช้ PostgreSQL, Redis และ Flask API จาก Docker ร่วมกับหน้าเว็บ Vite ที่รันจากโค้ดในเครื่อง:
+
+```bash
+# รันจากโฟลเดอร์ FlowChart
+docker compose up -d db redis backend
+
+cd frontend
+# ติดตั้งเมื่อยังไม่มี node_modules หรือมีการเปลี่ยน dependency
+npm ci
+npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+- หน้าเว็บโค้ดล่าสุด: http://127.0.0.1:5173
+- ทดสอบด่าน 515 หลังเข้าสู่ระบบ: http://127.0.0.1:5173/mcq/515
+- ตรวจ API: http://127.0.0.1:5001/api/v1/health
+- `frontend/.env.development` ตั้ง `VITE_API_BASE_URL=http://127.0.0.1:5001`
+- PostgreSQL ของโปรเจกต์ใช้ชื่อ `db:5432` ภายใน Docker; Redis เปิดบนเครื่องที่พอร์ต `6381` ไม่ต้องเปิดฐานข้อมูลใหม่บนพอร์ต `5432` ของเครื่อง
+
+หน้าเว็บ Docker ที่ http://localhost ใช้ไฟล์ที่ build ไว้ จึงไม่เปลี่ยนตามการแก้โค้ด การทดสอบระหว่างพัฒนาให้ใช้พอร์ต `5173` ซึ่งอัปเดตเมื่อบันทึกไฟล์ หากแก้โค้ด backend ให้รัน `docker compose up -d --build backend` จากโฟลเดอร์หลัก
+
+ตรวจส่วนลากจัดหมวดหมู่และ build หน้าเว็บจากโฟลเดอร์ `frontend`:
+
+```bash
+node --test tests/categorize-answer.test.mjs
+npm run build
+```
+
+ทดสอบอัปโหลดรูปของรายการจัดหมวดหมู่ การบันทึก การส่งรูปให้นักเรียน และการตรวจคำตอบ จากโฟลเดอร์หลัก:
+
+```bash
+docker compose exec -T backend python test_mcq_categorize_images.py
+```
+
+ในหน้าสร้างข้อสอบ เลือก “ลากจัดหมวดหมู่” แล้วกด “อัปโหลดรูป” ข้างรายการ รองรับ PNG, JPG, GIF และ WebP ไม่เกิน 5 MB หากชื่อรายการว่าง ระบบเติมชื่อจากไฟล์ให้แก้ไขต่อได้ กด “บันทึกข้อนี้” เพื่อบันทึกรูปกับคำถาม
+
+
 ## การใช้งาน FlowQuest ร่วมกับ Cloudflare (Recommended)
 
 วิธีที่แนะนำคือการใช้ **Cloudflare Tunnel** เพื่อให้โดเมนชี้เข้ามาที่ `frontend` เพียงตัวเดียว แล้วให้ Nginx ใน `frontend` ส่ง request ที่เกี่ยวกับ `/api/` และ `/socket.io/` ต่อไปยัง `backend` ภายใน Docker network เอง วิธีนี้ช่วยให้หน้าเว็บ, API และ Socket.IO อยู่บนโดเมนเดียวกันทั้งหมดและมีความปลอดภัยสูง (ไม่ต้องเปิดพอร์ตที่เซิร์ฟเวอร์)
