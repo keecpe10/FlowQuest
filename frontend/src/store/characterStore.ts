@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
+import { updateStoredUser } from '../utils/sessionToken';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 
@@ -276,15 +277,8 @@ export const useCharacterStore = create<CharacterStore>((set, get) => ({
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      // Update local auth store user avatar if it exists
-      const savedUserStr = localStorage.getItem('user');
-      if (savedUserStr && thumbnailData) {
-        try {
-          const savedUser = JSON.parse(savedUserStr);
-          savedUser.avatar_url = thumbnailData;
-          localStorage.setItem('user', JSON.stringify(savedUser));
-        } catch (e) {}
-      }
+      // อัปเดตรูปตัวละครใน session ที่เก็บไว้ ไม่งั้นรูปเก่าจะกลับมาตอนรีเฟรชหน้า
+      if (thumbnailData) updateStoredUser({ avatar_url: thumbnailData });
     } catch (error) {
       console.error('Error saving character:', error);
     }
