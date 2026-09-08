@@ -73,6 +73,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 /** รับ session ที่มาจากแท็บอื่นหรือจาก storage ของแท็บนี้ โดยไม่ประกาศซ้ำออกไปอีก */
 const adoptSession = (session: StoredSession | null) => {
   if (!session) {
+    // ต้องล้าง storage ของแท็บนี้ด้วย ไม่ใช่แค่ล้าง state ในหน่วยความจำ ไม่งั้นแท็บที่
+    // ได้ยินประกาศออกจากระบบจากแท็บอื่นจะยังเก็บ token ที่ตายแล้วไว้ พอกด F5 มันจะ
+    // ล็อกอินกลับเข้ามาด้วย token ใบนั้น แล้วโดนเด้งออกพร้อมข้อความว่า "บัญชีนี้ถูก
+    // ใช้งานที่เครื่องอื่น" ซึ่งไม่จริง เจ้าตัวแค่กดออกจากระบบเอง
+    clearSession();
     setAuthHeader(null);
     useAuthStore.setState({ user: null, token: null, isAuthenticated: false, authReady: true });
     return;
