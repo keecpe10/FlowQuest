@@ -795,14 +795,17 @@ axios.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
+      // 401 ของคำขอที่ไม่ได้ถือ token มาด้วย (เช่น พิมพ์รหัสผ่านผิดในหน้าเข้าสู่ระบบ)
+      // ไม่ใช่การหลุดจากระบบ ถ้าสั่ง logout ตรงนี้ การประกาศข้ามแท็บจะไปเตะแท็บอื่น
+      // ที่ยังใช้งานอยู่ออกทั้งหมด โดยเจ้าตัวไม่รู้ด้วยซ้ำว่าเกิดอะไรขึ้น
       const token = getToken();
       if (token) {
         // แยกให้ออกว่าหลุดเพราะอะไร ไม่งั้นคนที่แค่ทิ้งเครื่องไว้จนหมดเวลาจะถูก
         // บอกว่า "มีคนใช้บัญชีนี้ที่เครื่องอื่น" ซึ่งไม่จริงและทำให้ตกใจเปล่า ๆ
         const expiresAt = tokenExpiresAt(token);
         rememberLogoutReason(expiresAt && expiresAt <= Date.now() ? 'expired' : 'session_replaced');
+        useAuthStore.getState().logout();
       }
-      useAuthStore.getState().logout();
     }
     return Promise.reject(error);
   }
