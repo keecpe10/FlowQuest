@@ -425,6 +425,17 @@ const PageWithTitle = ({ title, children }: { title: string, children: React.Rea
 
 function App() {
   const user = useAuthStore(state => state.user);
+  const authReady = useAuthStore(state => state.authReady);
+
+  // ระหว่างนี้กำลังถามแท็บอื่นว่ามี session อยู่ไหม ถ้าเรนเดอร์เส้นทางไปเลย
+  // ProtectedRoute จะเด้งไปหน้าเข้าสู่ระบบก่อนคำตอบมาถึง
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-400">
+        กำลังตรวจสอบสิทธิ์…
+      </div>
+    );
+  }
 
   return (
     // ClickSpark ครอบทั้งแอป ทุกหน้าจึงมีประกายตอนคลิกโดยไม่ต้องไปแก้ทีละหน้า
