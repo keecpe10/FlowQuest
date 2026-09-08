@@ -7,7 +7,8 @@ import Confetti from 'react-confetti';
 import { useWindowSize } from 'react-use';
 import Swal from 'sweetalert2';
 import { GlobalStudentProfile } from '../App';
-import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core';
+import CategorizeAnswer from '../components/mcq/answers/CategorizeAnswer';
+import CategorizeItemContent from '../components/mcq/CategorizeItemContent';
 import LiveTimer from '../components/LiveTimer';
 import { handleMissionAccessError } from '../utils/missionAccess';
 import ContentBlockView from '../components/mcq/ContentBlockView';
@@ -49,39 +50,6 @@ interface Answer {
     choice_id?: number | null;
     answer_data?: any;
 }
-
-// Draggable Item Component
-const DraggableItem = ({ id, content, disabled }: { id: string, content: string, disabled?: boolean }) => {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({ id, disabled });
-    const style = transform ? { 
-        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-        zIndex: 50,
-        position: 'relative' as any
-    } : undefined;
-    
-    return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={`${disabled ? 'cursor-not-allowed opacity-75' : 'cursor-grab hover:bg-violet-500/20'} bg-white/10 text-white p-3 rounded-xl border border-white/20 shadow-md font-semibold text-sm text-center`}>
-            {content}
-        </div>
-    );
-};
-
-// Droppable Zone Component
-const CategoryDropZone = ({ id, title, children }: { id: string, title?: string, children: React.ReactNode }) => {
-    const { setNodeRef, isOver } = useDroppable({ id });
-    
-    return (
-        <div ref={setNodeRef} className={`p-4 rounded-2xl min-h-[120px] border-2 transition-all flex flex-col ${isOver ? 'border-violet-400 bg-violet-400/20' : 'border-white/10 bg-white/5'} ${!title && 'border-dashed border-slate-500 bg-transparent'}`}>
-            {title && <h4 className="text-white font-bold mb-3 text-center border-b border-white/10 pb-2">{title}</h4>}
-            <div className="flex flex-wrap gap-2 flex-1 items-start content-start">
-                {children}
-            </div>
-            {!title && React.Children.count(children) === 0 && (
-                <div className="text-slate-500 text-sm w-full text-center py-4">ลากรายการทั้งหมดไปจัดหมวดหมู่ด้านบน</div>
-            )}
-        </div>
-    );
-};
 
 const StudentMCQPlayer = () => {
   const { id } = useParams<{ id: string }>();
@@ -594,7 +562,7 @@ const StudentMCQPlayer = () => {
                               
                               return (
                                 <div key={c.choice_id} className={`p-3 rounded-xl border ${bg} text-sm`}>
-                                  {c.choice_text}
+                                  {typeof c.choice_text === 'object' ? JSON.stringify(c.choice_text) : c.choice_text}
                                 </div>
                               );
                             })}
@@ -603,8 +571,8 @@ const StudentMCQPlayer = () => {
 
                       {q.question_type === 'fill_blank' && (
                           <div className="mb-4 space-y-2">
-                              <p className="text-slate-300 text-sm">คำตอบที่คุณพิมพ์: <span className="text-white font-bold">{ansRecord?.answer_data || '-'}</span></p>
-                              {!isCorrect && <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{res?.correct_answer_data?.correct_text}</span></p>}
+                              <p className="text-slate-300 text-sm">คำตอบที่คุณพิมพ์: <span className="text-white font-bold">{typeof ansRecord?.answer_data === 'object' ? JSON.stringify(ansRecord.answer_data) : (ansRecord?.answer_data || '-')}</span></p>
+                              {!isCorrect && <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{typeof res?.correct_answer_data?.correct_text === 'object' ? JSON.stringify(res.correct_answer_data.correct_text) : res?.correct_answer_data?.correct_text}</span></p>}
                           </div>
                       )}
 
@@ -614,7 +582,7 @@ const StudentMCQPlayer = () => {
                               <div className="flex flex-col gap-1">
                                   {(res?.correct_answer_data?.items || []).map((item: any, idx: number) => (
                                       <div key={idx} className="bg-emerald-900/40 border border-emerald-500/30 text-emerald-300 text-sm px-3 py-1.5 rounded-lg">
-                                          {item.text} → <span className="font-bold">{item.category}</span>
+                                          <CategorizeItemContent text={typeof item.text === 'object' ? JSON.stringify(item.text) : item.text} imageUrl={item.image_url} /> → <span className="font-bold">{typeof item.category === 'object' ? JSON.stringify(item.category) : item.category}</span>
                                       </div>
                                   ))}
                               </div>
@@ -627,9 +595,9 @@ const StudentMCQPlayer = () => {
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   {(res?.correct_answer_data?.pairs || []).map((pair: any, idx: number) => (
                                       <div key={idx} className="bg-emerald-900/40 border border-emerald-500/30 text-emerald-300 text-sm px-3 py-1.5 rounded-lg flex justify-between">
-                                          <span>{pair.left}</span>
+                                          <span>{typeof pair.left === 'object' ? JSON.stringify(pair.left) : pair.left}</span>
                                           <span className="text-emerald-500/50">→</span>
-                                          <span>{pair.right}</span>
+                                          <span>{typeof pair.right === 'object' ? JSON.stringify(pair.right) : pair.right}</span>
                                       </div>
                                   ))}
                               </div>
@@ -812,7 +780,7 @@ const StudentMCQPlayer = () => {
               <ContentBlockView
                 size="question"
                 content={currentQ.content_blocks}
-                text={currentQ.question_text}
+                text={typeof currentQ.question_text === 'object' ? JSON.stringify(currentQ.question_text) : currentQ.question_text}
                 imageUrl={currentQ.image_url}
                 className="text-center"
                 textClassName="text-xl sm:text-2xl font-bold text-white"
@@ -845,7 +813,7 @@ const StudentMCQPlayer = () => {
                         <ContentBlockView
                             size="choice"
                             content={c.content_blocks}
-                            text={c.choice_text}
+                            text={typeof c.choice_text === 'object' ? JSON.stringify(c.choice_text) : c.choice_text}
                             imageUrl={c.image_url}
                             textClassName={`text-sm sm:text-base font-semibold ${isSelected && !isSubmitted ? 'text-violet-100' : 'text-slate-300'} ${isSubmitted && c.choice_id === qResult.correct_choice_id ? 'text-emerald-300 font-bold' : ''}`}
                         />
@@ -860,7 +828,7 @@ const StudentMCQPlayer = () => {
                 <div className="mt-8">
                     <input disabled={isSubmitted || isTimeUp} type="text" value={ansRecord?.answer_data || ''} onChange={(e) => handleFillBlank(e.target.value)} placeholder="พิมพ์คำตอบของคุณที่นี่..." className={`w-full text-center px-6 py-4 bg-white/5 border-2 rounded-2xl text-lg font-bold focus:outline-none transition-all ${isSubmitted ? (qResult.is_correct ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10' : 'border-rose-500 text-rose-400 bg-rose-500/10') : 'border-white/10 text-white focus:border-violet-500 focus:bg-white/10'}`} />
                     {isSubmitted && !qResult.is_correct && (
-                        <p className="mt-3 text-emerald-400 text-center text-sm font-bold">คำตอบที่ถูกต้อง: {qResult.correct_answer_data?.correct_text}</p>
+                        <p className="mt-3 text-emerald-400 text-center text-sm font-bold">คำตอบที่ถูกต้อง: {typeof qResult.correct_answer_data?.correct_text === 'object' ? JSON.stringify(qResult.correct_answer_data.correct_text) : qResult.correct_answer_data?.correct_text}</p>
                     )}
                 </div>
             )}
@@ -868,32 +836,19 @@ const StudentMCQPlayer = () => {
             {currentQ.question_type === 'categorize' && (
                 <div className="mt-8">
                     <p className="text-slate-400 text-sm text-center mb-6">ลากรายการด้านล่างไปใส่ในหมวดหมู่ที่ถูกต้อง</p>
-                    <DndContext onDragEnd={handleDragEnd}>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                            {(currentQ.question_metadata.categories || []).map((cat: string) => {
-                                const catItems = (currentQ.question_metadata.items || []).filter((itemText: string) => (ansRecord?.answer_data || {})[itemText] === cat);
-                                return (
-                                    <CategoryDropZone key={cat} id={cat} title={cat}>
-                                        {catItems.map((item: string) => <DraggableItem key={item} id={item} content={item} disabled={isSubmitted || isTimeUp} />)}
-                                    </CategoryDropZone>
-                                );
-                            })}
-                        </div>
-                        <div className="pt-6 border-t border-white/10">
-                            <CategoryDropZone id="uncategorized">
-                                {(currentQ.question_metadata.items || []).filter((itemText: string) => !(ansRecord?.answer_data || {})[itemText]).map((item: string) => (
-                                    <DraggableItem key={item} id={item} content={item} disabled={isSubmitted || isTimeUp} />
-                                ))}
-                            </CategoryDropZone>
-                        </div>
-                    </DndContext>
+                    <CategorizeAnswer
+                        metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data}
+                        disabled={isSubmitted || isTimeUp}
+                        onDragEnd={handleDragEnd}
+                    />
                     {isSubmitted && !qResult.is_correct && (
                         <div className="mt-6 p-4 bg-emerald-900/20 border border-emerald-500/30 rounded-xl">
                             <p className="text-emerald-400 text-sm font-bold mb-2">เฉลยที่ถูกต้อง:</p>
                             <div className="flex flex-wrap gap-2">
                                 {(qResult.correct_answer_data?.items || []).map((item: any, idx: number) => (
                                     <span key={idx} className="bg-emerald-900/60 text-emerald-300 text-xs px-2 py-1 rounded">
-                                        {item.text} → {item.category}
+                                        <CategorizeItemContent text={typeof item.text === 'object' ? JSON.stringify(item.text) : item.text} imageUrl={item.image_url} /> → {typeof item.category === 'object' ? JSON.stringify(item.category) : item.category}
                                     </span>
                                 ))}
                             </div>
@@ -961,7 +916,7 @@ const StudentMCQPlayer = () => {
                             <div className="flex flex-wrap gap-2">
                                 {(qResult.correct_answer_data?.pairs || []).map((pair: any, idx: number) => (
                                     <span key={idx} className="bg-emerald-900/60 text-emerald-300 text-xs px-2 py-1 rounded">
-                                        {pair.left} → {pair.right}
+                                        {typeof pair.left === 'object' ? JSON.stringify(pair.left) : pair.left} → {typeof pair.right === 'object' ? JSON.stringify(pair.right) : pair.right}
                                     </span>
                                 ))}
                             </div>
@@ -1011,7 +966,7 @@ const StudentMCQPlayer = () => {
             {isSubmitted && qResult.explanation && (
                 <div className="mt-6 bg-violet-500/10 border border-violet-500/20 p-4 rounded-xl text-violet-200 text-sm">
                     <span className="font-bold text-violet-400 block mb-1">คำอธิบาย:</span>
-                    {qResult.explanation}
+                    {typeof qResult.explanation === 'object' ? JSON.stringify(qResult.explanation) : qResult.explanation}
                 </div>
             )}
 

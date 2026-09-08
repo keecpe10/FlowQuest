@@ -297,7 +297,17 @@ def upload_course_students(course_id):
             
             # Find or Create Class if academic_year is provided
             class_obj = None
-            if academic_year and class_name:
+            if academic_year and class_name and grade_level:
+                class_obj = Class.query.filter_by(academic_year=academic_year, class_name=class_name, grade_level=grade_level).first()
+                if not class_obj:
+                    class_obj = Class(
+                        academic_year=academic_year,
+                        grade_level=grade_level,
+                        class_name=class_name
+                    )
+                    db.session.add(class_obj)
+                    db.session.commit()
+            elif academic_year and class_name:
                 class_obj = Class.query.filter_by(academic_year=academic_year, class_name=class_name).first()
                 if not class_obj:
                     class_obj = Class(

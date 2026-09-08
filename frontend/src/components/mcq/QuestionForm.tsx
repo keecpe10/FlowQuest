@@ -1,7 +1,8 @@
-import { useRef } from 'react';
-import { Plus, Save, Trash2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, Save, Trash2, CheckCircle, AlertTriangle, ImagePlus, Loader2 } from 'lucide-react';
 import RichContentEditor from './RichContentEditor';
-import { EMPTY_DOC, type RichDoc } from './blocks';
+import { EMPTY_DOC, resolveImageUrl, uploadImage, type RichDoc } from './blocks';
+import Swal from 'sweetalert2';
 import SudokuQuestionEditor, { emptySudokuMeta } from './editors/SudokuQuestionEditor';
 import FlowchartQuestionEditor, { emptyFlowchartMeta } from './editors/FlowchartQuestionEditor';
 
@@ -93,7 +94,7 @@ const withQuestionType = (q: Question, type: string): Question => {
 /**
  * ฟอร์มแก้ไขคำถามข้อเดียว ครบทั้ง 5 ชนิด
  *
- * ไม่รู้จัก axios และไม่รู้จัก mission id — รับข้อมูลกับ callback ทางพรอปอย่างเดียว
+ * รับข้อมูลกับ callback ทางพรอป และใช้บริการอัปโหลดรูปที่ใช้ร่วมกับตัวแก้ไขเนื้อหา
  * หน้าแม่เป็นที่เดียวที่คุยกับเซิร์ฟเวอร์
  */
 export default function QuestionForm({
@@ -113,6 +114,41 @@ export default function QuestionForm({
   const pairs: any[] = meta.pairs || [];
   const categories: string[] = meta.categories || [];
   const items: any[] = meta.items || [];
+  const [uploadingItem, setUploadingItem] = useState<number | null>(null);
+  const uploadBusy = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  const uploadItemImage = async (file: File, itemIndex: number) => {
+    if (uploadBusy.current) return;
+    uploadBusy.current = true;
+    setUploadingItem(itemIndex);
+    try {
+      const image_url = await uploadImage(file, localStorage.getItem('token'));
+      // Switching questions unmounts this form; never write an old upload into the next question.
+      if (!mounted.current) return;
+      const currentItems = latest.current.question_metadata?.items || [];
+      const item = currentItems[itemIndex];
+      if (!item) return;
+      const baseName = file.name.replace(/\.[^.]+$/, '').trim() || `รูปภาพ ${itemIndex + 1}`;
+      let text = item.text?.trim() ? item.text : baseName;
+      let suffix = 2;
+      while (!item.text?.trim() && currentItems.some((other: any, index: number) => index !== itemIndex && other.text === text)) {
+        text = `${baseName} (${suffix++})`;
+      }
+      setMeta({ items: currentItems.map((other: any, index: number) => index === itemIndex
+        ? { ...other, text, image_url } : other) });
+    } catch (error) {
+      if (mounted.current) Swal.fire({ icon: 'error', text: error instanceof Error ? error.message : 'อัปโหลดรูปภาพไม่สำเร็จ' });
+    } finally {
+      uploadBusy.current = false;
+      if (mounted.current) setUploadingItem(null);
+    }
+  };
+
 
   /**
    * RichContentEditor ถูกห่อด้วย memo ตัวจัดการจึงต้องเป็นฟังก์ชันตัวเดิมทุกเรนเดอร์
@@ -141,7 +177,7 @@ export default function QuestionForm({
     set({ choices: question.choices.map((c, i) => ({ ...c, is_correct: i === cIndex })) });
 
   return (
-    <div>
+    <fieldset disabled={saving || uploadingItem !== null} className="min-w-0">
       {problems.length > 0 && (
         <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
           <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
@@ -326,7 +362,7 @@ export default function QuestionForm({
                   {categories.map((cat: string, cIndex: number) => (
                     <div key={cIndex} className="flex items-center bg-violet-50 text-violet-700 border border-violet-200 rounded-lg overflow-hidden">
                       <input
-                        value={cat}
+                        value={typeof cat === 'object' ? JSON.stringify(cat) : cat}
                         onChange={(e) => {
                           // เปลี่ยนชื่อหมวดต้องลากรายการที่อ้างชื่อเดิมไปด้วย ไม่งั้นรายการจะหลุดหมวด
                           const newCat = e.target.value;
@@ -358,19 +394,46 @@ export default function QuestionForm({
                 </div>
               </div>
 
-              <label className="block text-sm font-bold text-slate-700 mb-3">รายการและหมวดหมู่ที่ถูกต้อง</label>
+              <label className="block text-sm font-bold text-slate-700 mb-1">รายการและหมวดหมู่ที่ถูกต้อง</label>
+              <p className="text-xs text-slate-500 mb-3">เพิ่มรูปประกอบแต่ละรายการได้ รองรับ PNG, JPG, GIF, WebP ขนาดไม่เกิน 5 MB ชื่อรายการต้องไม่ซ้ำกัน</p>
               <div className="space-y-3">
                 {items.map((item: any, iIndex: number) => (
-                  <div key={iIndex} className="flex gap-4 items-center bg-slate-50 border border-slate-200 rounded-lg p-2">
+                  <div key={iIndex} className="flex flex-wrap gap-3 items-center bg-slate-50 border border-slate-200 rounded-xl p-3">
                     <div className="w-6 h-6 rounded bg-slate-200 text-slate-500 text-xs flex items-center justify-center font-bold">
                       {iIndex + 1}
                     </div>
+                    <div className="flex flex-col items-center gap-2">
+                      {item.image_url && (
+                        <img src={resolveImageUrl(item.image_url)} alt={item.text || `รูปของรายการที่ ${iIndex + 1}`} className="h-24 w-24 object-contain rounded-lg bg-white border border-slate-200" />
+                      )}
+                      <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-violet-200 bg-white text-violet-700 text-xs font-semibold cursor-pointer hover:bg-violet-50">
+                        {uploadingItem === iIndex ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+                        {uploadingItem === iIndex ? 'กำลังอัปโหลด...' : item.image_url ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/gif,image/webp"
+                          aria-label={`อัปโหลดรูปของรายการที่ ${iIndex + 1}`}
+                          className="sr-only"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = '';
+                            if (file) void uploadItemImage(file, iIndex);
+                          }}
+                        />
+                      </label>
+                      {item.image_url && (
+                        <button type="button" aria-label={`ลบรูปของรายการที่ ${iIndex + 1}`}
+                          onClick={() => setMeta({ items: items.map((it, i) => i === iIndex ? { ...it, image_url: '' } : it) })}
+                          className="text-xs text-rose-500 hover:text-rose-700">ลบรูป</button>
+                      )}
+                    </div>
                     <input
+                      aria-label={`ชื่อรายการที่ ${iIndex + 1}`}
                       value={item.text}
                       onChange={(e) => setMeta({
                         items: items.map((it, i) => (i === iIndex ? { ...it, text: e.target.value } : it)),
                       })}
-                      placeholder={`ข้อความที่ ${iIndex + 1}`}
+                      placeholder={`ชื่อรายการที่ ${iIndex + 1}`}
                       className="flex-1 px-3 py-1.5 border border-slate-200 rounded outline-none text-sm bg-white"
                     />
                     <select
@@ -382,7 +445,7 @@ export default function QuestionForm({
                     >
                       <option value="" disabled>-- เลือกหมวดหมู่ --</option>
                       {categories.map((cat: string) => (
-                        <option key={cat} value={cat}>{cat}</option>
+                        <option key={cat} value={typeof cat === 'object' ? JSON.stringify(cat) : cat}>{typeof cat === 'object' ? JSON.stringify(cat) : cat}</option>
                       ))}
                     </select>
                     <button
@@ -454,6 +517,6 @@ export default function QuestionForm({
           {saving ? 'กำลังบันทึก...' : 'บันทึกข้อนี้'}
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }

@@ -224,6 +224,8 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
             return True
         if len(items) < 2:
             return True
+        if len({(i or {}).get('text') for i in items}) != len(items):
+            return True
         if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
                    for i in items):
             return True
@@ -447,12 +449,21 @@ def _clean_flowchart_metadata(meta, where):
 
 
 def clean_puzzle_metadata(question_type, metadata, where):
-    """ตรวจ question_metadata ของชนิดที่เป็นปริศนา ชนิดอื่นคืนค่าเดิม"""
+    """ตรวจ metadata ปริศนาและ URL รูปในรายการจัดหมวดหมู่"""
     meta = metadata or {}
     if question_type == 'sudoku':
         return _clean_sudoku_metadata(meta, where)
     if question_type == 'flowchart':
         return _clean_flowchart_metadata(meta, where)
+    if question_type == 'categorize':
+        if not isinstance(meta, dict) or not isinstance(meta.get('items', []), list):
+            raise ValueError(f'{where}: รายการจัดหมวดหมู่ไม่ถูกต้อง')
+        for item in meta.get('items', []):
+            if not isinstance(item, dict) or not isinstance(item.get('text', ''), str):
+                raise ValueError(f'{where}: รายการจัดหมวดหมู่ไม่ถูกต้อง')
+            src = item.get('image_url')
+            if src and (not isinstance(src, str) or not src.startswith(UPLOAD_URL_PREFIX) or '..' in src):
+                raise ValueError(f'{where}: รูปรายการต้องเป็นไฟล์ที่อัปโหลดในระบบ')
     return metadata
 
 
@@ -507,15 +518,23 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
     ถ้าต่างคนต่างรีเซ็ต ตัวนับจำนวนครั้งจะเพี้ยน
     """
     from datetime import datetime
+    from sqlalchemy.exc import IntegrityError
 
     if user_mission is None:
-        user_mission = UserMission(
-            user_id=user_id, mission_id=mission.mission_id,
-            status='pending', started_at=datetime.utcnow(),
-        )
-        db.session.add(user_mission)
-        db.session.commit()
-        return user_mission
+        try:
+            user_mission = UserMission(
+                user_id=user_id, mission_id=mission.mission_id,
+                status='pending', started_at=datetime.utcnow(),
+            )
+            db.session.add(user_mission)
+            db.session.commit()
+            return user_mission
+        except IntegrityError:
+            db.session.rollback()
+            # If concurrent creation happened, fetch the one that was just created
+            user_mission = UserMission.query.filter_by(user_id=user_id, mission_id=mission.mission_id).order_by(UserMission.user_mission_id.asc()).first()
+            if not user_mission:
+                raise # Should not happen unless something else went wrong
 
     # ปิดแท็บหนีระหว่างจับเวลา แล้วกลับมาเปิดใหม่ ต้องไม่ได้ทำต่อ
     if user_mission.status == 'pending' and mcq_deadline_passed(mission, user_mission):
@@ -531,6 +550,14 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
             user_mission.status = 'pending'
             user_mission.started_at = datetime.utcnow()
             user_mission.score_awarded = 0
+            # ต้องรีเซ็ต PointHistory ให้เป็น 0 พร้อมกันตรงนี้ด้วย ไม่งั้นแถวคะแนน
+            # ของรอบที่สอบตกจะค้างอยู่ในบัญชี ทั้งที่ score_awarded ถูกรีเซ็ตแล้ว
+            # (เห็นได้จาก earned_xp ใน get_missions ที่ยึด PointHistory เป็นหลัก)
+            # ต้องรอจนกว่านักเรียนจะตอบข้อใหม่ sync_mcq_points ถึงจะถูกเรียกอีกที
+            # ระหว่างนั้นแดชบอร์ด/กระดานผู้นำจะโชว์คะแนนรอบเก่าค้างไว้ผิด ๆ
+            # เรียกได้ตรงนี้เพราะ ensure_mcq_attempt ถูกเรียกเฉพาะฝั่งนักเรียนเท่านั้น
+            # (ครูมีทางเข้าแยกใน submit_mcq/submit_mcq_single ที่ไม่ผ่านฟังก์ชันนี้)
+            sync_mcq_points(user_id, mission, user_mission, award_xp=True)
             db.session.commit()
         return user_mission
 
@@ -541,11 +568,74 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
     return user_mission
 
 
-def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=True):
-    """Compute pass/fail, set mission status, and award XP idempotently.
+def sync_mcq_points(user_id, mission, user_mission, award_xp=True):
+    """เขียนคะแนนของ attempt ปัจจุบันลงบัญชีคะแนน คืนยอดรวม
 
-    Safe to call multiple times: XP is only credited once (guarded by
-    PointHistory). Returns a summary dict.
+    ที่เดียวของทั้งระบบที่เขียน PointHistory ของด่าน MCQ — submit_mcq_single,
+    finalize_mcq และ manual_grade เรียกตัวนี้ทั้งหมด ไม่ควรมีที่อื่นเขียนเอง
+    ด้วยเหตุผลเดียวกับที่ grade_answer ถูกรวมไว้ที่เดียว
+
+    **เขียนทับยอด ไม่ใช่บวกเพิ่ม** จึง idempotent เรียกกี่ครั้งผลก็เท่ากัน
+    นักเรียนกดส่งรัว ๆ หรือ endpoint ถูกเรียกซ้ำก็ไม่ทำให้คะแนนพอง
+    และได้ "คะแนนรอบล่าสุด" มาด้วย เพราะ ensure_mcq_attempt ลบคำตอบของ
+    attempt เดิมทิ้งตอนเริ่มรอบใหม่ ยอดที่คิดใหม่จึงมาจากรอบปัจจุบันเท่านั้น
+
+    ไม่ commit — ผู้เรียกเป็นคน commit เพื่อให้คำตอบกับคะแนนลงไปพร้อมกัน
+    """
+    mission_id = mission.mission_id
+    live_ids = {q.question_id for q in live_questions(mission_id).all()}
+
+    # นับเฉพาะคำตอบของข้อที่ยังไม่ใช่ร่าง ไม่งั้นคำตอบของข้อที่ครูเปลี่ยนเป็นร่าง
+    # ทีหลังจะยังบวกเข้ายอด ทั้งที่นักเรียนมองไม่เห็นข้อนั้นแล้ว
+    running_total = sum(
+        (a.xp_awarded or 0)
+        for a in MCQUserAnswer.query.filter_by(
+            user_mission_id=user_mission.user_mission_id).all()
+        if a.question_id in live_ids
+    )
+
+    user_mission.score_awarded = running_total
+
+    if not award_xp:
+        # ครูทดลองทำเอง เห็นตัวเลขของตัวเองได้ แต่ไม่มีอะไรลงบัญชีจริง
+        # และไม่ emit ออกไปกวนอันดับผู้นำของห้อง
+        return running_total
+
+    row = PointHistory.query.filter_by(
+        user_id=user_id, source='mcq_mission', source_id=mission_id
+    ).first()
+
+    if row is None:
+        if running_total <= 0:
+            # แถวคะแนน 0 ไม่มีความหมาย ไม่ต้องสร้าง
+            return running_total
+        db.session.add(PointHistory(
+            user_id=user_id,
+            source='mcq_mission',
+            source_id=mission_id,
+            points=running_total,
+            description=f'MCQ: {mission.title}',
+        ))
+    elif row.points == running_total:
+        # ยอดเท่าเดิม (เช่นตอบผิด) ไม่ต้องเขียนและไม่ต้องกวนห้องด้วย event
+        return running_total
+    else:
+        # เขียนทับแม้ยอดใหม่จะเป็น 0 เพราะเป็นกรณีทำรอบใหม่แล้วได้แย่ลง
+        # ถ้าข้ามไป คะแนนรอบเก่าจะค้างอยู่ ซึ่งขัดกับ "ใช้คะแนนรอบล่าสุด"
+        row.points = running_total
+
+    socketio.emit('points_awarded', {
+        'user_id': user_id, 'mission_id': mission_id, 'points': running_total,
+    })
+    return running_total
+
+
+def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=True):
+    """ตัดสินผ่าน/ไม่ผ่าน ตั้งสถานะด่าน และทำให้ยอดคะแนนตรง
+
+    เรียกซ้ำได้ปลอดภัย เพราะการให้คะแนนถูกมอบให้ sync_mcq_points ซึ่งเขียนทับ
+    ยอดด้วยผลรวมที่คิดใหม่ทุกครั้ง ไม่ใช่บวกเพิ่ม (เดิมกันซ้ำด้วยการเช็คว่ามีแถว
+    ใน PointHistory แล้วหรือยัง กลไกนั้นถูกถอดออกไปแล้ว) คืน dict สรุปผล
 
     count_attempt / award_xp exist so a teacher previewing their own mission
     can go through the exact same grading path as a student without the
@@ -584,38 +674,18 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     if was_pending and count_attempt:
         user_mission.attempt_count = (user_mission.attempt_count or 0) + 1
 
-    if is_passed:
-        if user_mission.started_at and not user_mission.time_spent_seconds:
-            user_mission.time_spent_seconds = int(
-                (datetime.utcnow() - user_mission.started_at).total_seconds()
-            )
+    if is_passed and user_mission.started_at and not user_mission.time_spent_seconds:
+        user_mission.time_spent_seconds = int(
+            (datetime.utcnow() - user_mission.started_at).total_seconds()
+        )
 
-        if not award_xp:
-            # ครูดูตัวเลขที่ตัวเองน่าจะได้ได้ แต่ไม่มีการบันทึกลง PointHistory จริง
-            user_mission.score_awarded = total_xp
-        else:
-            # Only credit points once per mission to prevent double dipping.
-            existing_history = PointHistory.query.filter_by(
-                user_id=user_id, source='mcq_mission', source_id=mission_id
-            ).first()
-            if not existing_history and total_xp > 0:
-                user_mission.score_awarded = total_xp
-                history = PointHistory(
-                    user_id=user_id,
-                    source='mcq_mission',
-                    source_id=mission_id,
-                    points=total_xp,
-                    description=f'Completed MCQ: {mission.title}'
-                )
-                db.session.add(history)
-                socketio.emit('points_awarded', {
-                    'user_id': user_id, 'mission_id': mission_id, 'points': total_xp
-                })
-            else:
-                # Already credited (or nothing to credit); keep score in sync.
-                user_mission.score_awarded = existing_history.points if existing_history else total_xp
-    else:
-        user_mission.score_awarded = 0
+    # ฟังก์ชันนี้ไม่ใช่ประตูของ XP อีกต่อไป — คะแนนลงบัญชีทีละข้อตอนตอบไปแล้ว
+    # เรียกซ้ำตรงนี้เพื่อให้ยอดตรงเสมอในเส้นทางที่ไม่ได้ผ่าน submit-single
+    # (ครูกดจบให้ หรือหมดเวลาแล้วระบบส่งอัตโนมัติ) การเขียนทับทำให้เรียกซ้ำได้
+    #
+    # ไม่ล้าง score_awarded เป็น 0 ตอนไม่ผ่านแล้ว เพราะกติกาคือตอบถูกกี่ข้อ
+    # ได้เท่านั้น ไม่ผ่านเกณฑ์ก็ยังเก็บคะแนนที่ทำได้ไว้
+    sync_mcq_points(user_id, mission, user_mission, award_xp=award_xp)
 
     db.session.commit()
     socketio.emit('missions_updated')
@@ -708,6 +778,11 @@ def get_mcq_questions(mission_id):
                 items_text = [item.get('text') for item in items_data]
                 random.shuffle(items_text)
                 filtered_metadata = {'categories': categories, 'items': items_text}
+                # Keep legacy item strings and answer keys; expose only image paths, never categories per item.
+                filtered_metadata['item_images'] = {
+                    item['text']: item['image_url'] for item in items_data
+                    if isinstance(item.get('image_url'), str) and item['image_url']
+                }
             elif q.question_type == 'sudoku':
                 # ส่งแค่ตัวปริศนา ห้ามส่ง solution_grid (เฉลย) เด็ดขาด
                 filtered_metadata = {
@@ -1362,10 +1437,16 @@ def submit_mcq_single(mission_id):
         xp_awarded=xp_awarded
     )
     db.session.add(user_ans)
-    
+
     # Save current nodes/progress
     current_index = data.get('current_index', 0)
     user_mission.current_nodes = {'current_index': current_index, 'total_questions': total_questions}
+
+    # ลงคะแนนทันทีที่ตอบเสร็จ ไม่ต้องรอจบชุด อันดับผู้นำจึงขยับตามความคืบหน้าจริง
+    # เรียกก่อน commit เพื่อให้คำตอบกับคะแนนลงไปด้วยกัน — SQLAlchemy autoflush
+    # จะ flush user_ans ที่เพิ่ง add ก่อน query ข้างใน sync_mcq_points เอง
+    # ยอดที่คิดได้จึงรวมข้อที่เพิ่งตอบไปแล้ว
+    sync_mcq_points(user_id, mission, user_mission, award_xp=not is_teacher)
 
     db.session.commit()
     socketio.emit('missions_updated')
@@ -1495,45 +1576,17 @@ def manual_grade(mission_id):
             user_mission.status = 'completed'
             from datetime import datetime
             if user_mission.started_at and not user_mission.time_spent_seconds:
-                user_mission.time_spent_seconds = int((datetime.utcnow() - user_mission.started_at).total_seconds())
-            # Re-award ALL XP for this mission for this student
-            PointHistory.query.filter_by(user_id=student_id, source='mcq_mission', source_id=mission_id).delete()
+                user_mission.time_spent_seconds = int(
+                    (datetime.utcnow() - user_mission.started_at).total_seconds())
 
-            # ต้องเครดิตยอดเดียวกับที่ใช้คิดเปอร์เซ็นต์ผ่าน (total_xp_earned ด้านบน)
-            # ห้ามกรองเฉพาะ is_correct=True ซ้ำอีกที เพราะคะแนนบางส่วน (partial
-            # credit) ของข้อซูโดกุ/ผังงานที่ยังไม่ถูกทั้งข้อ (is_correct=False) ก็ถูก
-            # นับรวมเข้าตัวเศษตอนตัดสินผ่านไปแล้ว ถ้ามากรองออกตอนเครดิตจริง นักเรียน
-            # จะผ่านด่านแต่ได้ XP น้อยกว่าที่ทำให้ผ่าน ตรงกับ finalize_mcq ที่ไม่กรอง
-            # is_correct เช่นกัน
-            total_xp = total_xp_earned
+        # ใช้ตัวกลางเดียวกับ submit_mcq_single และ finalize_mcq
+        # การเขียนทับยอดแทนการเพิ่มแถวใหม่ทุกครั้งที่ครูตรวจ ทำให้ครูแก้คำตอบ
+        # ซ้ำกี่รอบก็ไม่ทำให้คะแนนพอง และยอดตรงกับที่ใช้ตัดสินผ่านเสมอ
+        sync_mcq_points(student_id, mission, user_mission, award_xp=True)
 
-            if total_xp > 0:
-                history = PointHistory(
-                    user_id=student_id,
-                    source='mcq_mission',
-                    source_id=mission_id,
-                    points=total_xp,
-                    description=f'Passed MCQ: {mission.title}'
-                )
-                db.session.add(history)
-                
-            user_mission.score_awarded = total_xp
-        else:
-            if user_mission.status != 'failed':
-                user_mission.score_awarded = (user_mission.score_awarded or 0) + points_per_q
-                history = PointHistory(
-                    user_id=student_id,
-                    source='mcq_mission',
-                    source_id=mission_id,
-                    points=points_per_q,
-                    description=f'Correct answer in MCQ: {mission.title}'
-                )
-                db.session.add(history)
-                
         db.session.commit()
         socketio.emit('missions_updated')
-        socketio.emit('points_awarded', {'user_id': student_id, 'mission_id': mission_id, 'points': points_per_q})
-        
+
         return jsonify({'message': 'Graded successfully', 'is_passed': is_passed}), 200
     except Exception as e:
         import traceback

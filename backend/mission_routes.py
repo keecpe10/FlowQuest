@@ -1,6 +1,8 @@
 import jwt
 import os
-from flask import Blueprint, request, jsonify
+import io
+import pandas as pd
+from flask import Blueprint, request, jsonify, send_file
 from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
@@ -208,9 +210,14 @@ def get_mission(mission_id):
             from mcq_routes import ensure_mcq_attempt
             um = ensure_mcq_attempt(user_id, mission, um)
         elif not um:
-            um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
-            db.session.add(um)
-            db.session.commit()
+            from sqlalchemy.exc import IntegrityError
+            try:
+                um = UserMission(user_id=user_id, mission_id=mission_id, status='pending', started_at=datetime.utcnow())
+                db.session.add(um)
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
         elif um.status == 'failed':
             um.status = 'pending'
             um.started_at = datetime.utcnow()
@@ -351,10 +358,82 @@ def get_students_progress(mission_id):
             'score_text': score_text,
             'is_passed': is_passed,
             'time_spent': time_spent,
-            'attempt_count': attempt_count
+            'attempt_count': attempt_count,
+            'class_id': student.class_id,
+            'grade_level': student.school_class.grade_level if student.school_class else None,
+            'class_name': student.school_class.class_name if student.school_class else None
         })
         
     return jsonify(results), 200
+
+@mission_bp.route('/<int:mission_id>/export-progress', methods=['GET', 'POST'])
+def export_students_progress(mission_id):
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'message': 'Unauthorized'}), 401
+        
+    mission = Mission.query.get(mission_id)
+    if not mission:
+        return jsonify({'message': 'Mission not found'}), 404
+        
+    if not is_course_teacher(user_id, mission.course_id):
+        return jsonify({'message': 'Forbidden. Only teachers can export.'}), 403
+        
+    # Re-use the data fetching logic from get_students_progress
+    response, status_code = get_students_progress(mission_id)
+    if status_code != 200:
+        return response, status_code
+        
+    results = response.get_json()
+    
+    if request.method == 'POST':
+        data = request.get_json()
+        if data and 'student_ids' in data:
+            student_ids = data['student_ids']
+            results = [r for r in results if r['user_id'] in student_ids]
+    
+    # Prepare data for DataFrame
+    df_data = []
+    for r in results:
+        status_th = {
+            'not_started': 'ยังไม่เริ่ม',
+            'pending': 'กำลังทำ',
+            'completed': 'เสร็จสิ้น (ผ่าน)',
+            'failed': 'เสร็จสิ้น (ไม่ผ่าน)'
+        }.get(r['status'], r['status'])
+        
+        grade_text = f"ป.{r['grade_level']}" if r['grade_level'] else ""
+        class_text = f"{r['class_name']}" if r['class_name'] else ""
+        room_full = f"{grade_text}/{class_text}" if grade_text and class_text else (grade_text or class_text or "-")
+        
+        row = {
+            'ชื่อ-นามสกุล': r['name'],
+            'ระดับชั้น': grade_text or "-",
+            'ห้อง': class_text or "-",
+            'สถานะ': status_th,
+            'คะแนน (หากมี)': r.get('score_text', '-'),
+            'XP ที่ได้รับ': r['xp_awarded'],
+            'เวลาที่ใช้ (วินาที)': r['time_spent'] if r.get('time_spent') is not None else '-',
+            'จำนวนครั้งที่พยายาม': r['attempt_count'] if r.get('attempt_count') is not None else '-'
+        }
+        df_data.append(row)
+        
+    df = pd.DataFrame(df_data)
+    
+    # Export to Excel
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Progress')
+        
+    output.seek(0)
+    
+    filename = f"mission_{mission_id}_progress.xlsx"
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 @mission_bp.route('/<int:mission_id>/students/<int:student_id>/flowchart', methods=['GET'])
 def get_student_flowchart(mission_id, student_id):
