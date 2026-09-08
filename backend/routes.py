@@ -135,9 +135,11 @@ def refresh():
     กลับมาไม่ได้ เพราะด่านตรวจ sid อยู่ใน payload_from_token ก่อนถึงบรรทัดนี้
     """
     payload = auth_utils.payload_from_token(request.headers.get('Authorization'))
-    if not payload:
+    if not payload or not payload.get('sid'):
+        # token ที่ไม่มี sid ต่ออายุไม่ได้ ถ้าปล่อยผ่าน generate_token จะสุ่ม sid ใหม่แล้ว
+        # เขียนทับรอบของเครื่องที่กำลังใช้งานอยู่ กลายเป็นเตะเจ้าของบัญชีออกเสียเอง
         return jsonify({'message': 'Unauthorized'}), 401
-    token = generate_token(payload['sub'], payload.get('sid'))
+    token = generate_token(payload['sub'], payload['sid'])
     return jsonify({'access_token': token}), 200
 
 

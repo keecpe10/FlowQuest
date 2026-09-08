@@ -51,6 +51,14 @@ test('token ยังใหม่ ไม่ต้องต่ออายุ', (
     assert.equal(decide(1, 5).shouldRefresh, false);
 });
 
+test('token อายุเกินครึ่งแต่ผู้ใช้เงียบไปนานแล้ว ห้ามต่ออายุ', () => {
+    // ยังไม่ถึงเวลาเตือน แต่เงียบมา 20 นาทีแล้ว ถ้าต่ออายุตรงนี้ token ใบใหม่จะมีชีวิต
+    // ต่อไปอีก 30 นาทีนับจากตอนนี้ รวมเป็น 50 นาทีนับจากกิจกรรมสุดท้าย เกินที่รับปากไว้
+    assert.equal(decide(20, 16).state, 'ok');
+    assert.equal(decide(20, 16).shouldRefresh, false);
+    assert.equal(decide(14, 16).shouldRefresh, true);
+});
+
 test('token อายุเกินครึ่งแต่ผู้ใช้หายไปแล้ว ห้ามต่ออายุ', () => {
     // ถ้าต่ออายุตอนนี้ รอบจะไม่มีวันหมดอายุ แล้วทั้งงานนี้ก็ไร้ความหมาย
     assert.equal(decide(29, 16).shouldRefresh, false);

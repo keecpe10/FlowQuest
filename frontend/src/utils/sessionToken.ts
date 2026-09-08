@@ -23,9 +23,11 @@ export interface StoredSession {
   user: StoredUser;
 }
 
+export type LogoutReason = 'session_replaced' | 'expired' | 'idle';
+
 export type SessionMessage =
   | { type: 'login'; session: StoredSession }
-  | { type: 'logout' }
+  | { type: 'logout'; reason?: LogoutReason }
   | { type: 'token'; token: string }
   | { type: 'activity'; at: number };
 

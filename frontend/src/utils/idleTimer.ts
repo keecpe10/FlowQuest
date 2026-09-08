@@ -26,7 +26,14 @@ export function decideIdle({ now, lastActivityAt, tokenIssuedAt }: IdleInput): I
 
   // ต่ออายุเฉพาะตอนที่ผู้ใช้ยังใช้งานอยู่จริง ถ้าต่อให้ตอนกำลังเตือนหรือหมดเวลาแล้ว
   // รอบนี้จะไม่มีวันหมดอายุ ซึ่งทำให้การจับการไม่ใช้งานทั้งหมดไร้ความหมาย
-  const shouldRefresh = state === 'ok' && now - tokenIssuedAt >= REFRESH_AFTER_MS;
+  //
+  // "ยังใช้งานอยู่" ต้องวัดจากกิจกรรมล่าสุด ไม่ใช่แค่ยังไม่ถึงเวลาเตือน ถ้าใช้แค่
+  // state === 'ok' คนที่หายไปแล้ว 28 นาทีจะยังได้ต่ออายุ แล้ว token ใบใหม่มีอายุอีก
+  // 30 นาทีนับจากตอนนั้น รวมแล้ว token มีชีวิตยาวกว่ากิจกรรมสุดท้ายได้ถึง 45 นาที
+  // ทั้งที่สเปกรับปากไว้ว่าไม่เกิน 30 นาที
+  const shouldRefresh = state === 'ok'
+    && idleFor < REFRESH_AFTER_MS
+    && now - tokenIssuedAt >= REFRESH_AFTER_MS;
 
   return {
     state,

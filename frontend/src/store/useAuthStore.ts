@@ -9,6 +9,7 @@ import {
   subscribe,
   tokenExpiresAt,
   writeSession,
+  type LogoutReason,
   type StoredSession,
   type StoredUser,
 } from '../utils/sessionToken';
@@ -23,7 +24,7 @@ interface AuthState {
    *  ไม่งั้น ProtectedRoute จะเด้งไป /login ตั้งแต่ยังไม่ทันได้คำตอบ */
   authReady: boolean;
   login: (token: string, user: User) => void;
-  logout: () => void;
+  logout: (reason?: LogoutReason) => void;
   setToken: (token: string) => void;
 }
 
@@ -46,7 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     broadcast({ type: 'login', session });
   },
 
-  logout: () => {
+  logout: (reason) => {
     // บอกเซิร์ฟเวอร์ให้ยกเลิกรอบนี้ด้วย ไม่งั้น token ใบเดิมยังใช้ได้จนหมดอายุ
     // ถ้ามีใครก๊อปไปก่อนหน้านั้น — ยิงแบบไม่รอผล เพราะยังไงก็ต้องออกจากระบบ
     const token = getToken();
@@ -58,7 +59,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearSession();
     setAuthHeader(null);
     set({ user: null, token: null, isAuthenticated: false, authReady: true });
-    broadcast({ type: 'logout' });
+    // ส่งเหตุผลไปด้วย ไม่งั้นแท็บอื่นจะเด้งไปหน้าเข้าสู่ระบบเฉย ๆ โดยไม่มีคำอธิบาย
+    // ทั้งที่แท็บที่สั่งรู้อยู่แล้วว่าหลุดเพราะอะไร
+    broadcast({ type: 'logout', reason });
   },
 
   setToken: (token) => {
@@ -99,7 +102,10 @@ if (existing) {
 
 subscribe((message) => {
   if (message.type === 'login') adoptSession(message.session);
-  else if (message.type === 'logout') adoptSession(null);
+  else if (message.type === 'logout') {
+    if (message.reason) rememberLogoutReason(message.reason);
+    adoptSession(null);
+  }
   else if (message.type === 'token') {
     const user = useAuthStore.getState().user;
     if (user) adoptSession({ token: message.token, user });
@@ -108,7 +114,7 @@ subscribe((message) => {
 
 /** บันทึกเหตุผลที่หลุดไว้ให้หน้าเข้าสู่ระบบอ่าน โดยไม่ทับเหตุผลที่บันทึกไว้ก่อนแล้ว
  *  เช่นตอนถูกตัดเพราะไม่มีการใช้งาน คำขอที่ค้างอยู่จะทยอยได้ 401 ตามมาอีกหลายใบ */
-export const rememberLogoutReason = (reason: 'session_replaced' | 'expired' | 'idle') => {
+export const rememberLogoutReason = (reason: LogoutReason) => {
   if (!sessionStorage.getItem('logout_reason')) sessionStorage.setItem('logout_reason', reason);
 };
 

@@ -9,6 +9,9 @@ const ACTIVITY_EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'
 const ACTIVITY_THROTTLE_MS = 1000;
 /** ประกาศข้ามแท็บถี่กว่านี้ไม่มีประโยชน์ เพราะความละเอียดที่ต้องการคือระดับนาที */
 const BROADCAST_EVERY_MS = 5000;
+/** ระยะถอยหลังการต่ออายุที่ล้มเหลว เพิ่มเป็นเท่าตัวจนถึงเพดาน */
+const RETRY_BASE_MS = 5000;
+const RETRY_MAX_MS = 60000;
 
 /** เฝ้ารอบการเข้าใช้งาน: ไม่มีการใช้งาน 30 นาทีให้ออกจากระบบ โดยเตือนก่อน 1 นาที
  *  และต่ออายุ token เงียบ ๆ ให้คนที่ยังใช้งานอยู่ */
@@ -22,23 +25,33 @@ const SessionGuard = () => {
   const lastActivity = useRef(Date.now());
   const lastBroadcast = useRef(0);
   const refreshing = useRef(false);
+  const retryDelay = useRef(0);
+  const nextAttemptAt = useRef(0);
 
   const markActive = useCallback((at = Date.now()) => {
     if (at > lastActivity.current) lastActivity.current = at;
   }, []);
 
   const renew = useCallback(() => {
-    if (refreshing.current) return;
+    if (refreshing.current || Date.now() < nextAttemptAt.current) return;
     refreshing.current = true;
     axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/auth/refresh`, {})
       .then((res) => {
         const token = res.data?.access_token;
         if (!token) return;
+        retryDelay.current = 0;
         setToken(token);
         // แท็บอื่นถือ token ใบเดิมอยู่ ส่งใบใหม่ให้ด้วยจะได้ไม่ต้องต่ออายุซ้ำ
         broadcast({ type: 'token', token });
       })
-      .catch(() => {})   // ถ้าต่อไม่ได้ token จะหมดอายุเองแล้ว interceptor จัดการต่อ
+      .catch(() => {
+        // ต่ออายุไม่สำเร็จแล้วถอยห่างก่อนลองใหม่ ไม่งั้นนาฬิกาที่เดินทุกวินาทีจะเห็นว่า
+        // token ยังเก่าอยู่แล้วยิงซ้ำวินาทีละครั้งไปเรื่อย ๆ ทุกแท็บทุกเครื่อง ซึ่งเท่ากับ
+        // ถล่มเซิร์ฟเวอร์ที่กำลังมีปัญหาอยู่แล้วให้หนักกว่าเดิม
+        // ถ้าต่อไม่ได้จริง ๆ token จะหมดอายุเองแล้ว interceptor จัดการเด้งออกให้
+        retryDelay.current = Math.min(Math.max(retryDelay.current * 2, RETRY_BASE_MS), RETRY_MAX_MS);
+        nextAttemptAt.current = Date.now() + retryDelay.current;
+      })
       .finally(() => { refreshing.current = false; });
   }, [setToken]);
 
@@ -47,6 +60,9 @@ const SessionGuard = () => {
     markActive(now);
     broadcast({ type: 'activity', at: now });
     setWarning(false);
+    // ผู้ใช้กดเองแปลว่าตั้งใจอยู่ต่อ จึงข้ามคิวถอยหลังที่ค้างจากความล้มเหลวก่อนหน้า
+    // เพราะนี่คือโอกาสเดียวที่เขาจะได้ token ใบใหม่ก่อนใบเดิมหมดอายุ
+    nextAttemptAt.current = 0;
     renew();
   }, [markActive, renew]);
 
@@ -86,7 +102,7 @@ const SessionGuard = () => {
 
       if (decision.state === 'logout') {
         rememberLogoutReason('idle');
-        logout();
+        logout('idle');   // ส่งเหตุผลให้แท็บอื่นได้แสดงข้อความเดียวกัน
         return;
       }
       // อัปเดต state เฉพาะตอนกำลังเตือน ไม่งั้นทั้งแอปจะถูกสั่งเรนเดอร์ใหม่

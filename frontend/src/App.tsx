@@ -260,7 +260,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
 
         <button
-          onClick={logout}
+          onClick={() => logout()}
           className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
             isTeacher
               ? 'text-slate-400 hover:bg-rose-50 hover:text-rose-500'
