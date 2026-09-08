@@ -7,6 +7,7 @@ import LiveTimer from './components/LiveTimer';
 import { handleMissionAccessError } from './utils/missionAccess';
 import Toolbox from './components/Toolbox';
 import ProtectedRoute from './components/ProtectedRoute';
+import SessionGuard from './components/SessionGuard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Profile from './pages/Profile';
@@ -441,6 +442,7 @@ function App() {
     // ClickSpark ครอบทั้งแอป ทุกหน้าจึงมีประกายตอนคลิกโดยไม่ต้องไปแก้ทีละหน้า
     <ClickSpark sparkColor="#a78bfa" sparkSize={9} sparkRadius={18} sparkCount={8} duration={420}>
     <BrowserRouter>
+      <SessionGuard />
       <Routes>
         <Route path="/login" element={<PageWithTitle title="เข้าสู่ระบบ"><Login /></PageWithTitle>} />
         <Route path="/register" element={<PageWithTitle title="สมัครสมาชิก"><Register /></PageWithTitle>} />
