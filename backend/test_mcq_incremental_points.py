@@ -325,6 +325,36 @@ def test_retake_overwrites_with_latest(client, f):
     check('ยังมีแถวเดียว', ledger_rows(f) == 1)
 
 
+def test_retake_reset_zeroes_ledger_before_reanswering(client, f):
+    """สอบตกแล้วรีเซ็ตรอบใหม่ ต้องล้างบัญชีเป็น 0 ทันที ไม่ต้องรอตอบข้อใหม่
+
+    test_retake_overwrites_with_latest พลาดเคสนี้เพราะมันตอบคำถามใหม่ครบชุดทันที
+    หลังรีเซ็ต ยอดจึงถูกเขียนทับเป็นยอดรอบใหม่ผ่าน sync_mcq_points ตามปกติอยู่แล้ว
+    ไม่เคยเห็นช่วงคั่นกลางที่ attempt ถูกรีเซ็ตแต่ยังไม่มีคำตอบใหม่เลย ที่นี่จึง
+    หยุดอยู่ตรงนั้นแล้วตรวจว่า PointHistory กับ score_awarded ต้องเห็นตรงกันเป็น 0
+    """
+    qs = seed_three(f, client)
+    answer(client, f, qs[0][0], qs[0][1])
+    answer(client, f, qs[1][0], qs[1][1])
+    answer(client, f, qs[2][0], qs[2][2])   # ครบสามข้อ 20/30 = 67% ตก
+    check('รอบแรกได้ 20 ก่อนรีเซ็ต', ledger(f) == 20)
+
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    check('สถานะเป็น failed ก่อนรีเซ็ต', um.status == 'failed')
+
+    # เรียก endpoint รายการคำถาม ซึ่งฝั่งนักเรียนจะวิ่งผ่าน ensure_mcq_attempt
+    # อันเป็นทางเข้าเดียวที่รีเซ็ต attempt ที่ failed ให้กลับเป็น pending
+    # ตรงนี้จงใจไม่ตอบคำถามใหม่เลย เพื่อยืนอยู่ในช่วงคั่นกลางที่ต้องพิสูจน์
+    resp = client.get(q_url(f), headers=auth(f['student_token']))
+    check('เรียกรายการคำถามสำเร็จ', resp.status_code == 200)
+
+    check('หลังรีเซ็ต ledger ต้องเป็น 0 ทันที ไม่ค้างที่ 20', ledger(f) == 0)
+    check('score_awarded ต้องเป็น 0 ด้วย', score_awarded(f) == 0)
+    check('score_awarded กับ ledger ต้องตรงกัน', ledger(f) == score_awarded(f))
+    check('ยังมีแถวเดียว ไม่ใช่แถวใหม่', ledger_rows(f) == 1)
+
+
 def test_emits_only_when_total_changes(client, f):
     """ตอบผิดยอดไม่ขยับ ต้องไม่ยิง event รบกวนทั้งห้อง"""
     import mcq_routes
@@ -404,6 +434,8 @@ def main():
             test_all_wrong_creates_no_row(client, f)
             clear_answers(f)
             test_retake_overwrites_with_latest(client, f)
+            clear_answers(f)
+            test_retake_reset_zeroes_ledger_before_reanswering(client, f)
             clear_answers(f)
             test_emits_only_when_total_changes(client, f)
             clear_answers(f)

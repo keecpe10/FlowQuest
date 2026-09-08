@@ -550,6 +550,14 @@ def ensure_mcq_attempt(user_id, mission, user_mission):
             user_mission.status = 'pending'
             user_mission.started_at = datetime.utcnow()
             user_mission.score_awarded = 0
+            # ต้องรีเซ็ต PointHistory ให้เป็น 0 พร้อมกันตรงนี้ด้วย ไม่งั้นแถวคะแนน
+            # ของรอบที่สอบตกจะค้างอยู่ในบัญชี ทั้งที่ score_awarded ถูกรีเซ็ตแล้ว
+            # (เห็นได้จาก earned_xp ใน get_missions ที่ยึด PointHistory เป็นหลัก)
+            # ต้องรอจนกว่านักเรียนจะตอบข้อใหม่ sync_mcq_points ถึงจะถูกเรียกอีกที
+            # ระหว่างนั้นแดชบอร์ด/กระดานผู้นำจะโชว์คะแนนรอบเก่าค้างไว้ผิด ๆ
+            # เรียกได้ตรงนี้เพราะ ensure_mcq_attempt ถูกเรียกเฉพาะฝั่งนักเรียนเท่านั้น
+            # (ครูมีทางเข้าแยกใน submit_mcq/submit_mcq_single ที่ไม่ผ่านฟังก์ชันนี้)
+            sync_mcq_points(user_id, mission, user_mission, award_xp=True)
             db.session.commit()
         return user_mission
 
