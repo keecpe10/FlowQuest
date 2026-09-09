@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from models import User, Course, CourseEnrollment, Role, Mission, Class
+from engine import XP_SOURCES
 from datetime import datetime
 import pandas as pd
 from werkzeug.security import generate_password_hash
@@ -102,8 +103,26 @@ def get_course_details(course_id):
     if not enrollment and course.teacher_id != user_id:
         return jsonify({'error': 'Unauthorized to view this course'}), 403
 
-    student_count = CourseEnrollment.query.filter_by(course_id=course.course_id, role_in_course='student').count()
-    mission_count = Mission.query.filter_by(course_id=course.course_id).count()
+    enrollments = CourseEnrollment.query.filter_by(
+        course_id=course.course_id, role_in_course='student').all()
+    student_count = len(enrollments)
+    missions = Mission.query.filter_by(course_id=course.course_id).all()
+    mission_count = len(missions)
+
+    # ตัวเลขบนการ์ดสรุปของหน้าครู ต้องคิดแบบเดียวกับรายชื่อนักเรียนข้างล่างเป๊ะ ๆ
+    # (นับเฉพาะแต้มที่ได้จากด่านในรายวิชานี้) ไม่งั้นครูจะเห็นสองตัวเลขที่ไม่ตรงกัน
+    # บนหน้าจอเดียวกันแล้วไม่รู้ว่าเชื่ออันไหน
+    course_mission_ids = [m.mission_id for m in missions]
+    total_points = 0
+    if course_mission_ids:
+        for e in enrollments:
+            student = User.query.get(e.user_id)
+            if not student:
+                continue
+            total_points += sum(p.points for p in student.points_history
+                                if p.source in XP_SOURCES
+                                and p.source_id in course_mission_ids)
+    average_points = round(total_points / student_count, 1) if student_count else 0
 
     return jsonify({
         'course_id': course.course_id,
@@ -113,6 +132,11 @@ def get_course_details(course_id):
         'created_at': course.created_at.isoformat(),
         'student_count': student_count,
         'mission_count': mission_count,
+        # ชื่อที่หน้าเว็บอ่านจริง เดิมส่งแต่ student_count/mission_count หน้าเว็บจึงอ่าน
+        # ไม่เจอแล้วการ์ดขึ้นเลข 0 ตลอด
+        'total_students': student_count,
+        'total_points_awarded': total_points,
+        'average_points': average_points,
     }), 200
 
 @course_bp.route('/api/v1/courses/<int:course_id>', methods=['PUT'])
@@ -177,7 +201,7 @@ def get_course_students(course_id):
     for e in enrollments:
         user = User.query.get(e.user_id)
         if user:
-            course_points = sum([p.points for p in user.points_history if p.source in ('mission', 'teacher_bonus', 'mcq_mission') and p.source_id in course_mission_ids])
+            course_points = sum([p.points for p in user.points_history if p.source in XP_SOURCES and p.source_id in course_mission_ids])
             course_missions_completed = len([m for m in user.missions if m.mission_id in course_mission_ids and m.status == 'completed'])
             total_time = sum([m.time_spent_seconds or 0 for m in user.missions if m.mission_id in course_mission_ids and m.status == 'completed'])
             

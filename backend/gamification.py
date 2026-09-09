@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 from app import db
 from models import User, PointHistory, LeaderboardSnapshot, Mission, UserMission, Role
 from auth_utils import has_course_access, can_play_mission
+from engine import XP_SOURCES
 from datetime import datetime
 from engine import validate_flowchart
 
@@ -221,7 +222,7 @@ def get_leaderboard():
             PointHistory, 
             db.and_(
                 User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']),
+                PointHistory.source.in_(XP_SOURCES),
                 PointHistory.source_id.in_(scoped_mission_ids)
             )
         ).filter(
@@ -295,7 +296,7 @@ def get_profile():
     if not user:
         return jsonify({'message': 'User not found'}), 404
         
-    valid_sources = ['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']
+    valid_sources = XP_SOURCES
     total_points = sum([p.points for p in user.points_history if p.source in valid_sources])
     
     return jsonify({
@@ -363,7 +364,7 @@ def get_leaderboard_3d():
             PointHistory, 
             db.and_(
                 User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']),
+                PointHistory.source.in_(XP_SOURCES),
                 PointHistory.source_id.in_(course_mission_ids)
             )
         ).filter(

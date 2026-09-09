@@ -680,7 +680,9 @@ const TeacherDashboard = () => {
       value: overview?.total_students ?? 0,
       color: 'bg-blue-500',
       light: 'bg-blue-50 text-blue-600',
-      trend: '+2 สัปดาห์นี้',
+      // เดิมเขียน '+2 สัปดาห์นี้' ตายตัวไว้ในโค้ด ไม่ได้มาจากข้อมูลจริง ครูจึงเห็นตัวเลข
+      // เดียวกันตลอดไม่ว่ามีคนเข้าใหม่หรือไม่ เปลี่ยนเป็นคำอธิบายที่เป็นความจริง
+      trend: 'ในรายวิชานี้',
     },
     {
       icon: <Zap size={22} />,
@@ -704,7 +706,7 @@ const TeacherDashboard = () => {
       value: missions.length,
       color: 'bg-violet-500',
       light: 'bg-violet-50 text-violet-600',
-      trend: 'กำลังเปิดใช้งาน',
+      trend: 'ในรายวิชานี้',
     },
   ];
 
