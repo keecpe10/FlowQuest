@@ -58,10 +58,12 @@ const Shop: React.FC = () => {
 
   const fetchPoints = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/api/v1/users/me`, {
+      // เดิมเรียก /users/me ซึ่งไม่เคยมีอยู่จริง ทุกครั้งที่เปิดหน้าร้านค้าจึงได้ 404
+      // แล้วแต้มขึ้นเป็น 0 ตลอด ใช้ /game/profile ตัวเดียวกับที่แถบบนของแอปใช้
+      const res = await axios.get(`${API_BASE}/api/v1/game/profile`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPoints(res.data.user.points);
+      setPoints(res.data.points);
     } catch (error) {
       console.error(error);
     }
