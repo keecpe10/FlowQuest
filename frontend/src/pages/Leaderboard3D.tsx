@@ -3,7 +3,6 @@ import { getToken } from '../utils/sessionToken';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Environment, Text } from '@react-three/drei';
 import axios from 'axios';
-import { useAuthStore } from '../store/useAuthStore';
 import CharacterModel from '../components/Character/CharacterModel';
 import { io } from 'socket.io-client';
 import { Trophy, ChevronLeft, Zap, Clock, Medal } from 'lucide-react';
@@ -159,7 +158,6 @@ const SidebarRankCard = ({ user, index }: { user: LeaderboardUser; index: number
 const Leaderboard3D = () => {
     const [users, setUsers] = useState<LeaderboardUser[]>([]);
     const [loading, setLoading] = useState(true);
-    const token = useAuthStore(state => state.token);
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const missionId = searchParams.get('mission_id');
