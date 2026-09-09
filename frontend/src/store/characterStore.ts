@@ -2,7 +2,10 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { updateStoredUser } from '../utils/sessionToken';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+// ค่าสำรองต้องเป็นค่าว่าง ไม่ใช่ localhost:5001 เพราะตอนขึ้นเซิร์ฟเวอร์จริง ตัวแปรนี้
+// ถูกตั้งเป็นค่าว่างเพื่อให้เรียก /api/ บนโดเมนเดียวกันผ่าน nginx ถ้าใส่ localhost ไว้
+// เบราว์เซอร์ของนักเรียนจะยิงกลับไปหาเครื่องตัวเอง ไม่ใช่เซิร์ฟเวอร์ของโรงเรียน
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 // ─── Types ───────────────────────────────────────────────
 
