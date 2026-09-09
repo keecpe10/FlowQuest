@@ -336,7 +336,7 @@ def get_leaderboard_3d():
             PointHistory, 
             db.and_(
                 User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(['mission', 'mcq_mission', 'sudoku_mission']),
+                PointHistory.source.in_(XP_SOURCES),
                 PointHistory.source_id == mission_id
             )
         ).filter(

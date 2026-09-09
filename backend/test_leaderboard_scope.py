@@ -11,7 +11,8 @@ import json
 import uuid
 from werkzeug.security import generate_password_hash
 from app import create_app, db
-from models import (User, Role, Course, Mission, CourseEnrollment, UserMission)
+from models import (User, Role, Course, Mission, CourseEnrollment, UserMission,
+                    PointHistory)
 
 FAIL = []
 def check(l, c, extra=''):
@@ -86,7 +87,27 @@ with app.app_context():
         check('เรียกได้', st == 200, st)
         check('เห็นครบทุกคนในคอร์ส', len(rows) == 3, len(rows))
 
+        print('\n[5] หอเกียรติยศรายด่านนับแต้มพิเศษที่ครูให้ด้วย')
+        # ครูให้แต้มพิเศษกับด่านนี้ ถ้าไม่นับ นักเรียนจะเห็นอันดับที่ไม่ตรงกับ XP จริง
+        db.session.add_all([
+            PointHistory(user_id=played.user_id, source='mcq_mission',
+                         source_id=mission.mission_id, points=10),
+            PointHistory(user_id=played.user_id, source='teacher_bonus',
+                         source_id=mission.mission_id, points=5),
+        ])
+        db.session.commit()
+        r = c.get(f'/api/v1/game/leaderboard-3d?mission_id={mission.mission_id}')
+        rows3d = r.get_json() or []
+        mine = next((x for x in rows3d if x['user_id'] == played.user_id), None)
+        check('เรียกได้', r.status_code == 200, r.status_code)
+        check('นับทั้งแต้มจากด่านและแต้มพิเศษ (10+5)',
+              mine is not None and mine.get('points') == 15,
+              mine)
+
     finally:
+        PointHistory.query.filter(
+            PointHistory.user_id.in_([u.user_id for u in created])).delete(
+            synchronize_session=False)
         UserMission.query.filter(UserMission.user_id.in_([u.user_id for u in created])).delete(
             synchronize_session=False)
         CourseEnrollment.query.filter(
