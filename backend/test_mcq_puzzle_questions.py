@@ -426,8 +426,17 @@ def test_student_receives_puzzle_without_answer_key(client, f):
     check('ครูยังเห็น solution_grid ของซูโดกุครบ',
           t_sudoku['question_metadata'].get('solution_grid') == SOLUTION_4)
     t_flow = _question_by_type(teacher_payload, 'flowchart')
+    t_edges = t_flow['question_metadata'].get('edges') or []
+    # เทียบเฉพาะตรรกะของเส้น ไม่เทียบ dict ทั้งก้อน เพราะเส้นมีฟิลด์รูปร่างเพิ่มมา
+    # (sourceHandle/targetHandle/waypoints) ที่ครูต้องได้กลับไปเพื่อให้ผังงานหน้าตา
+    # เหมือนตอนออกแบบ การเทียบตรงตัวจะพังทุกครั้งที่เพิ่มฟิลด์ ทั้งที่เจตนาของข้อนี้
+    # คือกันไม่ให้ตัดเส้นเฉลยทิ้งจนครูพรีวิวไม่เห็น
     check('ครูยังเห็น edges ของผังงานครบ',
-          t_flow['question_metadata'].get('edges') == flow_meta()['edges'])
+          [(e.get('source'), e.get('target'), e.get('label')) for e in t_edges]
+          == [(e['source'], e['target'], e['label']) for e in flow_meta()['edges']])
+    check('ครูได้ฟิลด์รูปร่างของเส้นกลับไปด้วย',
+          all('sourceHandle' in e and (e.get('data') or {}).get('waypoints') is not None
+              for e in t_edges))
 
 
 def main():

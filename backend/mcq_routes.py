@@ -314,6 +314,10 @@ def grade_answer(question, choice_id, answer_data):
 
 MAX_SUDOKU_SIZE = 9
 MAX_FLOW_NODES = 50
+MAX_FLOW_EDGES = 200
+# จุดหักต่อหนึ่งเส้น — เผื่อให้ลากอ้อมได้สบาย แต่ไม่ปล่อยให้โตไม่จำกัด
+MAX_FLOW_WAYPOINTS = 20
+MAX_HANDLE_LEN = 40
 FLOW_NODE_TYPES = {'terminal', 'process', 'decision', 'io',
                    'display', 'manual_input', 'connector'}
 FLOW_EDGE_LABELS = {'', 'จริง', 'เท็จ'}
@@ -433,6 +437,39 @@ def _clean_flowchart_metadata(meta, where):
             'data': {'label': str(label)[:MAX_TEXT_LEN] if label is not None else ''},
         })
 
+    if len(edges) > MAX_FLOW_EDGES:
+        raise ValueError(f'{where}: ใช้เส้นได้ไม่เกิน {MAX_FLOW_EDGES} เส้น')
+
+    def clean_handle(value, side):
+        """ชื่อจุดต่อบนบล็อก เช่น right หรือ top-target
+
+        ต้องเก็บไว้ เพราะบล็อกตัดสินใจมีจุดต่อหลายจุด ครูลากเส้น "จริง" ออกทางขวา
+        และ "เท็จ" ออกทางล่างได้ ถ้าทิ้งไป พอเปิดกลับมาเส้นจะไปเกาะจุดปริยายทั้งคู่
+        แล้วรูปผังงานจะเพี้ยนไปจากที่ออกแบบไว้
+        """
+        if value is None:
+            return None
+        if not isinstance(value, str) or len(value) > MAX_HANDLE_LEN:
+            raise ValueError(f'{where}: จุดต่อ{side}ของเส้นไม่ถูกต้อง')
+        return value
+
+    def clean_waypoints(edge):
+        """จุดหักที่ครูลากเพื่อดัดเส้นให้อ้อมบล็อกอื่น"""
+        raw = (edge.get('data') or {}).get('waypoints') or []
+        if not isinstance(raw, list):
+            raise ValueError(f'{where}: จุดหักของเส้นต้องเป็น list')
+        if len(raw) > MAX_FLOW_WAYPOINTS:
+            raise ValueError(f'{where}: จุดหักต่อเส้นได้ไม่เกิน {MAX_FLOW_WAYPOINTS} จุด')
+        points = []
+        for wp in raw:
+            if not isinstance(wp, dict):
+                raise ValueError(f'{where}: จุดหักของเส้นต้องเป็น object')
+            try:
+                points.append({'x': float(wp['x']), 'y': float(wp['y'])})
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f'{where}: จุดหักของเส้นต้องเป็นตัวเลข')
+        return points
+
     cleaned_edges = []
     for e in edges:
         if not isinstance(e, dict):
@@ -443,7 +480,12 @@ def _clean_flowchart_metadata(meta, where):
         label = e.get('label') or ''
         if label not in FLOW_EDGE_LABELS:
             raise ValueError(f'{where}: ป้ายเส้นต้องเป็น จริง หรือ เท็จ เท่านั้น')
-        cleaned_edges.append({'source': source, 'target': target, 'label': label})
+        cleaned_edges.append({
+            'source': source, 'target': target, 'label': label,
+            'sourceHandle': clean_handle(e.get('sourceHandle'), 'ต้นทาง'),
+            'targetHandle': clean_handle(e.get('targetHandle'), 'ปลายทาง'),
+            'data': {'waypoints': clean_waypoints(e)},
+        })
 
     return {'nodes': cleaned_nodes, 'edges': cleaned_edges}
 

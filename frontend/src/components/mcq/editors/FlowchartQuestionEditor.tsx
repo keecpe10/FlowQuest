@@ -33,10 +33,16 @@ const cleanNodes = (ns: Node[]) => ns.map((n) => ({
   data: { label: n.data?.label ?? '' },
 }));
 
+// ต้องเก็บ handle และจุดหักไว้ด้วย ไม่งั้นรูปผังงานที่ครูจัดไว้จะหายตอนบันทึก
+// บล็อกตัดสินใจมีจุดต่อหลายจุด (ขวา ล่าง ซ้าย) ถ้าไม่รู้ว่าเส้นออกจากจุดไหน
+// พอเปิดกลับมาเส้นจะไปเกาะจุดปริยายทั้งคู่แล้วดูเพี้ยนไปจากที่ออกแบบ
 const cleanEdges = (es: Edge[]) => es.map((e) => ({
   source: e.source,
   target: e.target,
   label: typeof e.label === 'string' ? e.label : '',
+  sourceHandle: e.sourceHandle ?? null,
+  targetHandle: e.targetHandle ?? null,
+  data: { waypoints: (e.data?.waypoints ?? []) as { x: number; y: number }[] },
 }));
 
 const edgeStyle = {
@@ -64,7 +70,10 @@ const Canvas: React.FC<Props> = ({ metadata, onChange }) => {
       target: e.target,
       label: e.label || '',
       type: 'waypoint',
-      data: { waypoints: [] },
+      // คืนค่าที่บันทึกไว้ ไม่ใช่ล้างเป็นค่าว่างทุกครั้งที่เปิด
+      sourceHandle: e.sourceHandle ?? undefined,
+      targetHandle: e.targetHandle ?? undefined,
+      data: { waypoints: e.data?.waypoints ?? [] },
       ...edgeStyle,
     }))
   );
