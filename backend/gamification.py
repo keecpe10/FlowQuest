@@ -197,6 +197,9 @@ def get_leaderboard():
         course_mission_ids = [m.mission_id for m in missions]
         if not course_mission_ids:
             course_mission_ids = [-1] # avoid empty IN clause
+
+        # ถามมาเจาะจงด่านไหน ก็คิดคะแนนและเวลาเฉพาะด่านนั้น ไม่ใช่ทั้งคอร์ส
+        scoped_mission_ids = [mission_id] if mission_id else course_mission_ids
             
         leaderboard_query = db.session.query(
             User.user_id,
@@ -209,7 +212,7 @@ def get_leaderboard():
                 db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
                     UserMission.user_id == User.user_id,
                     UserMission.status == 'completed',
-                    UserMission.mission_id.in_(course_mission_ids)
+                    UserMission.mission_id.in_(scoped_mission_ids)
                 ).correlate(User).scalar_subquery(), 0
             ).label('total_time')
         ).join(
@@ -219,12 +222,22 @@ def get_leaderboard():
             db.and_(
                 User.user_id == PointHistory.user_id,
                 PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission']),
-                PointHistory.source_id.in_(course_mission_ids)
+                PointHistory.source_id.in_(scoped_mission_ids)
             )
         ).filter(
             CourseEnrollment.course_id == course_id,
             CourseEnrollment.role_in_course == 'student'
         )
+
+        if mission_id:
+            # ตารางอันดับของด่านหนึ่ง ควรมีเฉพาะคนที่ลงมือทำด่านนั้นจริง ไม่ใช่ทุกคน
+            # ที่ลงทะเบียนในคอร์ส คอร์สหนึ่งมีนักเรียนหลายร้อยคน แต่คนที่ทำด่านเดียวกัน
+            # พร้อมกันมีแค่ห้องเดียว การส่งทั้งคอร์สจึงเป็นข้อมูลเกินจำเป็นหลายสิบเท่า
+            # ใช้ subquery แทน join เพราะ join จะทำให้แถวซ้ำแล้ว sum(points) บวมตาม
+            participants = db.session.query(UserMission.user_id).filter(
+                UserMission.mission_id == mission_id
+            ).distinct()
+            leaderboard_query = leaderboard_query.filter(User.user_id.in_(participants))
     else:
         leaderboard_query = db.session.query(
             User.user_id,
@@ -251,16 +264,23 @@ def get_leaderboard():
     
     results = leaderboard_query.all()
     
+    # รูปตัวละครถูกเก็บเป็น base64 ฝังมากับ JSON จึงแคชไม่ได้และกินพื้นที่ราว 2 ใน 3
+    # ของทั้งก้อน หน้าที่ไม่ได้แสดงรูป (เช่น ตารางอันดับในหน้าทำข้อสอบ) จึงไม่ควรได้รับมา
+    # ส่งให้เฉพาะหน้าที่ขอมาเท่านั้น
+    with_avatars = request.args.get('with_avatars') in ('1', 'true', 'True')
+
     leaderboard = []
     for idx, r in enumerate(results):
-        leaderboard.append({
+        row = {
             'user_id': r.user_id,
             'name': f"{r.first_name or ''} {r.last_name or ''}".strip() or r.username,
-            'avatar_url': r.avatar_url,
             'points': int(r.total_points),
             'total_time': int(r.total_time),
             'rank': idx + 1
-        })
+        }
+        if with_avatars:
+            row['avatar_url'] = r.avatar_url
+        leaderboard.append(row)
         
     return jsonify(leaderboard), 200
 

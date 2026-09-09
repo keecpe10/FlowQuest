@@ -8,7 +8,6 @@ interface LeaderboardEntry {
   name: string;
   points: number;
   rank: number;
-  avatar_url: string | null;
 }
 
 interface Props {

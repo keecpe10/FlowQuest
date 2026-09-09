@@ -6,6 +6,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from flask_compress import Compress
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -19,6 +20,10 @@ socketio = SocketIO(cors_allowed_origins=os.getenv(
 
 def create_app():
     app = Flask(__name__)
+    # บีบอัดคำตอบ JSON ก่อนส่ง คำตอบบางเส้นทาง (ตารางอันดับ ร้านค้า) เป็นก้อนใหญ่
+    # ที่บีบแล้วเหลือไม่ถึงหนึ่งในสาม และนักเรียนทั้งห้องเรียกพร้อมกันบนเน็ตเส้นเดียว
+    # ต้องบีบที่ตัวแอปด้วย เพราะหน้าเว็บถูก build ให้เรียก backend ตรง ไม่ผ่าน nginx
+    Compress(app)
     # ค่าเริ่มต้นจำกัดไว้ที่เครื่องตัวเอง ถ้าจะเปิดให้โดเมนอื่นเรียก ต้องระบุใน
     # CORS_ORIGINS อย่างชัดเจน ปล่อยเป็น * แปลว่าเว็บใดก็เรียก API นี้ได้จาก
     # เบราว์เซอร์ของผู้ใช้ที่ล็อกอินอยู่

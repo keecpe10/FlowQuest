@@ -35,6 +35,9 @@ const Leaderboard: React.FC = () => {
       if (id) {
         url.searchParams.append('mission_id', id);
       }
+      // หน้านี้แสดงรูปตัวละครจริง จึงต้องขอมาด้วย ค่าเริ่มต้นของ API ไม่ส่งรูปมาให้
+      // เพราะรูปเป็น base64 ฝังใน JSON ที่กินพื้นที่ราว 2 ใน 3 ของทั้งก้อน
+      url.searchParams.append('with_avatars', '1');
       const response = await axios.get(url.toString());
       setEntries(response.data);
     } catch (error) {
