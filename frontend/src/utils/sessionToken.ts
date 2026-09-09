@@ -59,15 +59,26 @@ export function readSession(): StoredSession | null {
 export function writeSession(session: StoredSession): void {
   const store = storage();
   if (!store) return;
-  store.setItem(TOKEN_KEY, session.token);
-  store.setItem(USER_KEY, JSON.stringify(session.user));
+  try {
+    store.setItem(TOKEN_KEY, session.token);
+    store.setItem(USER_KEY, JSON.stringify(session.user));
+  } catch {
+    // เบราว์เซอร์บางตัว (โหมดส่วนตัวรุ่นเก่า หรือโปรไฟล์ที่ปิดการเก็บข้อมูลเว็บ) โยน
+    // ตอน setItem ถ้าปล่อยหลุด การล็อกอินจะพังทั้งที่ตัว token ใช้ได้ ปล่อยให้ทำงาน
+    // ต่อในหน่วยความจำแทน แล้วผู้ใช้จะหลุดเมื่อรีเฟรชหน้าเท่านั้น
+  }
 }
 
 export function clearSession(): void {
   const store = storage();
   if (!store) return;
-  store.removeItem(TOKEN_KEY);
-  store.removeItem(USER_KEY);
+  try {
+    store.removeItem(TOKEN_KEY);
+    store.removeItem(USER_KEY);
+  } catch {
+    // ล้างไม่ได้ก็ไม่ควรทำให้การออกจากระบบล้มทั้งกระบวนการ ฝั่งเซิร์ฟเวอร์ตัดรอบ
+    // ไปแล้ว token ที่ค้างอยู่จึงใช้ไม่ได้อยู่ดี
+  }
 }
 
 export function getToken(): string | null {
