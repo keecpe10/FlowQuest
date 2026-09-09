@@ -2,10 +2,13 @@ Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.7
 Flask-Cors==4.0.0
-psycopg[binary]
+psycopg2-binary==2.9.9
 PyJWT==2.8.0
 redis==5.0.3
 gunicorn==21.2.0
+gevent==24.2.1
+gevent-websocket==0.10.1
+psycogreen==1.0.2
 python-dotenv==1.0.1
 Flask-SocketIO==5.3.6
 Flask-Compress==1.15

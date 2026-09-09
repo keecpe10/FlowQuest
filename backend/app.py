@@ -37,7 +37,11 @@ def create_app():
     db_port = os.getenv('POSTGRES_PORT', '5432')
     db_name = os.getenv('POSTGRES_DB', 'flowquest_db')
     
-    app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql+psycopg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+    # ใช้ psycopg2 ไม่ใช่ psycopg3 เพราะเซิร์ฟเวอร์รันด้วย gunicorn + gevent ซึ่งต้องให้
+    # ไดรเวอร์ยอมคืนคิวระหว่างรอฐานข้อมูล (psycogreen ทำให้ psycopg2 ทำแบบนั้นได้
+    # ส่วน psycopg3 แบบ binary ทำไม่ได้ ถ้าใช้ตัวนั้นทุกคำสั่งจะบล็อกทั้ง worker
+    # กลายเป็นนักเรียนทั้งห้องต่อคิวกันทีละคน)
+    app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     # กุญแจเซ็น JWT — ถ้าใช้ค่า default ใครก็ปลอม token เป็นซูเปอร์แอดมินได้
     # จึงให้แอปหยุดทำงานไปเลยเมื่อรันแบบ production โดยไม่ได้ตั้งค่า ดีกว่าเดินหน้า

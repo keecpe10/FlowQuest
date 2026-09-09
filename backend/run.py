@@ -3,6 +3,9 @@ import os
 
 app = create_app()
 
+# ตอนรันจริงในคอนเทนเนอร์ gunicorn จะหยิบตัวแปร app ข้างบนไปใช้ตรง ๆ
+# (ดูค่าตั้งใน gunicorn.conf.py) ส่วนบล็อกข้างล่างมีไว้สำหรับสั่ง python run.py
+# บนเครื่องตัวเองเท่านั้น ห้ามใช้เส้นทางนี้กับของจริง
 if __name__ == '__main__':
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 't')
     socketio.run(app, host='0.0.0.0', port=5001, debug=debug_mode, allow_unsafe_werkzeug=True)

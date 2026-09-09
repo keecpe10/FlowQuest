@@ -12,4 +12,5 @@ COPY . .
 
 EXPOSE 5001
 
-CMD ["python", "run.py"]
+# รันด้วย gunicorn ไม่ใช่เซิร์ฟเวอร์สำหรับพัฒนา ค่าตั้งอยู่ใน gunicorn.conf.py
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "run:app"]
