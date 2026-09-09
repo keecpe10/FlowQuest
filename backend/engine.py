@@ -1,5 +1,12 @@
 def extract_connections(edges):
-    """เส้นในรูปที่เทียบกันได้ — สนใจแค่ตรรกะ ไม่สนว่าลากจากหูไหนของบล็อก"""
+    """เส้นในรูปที่เทียบกันได้ — สนใจแค่ตรรกะ ไม่สนว่าลากจากหูไหนของบล็อก
+
+    รับได้ทั้งรายการเส้นล้วน (คำตอบที่บันทึกไว้ก่อนหน้านี้) และ {nodes, edges}
+    (คำตอบแบบใหม่ที่เก็บตำแหน่งบล็อกที่นักเรียนจัดไว้ด้วย) การให้คะแนนต้องเท่ากัน
+    ทั้งสองแบบ ไม่งั้นนักเรียนที่ตอบตอนคนละเวอร์ชันจะได้คะแนนไม่เท่ากัน
+    """
+    if isinstance(edges, dict):
+        edges = edges.get('edges')
     connections = set()
     for e in edges or []:
         if not isinstance(e, dict):
@@ -38,7 +45,9 @@ def flowchart_score(solution_edges, student_edges):
     หารด้วย union ไม่ใช่จำนวนเส้นเฉลย มิฉะนั้นนักเรียนลากเส้นเชื่อมทุกคู่
     ที่เป็นไปได้จะครอบคลุมเฉลยทั้งหมดแล้วได้เต็มทันที
     """
-    if not isinstance(student_edges, list):
+    # คำตอบแบบใหม่เป็น {nodes, edges} ปล่อยให้ extract_connections แกะเอง
+    # ตัดทิ้งเฉพาะค่าที่ไม่ใช่ทั้งสองแบบ
+    if not isinstance(student_edges, (list, dict)):
         student_edges = []
     solution_conns = extract_connections(solution_edges)
     student_conns = extract_connections(student_edges)

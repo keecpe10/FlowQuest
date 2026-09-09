@@ -318,6 +318,13 @@ MAX_FLOW_EDGES = 200
 # จุดหักต่อหนึ่งเส้น — เผื่อให้ลากอ้อมได้สบาย แต่ไม่ปล่อยให้โตไม่จำกัด
 MAX_FLOW_WAYPOINTS = 20
 MAX_HANDLE_LEN = 40
+
+# ── เพดานของคำตอบที่นักเรียนส่งมา ──
+# answer_data ถูกเก็บลงฐานข้อมูลดิบ ๆ ไคลเอนต์ที่ถูกดัดแปลงจึงยัดข้อมูลขนาดเท่าไรก็ได้
+# ค่าพวกนี้ตั้งให้เผื่อคำตอบจริงไว้มากแล้ว นักเรียนปกติไม่มีทางชน
+MAX_ANSWER_TEXT = 1000
+MAX_ANSWER_ITEMS = 200
+MAX_SUDOKU_SIDE = 16
 FLOW_NODE_TYPES = {'terminal', 'process', 'decision', 'io',
                    'display', 'manual_input', 'connector'}
 FLOW_EDGE_LABELS = {'', 'จริง', 'เท็จ'}
@@ -488,6 +495,131 @@ def _clean_flowchart_metadata(meta, where):
         })
 
     return {'nodes': cleaned_nodes, 'edges': cleaned_edges}
+
+
+def _text(value, where, what):
+    """ข้อความจากนักเรียน ต้องเป็นข้อความและไม่ยาวเกินเหตุ"""
+    if not isinstance(value, str):
+        raise ValueError(f'{where}: {what}ต้องเป็นข้อความ')
+    if len(value) > MAX_ANSWER_TEXT:
+        raise ValueError(f'{where}: {what}ยาวเกิน {MAX_ANSWER_TEXT} ตัวอักษร')
+    return value
+
+
+def clean_answer_data(question_type, answer_data, where):
+    """ตรวจคำตอบที่นักเรียนส่งมาก่อนเก็บลงฐานข้อมูล
+
+    คืนค่าที่ตรวจแล้ว หรือโยน ValueError ถ้ารูปร่างผิดหรือใหญ่เกินเหตุ
+
+    มีไว้กันไคลเอนต์ที่ถูกดัดแปลง ไม่ใช่กันนักเรียนพิมพ์ผิด คำตอบที่ผิดแต่รูปร่างถูก
+    ยังผ่านเข้าไปให้ตัวตรวจให้คะแนนตามปกติ
+    """
+    if answer_data is None:
+        return None
+
+    if question_type == 'fill_blank':
+        return _text(answer_data, where, 'คำตอบ')
+
+    if question_type == 'matching':
+        if not isinstance(answer_data, list):
+            raise ValueError(f'{where}: คำตอบจับคู่ต้องเป็น list')
+        if len(answer_data) > MAX_ANSWER_ITEMS:
+            raise ValueError(f'{where}: จับคู่ได้ไม่เกิน {MAX_ANSWER_ITEMS} คู่')
+        for pair in answer_data:
+            if not isinstance(pair, list) or len(pair) > 4:
+                raise ValueError(f'{where}: รูปแบบคู่ที่จับไม่ถูกต้อง')
+            for part in pair:
+                _text(part, where, 'ข้อความในคู่ที่จับ')
+        return answer_data
+
+    if question_type == 'categorize':
+        if not isinstance(answer_data, dict):
+            raise ValueError(f'{where}: คำตอบจัดหมวดหมู่ต้องเป็น object')
+        if len(answer_data) > MAX_ANSWER_ITEMS:
+            raise ValueError(f'{where}: จัดหมวดได้ไม่เกิน {MAX_ANSWER_ITEMS} รายการ')
+        for k, v in answer_data.items():
+            _text(k, where, 'ชื่อรายการ')
+            if v is not None:
+                _text(v, where, 'ชื่อหมวด')
+        return answer_data
+
+    if question_type == 'sudoku':
+        if not isinstance(answer_data, list) or len(answer_data) > MAX_SUDOKU_SIDE:
+            raise ValueError(f'{where}: ตารางซูโดกุไม่ถูกต้อง')
+        for row in answer_data:
+            if not isinstance(row, list) or len(row) > MAX_SUDOKU_SIDE:
+                raise ValueError(f'{where}: แถวในตารางซูโดกุไม่ถูกต้อง')
+            for cell in row:
+                if not isinstance(cell, int) or isinstance(cell, bool):
+                    raise ValueError(f'{where}: ค่าในช่องซูโดกุต้องเป็นตัวเลข')
+        return answer_data
+
+    if question_type == 'flowchart':
+        # รับสองรูปแบบ: รายการเส้นล้วน (คำตอบที่บันทึกไว้ก่อนหน้านี้) และ
+        # {nodes, edges} ที่เก็บตำแหน่งบล็อกที่นักเรียนจัดไว้ด้วย
+        if isinstance(answer_data, dict):
+            # ต้องมี edges เสมอ ไม่งั้น dict มั่ว ๆ จะกลายเป็นคำตอบว่างแบบเงียบ ๆ
+            # แทนที่จะถูกปฏิเสธให้รู้ว่าไคลเอนต์ส่งอะไรผิด
+            if 'edges' not in answer_data:
+                raise ValueError(f'{where}: คำตอบผังงานต้องมีรายการเส้น')
+            raw_nodes = answer_data.get('nodes') or []
+            raw_edges = answer_data.get('edges') or []
+            if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+                raise ValueError(f'{where}: คำตอบผังงานไม่ถูกต้อง')
+        elif isinstance(answer_data, list):
+            raw_nodes, raw_edges = None, answer_data
+        else:
+            raise ValueError(f'{where}: คำตอบผังงานต้องเป็น list ของเส้น')
+
+        if len(raw_edges) > MAX_FLOW_EDGES:
+            raise ValueError(f'{where}: ลากเส้นได้ไม่เกิน {MAX_FLOW_EDGES} เส้น')
+        for e in raw_edges:
+            if not isinstance(e, dict):
+                raise ValueError(f'{where}: เส้นต้องเป็น object')
+            for key in ('source', 'target'):
+                if e.get(key) is not None:
+                    _text(e.get(key), where, 'ปลายเส้น')
+            if e.get('label') is not None:
+                _text(e.get('label'), where, 'ป้ายเส้น')
+            for key in ('sourceHandle', 'targetHandle'):
+                h = e.get(key)
+                if h is not None and (not isinstance(h, str) or len(h) > MAX_HANDLE_LEN):
+                    raise ValueError(f'{where}: จุดต่อของเส้นไม่ถูกต้อง')
+            wps = (e.get('data') or {}).get('waypoints')
+            if wps is not None:
+                if not isinstance(wps, list) or len(wps) > MAX_FLOW_WAYPOINTS:
+                    raise ValueError(
+                        f'{where}: จุดหักต่อเส้นได้ไม่เกิน {MAX_FLOW_WAYPOINTS} จุด')
+                for wp in wps:
+                    if not isinstance(wp, dict):
+                        raise ValueError(f'{where}: จุดหักของเส้นต้องเป็น object')
+                    try:
+                        wp['x'], wp['y'] = float(wp['x']), float(wp['y'])
+                    except (KeyError, TypeError, ValueError):
+                        raise ValueError(f'{where}: จุดหักของเส้นต้องเป็นตัวเลข')
+
+        if raw_nodes is None:
+            return raw_edges
+
+        if len(raw_nodes) > MAX_FLOW_NODES:
+            raise ValueError(f'{where}: บล็อกได้ไม่เกิน {MAX_FLOW_NODES} บล็อก')
+        cleaned_nodes = []
+        for n in raw_nodes:
+            if not isinstance(n, dict):
+                raise ValueError(f'{where}: บล็อกต้องเป็น object')
+            node_id = n.get('id')
+            _text(node_id, where, 'id ของบล็อก')
+            pos = n.get('position') or {}
+            try:
+                x, y = float(pos.get('x')), float(pos.get('y'))
+            except (TypeError, ValueError):
+                raise ValueError(f'{where}: ตำแหน่งบล็อกต้องเป็นตัวเลข')
+            # เก็บแค่ id กับตำแหน่ง ชนิดและป้ายของบล็อกมาจากเฉลยอยู่แล้ว
+            cleaned_nodes.append({'id': node_id, 'position': {'x': x, 'y': y}})
+        return {'nodes': cleaned_nodes, 'edges': raw_edges}
+
+    # ชนิดที่ตัดสินจากตัวเลือก ไม่ได้ใช้ answer_data — ถ้ามีอะไรแนบมาก็ไม่เก็บ
+    return None
 
 
 def clean_puzzle_metadata(question_type, metadata, where):
@@ -1248,7 +1380,14 @@ def submit_mcq(mission_id):
         question = MCQQuestion.query.get(q_id)
         if not question or question.mission_id != mission_id or question.is_draft:
             continue
-            
+
+        # ตรวจก่อนเก็บ ไม่งั้นไคลเอนต์ที่ถูกดัดแปลงยัดอะไรลงฐานข้อมูลก็ได้
+        try:
+            answer_data = clean_answer_data(question.question_type, answer_data,
+                                            f'ข้อ {q_id}')
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+
         is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
 
         user_ans = MCQUserAnswer(
@@ -1465,7 +1604,13 @@ def submit_mcq_single(mission_id):
     existing_ans = MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id, question_id=q_id).first()
     if existing_ans:
         return jsonify({'error': 'Question already answered'}), 400
-        
+
+    # ตรวจก่อนเก็บ ไม่งั้นไคลเอนต์ที่ถูกดัดแปลงยัดอะไรลงฐานข้อมูลก็ได้
+    try:
+        answer_data = clean_answer_data(question.question_type, answer_data, f'ข้อ {q_id}')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
     is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
 
     total_questions = live_questions(mission_id).count()
