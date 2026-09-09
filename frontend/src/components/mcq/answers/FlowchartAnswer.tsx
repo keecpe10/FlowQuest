@@ -26,10 +26,19 @@ const scramble = (nodes: any[]): Node[] =>
     position: { x: 100 + (i % 3) * 150, y: 100 + Math.floor(i / 3) * 100 },
   }));
 
+// เก็บจุดต่อไว้ด้วย เพื่อให้เส้นที่นักเรียนลากยังออกจากด้านเดิมเมื่อกลับมาดูอีกครั้ง
+// หรือเมื่อครูเปิดดูคำตอบ — การให้คะแนนไม่สนใจฟิลด์นี้ (ดู extract_connections
+// ที่ฝั่งเซิร์ฟเวอร์) จึงไม่กระทบผลสอบ
+//
+// ไม่เก็บจุดหัก (waypoints) ต่างจากฝั่งครู เพราะหน้านี้จัดตำแหน่งบล็อกใหม่ทุกครั้งด้วย
+// scramble และตำแหน่งที่นักเรียนลากไม่ได้ถูกบันทึก จุดหักเป็นพิกัดสัมบูรณ์ ถ้าคืนค่ามา
+// ทั้งที่บล็อกย้ายที่แล้ว เส้นจะหักผิดตำแหน่งยิ่งกว่าไม่คืนเลย
 const cleanEdges = (es: Edge[]) => es.map((e) => ({
   source: e.source,
   target: e.target,
   label: typeof e.label === 'string' ? e.label : '',
+  sourceHandle: e.sourceHandle ?? null,
+  targetHandle: e.targetHandle ?? null,
 }));
 
 /**
@@ -49,6 +58,10 @@ const Canvas: React.FC<Props> = ({ metadata, value, onChange, disabled }) => {
       target: e.target,
       label: e.label || '',
       type: 'waypoint',
+      // คืนจุดต่อที่บันทึกไว้ ทั้งของคำตอบนักเรียนเองและของเฉลยที่ครูออกแบบ
+      // (หน้าจบข้อสอบเอาเฉลยมาแสดงผ่านคอมโพเนนต์ตัวเดียวกันนี้)
+      sourceHandle: e.sourceHandle ?? undefined,
+      targetHandle: e.targetHandle ?? undefined,
       data: { waypoints: [] },
       markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8' },
       style: { stroke: '#94a3b8', strokeWidth: 2 },
