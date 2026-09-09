@@ -113,7 +113,8 @@ const FlowBuilderCore: React.FC = () => {
       }
     };
     if (missionId && user) fetchMission();
-  }, [missionId, token, setNodes, setEdges, user]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [missionId, setNodes, setEdges, user]);
 
   // Auto-save progress with debounce
   useEffect(() => {
@@ -134,7 +135,8 @@ const FlowBuilderCore: React.FC = () => {
     }, 2000);
     
     return () => clearTimeout(timeoutId);
-  }, [nodes, edges, missionId, user, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [nodes, edges, missionId, user]);
 
   const onConnect = useCallback(
     async (params: Edge | Connection) => {

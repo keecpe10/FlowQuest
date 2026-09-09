@@ -1,8 +1,8 @@
 import React, { useState, useEffect, Suspense } from 'react';
+import { getToken } from '../utils/sessionToken';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Environment, Text } from '@react-three/drei';
 import axios from 'axios';
-import { useAuthStore } from '../store/useAuthStore';
 import CharacterModel from '../components/Character/CharacterModel';
 import { io } from 'socket.io-client';
 import { Trophy, ChevronLeft, Zap, Clock, Medal } from 'lucide-react';
@@ -158,20 +158,23 @@ const SidebarRankCard = ({ user, index }: { user: LeaderboardUser; index: number
 const Leaderboard3D = () => {
     const [users, setUsers] = useState<LeaderboardUser[]>([]);
     const [loading, setLoading] = useState(true);
-    const token = useAuthStore(state => state.token);
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const missionId = searchParams.get('mission_id');
     const courseId = searchParams.get('course_id');
 
     const fetchLeaderboard = async () => {
+        // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
+        // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
+        // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
+        const authToken = getToken();
         try {
             const url = missionId
                 ? `${API_BASE}/api/v1/game/leaderboard-3d?mission_id=${missionId}`
                 : courseId
                 ? `${API_BASE}/api/v1/game/leaderboard-3d?course_id=${courseId}`
                 : `${API_BASE}/api/v1/game/leaderboard-3d`;
-            const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+            const res = await axios.get(url, { headers: { Authorization: `Bearer ${authToken}` } });
             setUsers(res.data);
         } catch (error) {
             console.error('Failed to fetch leaderboard', error);
@@ -185,7 +188,8 @@ const Leaderboard3D = () => {
         const socket = io(API_BASE, { transports: ['polling'] });
         socket.on('points_awarded', () => { fetchLeaderboard(); });
         return () => { socket.disconnect(); };
-    }, [token]);
+    // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+    }, []);
 
     const top3 = users.filter(u => u.rank <= 3);
     const rest = users.filter(u => u.rank > 3).sort((a, b) => a.rank - b.rank);

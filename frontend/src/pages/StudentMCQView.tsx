@@ -1,4 +1,5 @@
 import CategorizeItemContent from '../components/mcq/CategorizeItemContent';
+import { getToken } from '../utils/sessionToken';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -57,9 +58,13 @@ const StudentMCQView = () => {
 
   useEffect(() => {
     const fetchData = async () => {
+      // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
+      // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
+      // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
+      const authToken = getToken();
       try {
         const res = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${missionId}/student/${studentId}`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${authToken}` }
         });
         setStudentName(res.data.student_name);
         setStatus(res.data.status);
@@ -85,7 +90,8 @@ const StudentMCQView = () => {
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [missionId, studentId, token, status]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [missionId, studentId, status]);
 
   const handleManualGrade = async (questionId: number) => {
       try {

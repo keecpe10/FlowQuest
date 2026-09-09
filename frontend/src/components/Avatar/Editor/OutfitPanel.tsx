@@ -15,7 +15,8 @@ const OutfitPanel: React.FC = () => {
 
   useEffect(() => {
     if (token) loadOutfits(token);
-  }, [token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, []);
 
   const handleSave = async () => {
     const name = newName.trim() || `Outfit ${outfits.length + 1}`;

@@ -7,6 +7,7 @@ import LiveTimer from './components/LiveTimer';
 import { handleMissionAccessError } from './utils/missionAccess';
 import Toolbox from './components/Toolbox';
 import ProtectedRoute from './components/ProtectedRoute';
+import SessionGuard from './components/SessionGuard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Profile from './pages/Profile';
@@ -259,7 +260,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
 
         <button
-          onClick={logout}
+          onClick={() => logout()}
           className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
             isTeacher
               ? 'text-slate-400 hover:bg-rose-50 hover:text-rose-500'
@@ -295,7 +296,8 @@ export const GlobalStudentProfile = () => {
       .then(res => setPoints(res.data.points))
       .catch(err => console.error('Failed to fetch profile', err));
     }
-  }, [user, isTeacher, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [user, isTeacher]);
 
   if (!user || isTeacher) return null;
 
@@ -359,7 +361,8 @@ const GameView = () => {
         console.error(error);
       });
     }
-  }, [id, user, token]);
+  // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
+  }, [id, user]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-900">
@@ -425,11 +428,23 @@ const PageWithTitle = ({ title, children }: { title: string, children: React.Rea
 
 function App() {
   const user = useAuthStore(state => state.user);
+  const authReady = useAuthStore(state => state.authReady);
+
+  // ระหว่างนี้กำลังถามแท็บอื่นว่ามี session อยู่ไหม ถ้าเรนเดอร์เส้นทางไปเลย
+  // ProtectedRoute จะเด้งไปหน้าเข้าสู่ระบบก่อนคำตอบมาถึง
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-400">
+        กำลังตรวจสอบสิทธิ์…
+      </div>
+    );
+  }
 
   return (
     // ClickSpark ครอบทั้งแอป ทุกหน้าจึงมีประกายตอนคลิกโดยไม่ต้องไปแก้ทีละหน้า
     <ClickSpark sparkColor="#a78bfa" sparkSize={9} sparkRadius={18} sparkCount={8} duration={420}>
     <BrowserRouter>
+      <SessionGuard />
       <Routes>
         <Route path="/login" element={<PageWithTitle title="เข้าสู่ระบบ"><Login /></PageWithTitle>} />
         <Route path="/register" element={<PageWithTitle title="สมัครสมาชิก"><Register /></PageWithTitle>} />

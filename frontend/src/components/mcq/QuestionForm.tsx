@@ -3,6 +3,7 @@ import { Plus, Save, Trash2, CheckCircle, AlertTriangle, ImagePlus, Loader2 } fr
 import RichContentEditor from './RichContentEditor';
 import { EMPTY_DOC, resolveImageUrl, uploadImage, type RichDoc } from './blocks';
 import Swal from 'sweetalert2';
+import { getToken } from '../../utils/sessionToken';
 import SudokuQuestionEditor, { emptySudokuMeta } from './editors/SudokuQuestionEditor';
 import FlowchartQuestionEditor, { emptyFlowchartMeta } from './editors/FlowchartQuestionEditor';
 
@@ -127,7 +128,7 @@ export default function QuestionForm({
     uploadBusy.current = true;
     setUploadingItem(itemIndex);
     try {
-      const image_url = await uploadImage(file, localStorage.getItem('token'));
+      const image_url = await uploadImage(file, getToken());
       // Switching questions unmounts this form; never write an old upload into the next question.
       if (!mounted.current) return;
       const currentItems = latest.current.question_metadata?.items || [];

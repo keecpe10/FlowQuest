@@ -34,11 +34,17 @@ const Login = () => {
     }
   };
 
-  // หนึ่งบัญชีล็อกอินได้ทีละเครื่อง ถ้าถูกตัดเพราะไปล็อกอินที่อื่น ให้บอกเหตุผล
+  // บอกให้รู้ว่าถูกเด้งออกมาเพราะอะไร ไม่งั้นผู้ใช้จะเจอแค่การหลุดเฉย ๆ
   const [sessionNotice, setSessionNotice] = useState('');
   useEffect(() => {
-    if (sessionStorage.getItem('logout_reason') === 'session_replaced') {
-      setSessionNotice('บัญชีนี้ถูกใช้งานที่เครื่องอื่น หนึ่งบัญชีเข้าใช้ได้ทีละเครื่องเท่านั้น');
+    const notices: Record<string, string> = {
+      session_replaced: 'บัญชีนี้ถูกใช้งานที่เครื่องอื่น หนึ่งบัญชีเข้าใช้ได้ทีละเครื่องเท่านั้น',
+      idle: 'ออกจากระบบอัตโนมัติ เนื่องจากไม่มีการใช้งานนาน 30 นาที',
+      expired: 'รอบการเข้าใช้งานหมดอายุแล้ว กรุณาเข้าสู่ระบบใหม่',
+    };
+    const reason = sessionStorage.getItem('logout_reason');
+    if (reason && notices[reason]) {
+      setSessionNotice(notices[reason]);
       sessionStorage.removeItem('logout_reason');
     }
   }, []);

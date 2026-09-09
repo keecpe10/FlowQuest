@@ -11,18 +11,28 @@ import os
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
 
-TOKEN_LIFETIME = timedelta(days=1)
+# ไม่มีการใช้งาน 30 นาทีแล้วต้องหลุด การบังคับจึงอยู่ที่ exp ของ token เอง
+# หน้าเว็บมีหน้าที่เรียก /auth/refresh ให้เมื่อผู้ใช้ยังใช้งานอยู่เท่านั้น
+TOKEN_LIFETIME = timedelta(minutes=30)
+
+# คีย์รอบใน Redis ต้องอยู่ได้นานกว่า token เล็กน้อย ถ้าคีย์หายไปก่อน token
+# ใบสุดท้ายหมดอายุ กติกา "ไม่มีค่า = ปล่อยผ่าน" จะทำให้ token ที่ถูกตัดไปแล้ว
+# กลับมาใช้ได้อีกในช่วงคาบเกี่ยวนั้น
+SESSION_TTL_SECONDS = int(TOKEN_LIFETIME.total_seconds()) + 300
 
 
-def generate_token(user_id):
+def generate_token(user_id, session_id=None):
     """ออก token ใหม่ พร้อมบันทึกว่ารอบนี้คือรอบล่าสุดของบัญชีนี้
 
-    หนึ่งบัญชีล็อกอินได้ทีละเครื่อง การออก token ใหม่จึงเท่ากับตัดเครื่องเดิม
-    ออกโดยอัตโนมัติ เพราะ sid ที่บันทึกไว้จะไม่ตรงกับ token ใบเก่าอีกต่อไป
-    (ดูการตรวจใน auth_utils.user_id_from_token)
+    หนึ่งบัญชีล็อกอินได้ทีละเครื่อง การล็อกอินใหม่ (ไม่ส่ง session_id มา) จึงสุ่ม
+    รหัสรอบใหม่ ซึ่งเท่ากับตัดเครื่องเดิมออกโดยอัตโนมัติ เพราะ sid ที่บันทึกไว้จะ
+    ไม่ตรงกับ token ใบเก่าอีกต่อไป (ดูการตรวจใน auth_utils.payload_from_token)
+
+    ส่วนการต่ออายุต้องส่ง session_id เดิมเข้ามา เพื่อไม่ให้การต่ออายุกลายเป็นการ
+    ตัดตัวเอง — ดูเหตุผลเต็มที่ /auth/refresh
     """
     secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
-    session_id = uuid.uuid4().hex
+    session_id = session_id or uuid.uuid4().hex
     payload = {
         'exp': datetime.utcnow() + TOKEN_LIFETIME,
         'iat': datetime.utcnow(),
@@ -30,8 +40,7 @@ def generate_token(user_id):
         'sid': session_id,
     }
     shared_state.set_value(
-        auth_utils.session_key(user_id), session_id,
-        int(TOKEN_LIFETIME.total_seconds()),
+        auth_utils.session_key(user_id), session_id, SESSION_TTL_SECONDS,
     )
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
@@ -109,9 +118,29 @@ def logout():
         # ออกจากระบบ
         shared_state.set_value(
             auth_utils.session_key(user_id), uuid.uuid4().hex,
-            int(TOKEN_LIFETIME.total_seconds()),
+            SESSION_TTL_SECONDS,
         )
     return jsonify({'message': 'ออกจากระบบแล้ว'}), 200
+
+
+@auth_bp.route('/refresh', methods=['POST'])
+def refresh():
+    """ต่ออายุ token ให้ผู้ใช้ที่ยังใช้งานอยู่ โดยคงรหัสรอบ (sid) เดิมไว้
+
+    ต้องใช้ sid เดิม ห้ามสุ่มใหม่ ไม่งั้นสองแท็บที่ต่ออายุใกล้ ๆ กันจะฆ่ากันเอง —
+    แท็บที่ยิงทีหลังเขียน sid ใหม่ทับ แล้วแท็บแรกที่ยังถือ token ใบก่อนหน้าจะถูก
+    ตัดออกทั้งที่ผู้ใช้กำลังทำงานอยู่
+
+    token ที่ถูกตัดไปแล้ว (ไปล็อกอินเครื่องอื่น หรือกดออกจากระบบ) ต่ออายุตัวเอง
+    กลับมาไม่ได้ เพราะด่านตรวจ sid อยู่ใน payload_from_token ก่อนถึงบรรทัดนี้
+    """
+    payload = auth_utils.payload_from_token(request.headers.get('Authorization'))
+    if not payload or not payload.get('sid'):
+        # token ที่ไม่มี sid ต่ออายุไม่ได้ ถ้าปล่อยผ่าน generate_token จะสุ่ม sid ใหม่แล้ว
+        # เขียนทับรอบของเครื่องที่กำลังใช้งานอยู่ กลายเป็นเตะเจ้าของบัญชีออกเสียเอง
+        return jsonify({'message': 'Unauthorized'}), 401
+    token = generate_token(payload['sub'], payload['sid'])
+    return jsonify({'access_token': token}), 200
 
 
 @auth_bp.route('/classes', methods=['GET'])

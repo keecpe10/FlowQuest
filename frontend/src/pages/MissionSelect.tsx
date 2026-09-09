@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { getToken } from '../utils/sessionToken';
 import axios from 'axios';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Play, Lock, CheckCircle, Star, Zap, Target, ArrowLeft, Trophy, AlertTriangle } from 'lucide-react';

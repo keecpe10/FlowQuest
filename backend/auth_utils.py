@@ -7,11 +7,11 @@ def session_key(user_id):
     return f'active_session:{user_id}'
 
 
-def user_id_from_token(token):
-    """ถอด user_id จาก JWT คืน None ถ้า token ไม่ถูกต้อง หมดอายุ หรือถูกแทนที่แล้ว
+def payload_from_token(token):
+    """ถอด JWT คืน payload ที่ตรวจแล้ว หรือ None ถ้า token ไม่ถูกต้อง หมดอายุ หรือถูกแทนที่
 
-    แยกออกมาเพื่อให้ฝั่ง Socket.IO ใช้ได้ด้วย เพราะตอนเชื่อมต่อ socket
-    ไม่ได้ส่ง token มาทาง header เหมือน HTTP ปกติ
+    แยกออกมาจาก user_id_from_token เพราะ /auth/refresh ต้องใช้ sid เดิมจาก token
+    ใบที่ถืออยู่ ไม่ใช่แค่ user_id
 
     หนึ่งบัญชีล็อกอินได้ทีละเครื่อง — ตอนล็อกอินจะบันทึกรหัสรอบ (sid) ล่าสุดไว้
     ถ้า token ที่ถืออยู่มี sid ไม่ตรงกับตัวล่าสุด แปลว่ามีคนล็อกอินบัญชีนี้จาก
@@ -40,7 +40,17 @@ def user_id_from_token(token):
         if active_sid and active_sid != token_sid:
             return None
 
-    return user_id
+    return data
+
+
+def user_id_from_token(token):
+    """ถอด user_id จาก JWT คืน None ถ้า token ใช้ไม่ได้
+
+    แยกออกมาเพื่อให้ฝั่ง Socket.IO ใช้ได้ด้วย เพราะตอนเชื่อมต่อ socket
+    ไม่ได้ส่ง token มาทาง header เหมือน HTTP ปกติ
+    """
+    data = payload_from_token(token)
+    return data['sub'] if data else None
 
 
 def get_current_user_id():

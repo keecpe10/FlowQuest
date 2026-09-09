@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { getToken } from '../utils/sessionToken';
 import axios from 'axios';
 import {
   Users, GraduationCap, Award, Search, LayoutDashboard,
@@ -268,12 +269,16 @@ const TeacherDashboard = () => {
   });
 
   const fetchData = async () => {
+    // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
+    // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
+    // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
+    const authToken = getToken();
     try {
       const [courseRes, studentsRes, missionsRes, classOptsRes] = await Promise.all([
-        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${courseId}`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${courseId}/students`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/course/${courseId}`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/classes/options`, { headers: { Authorization: `Bearer ${token}` } })
+        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${courseId}`, { headers: { Authorization: `Bearer ${authToken}` } }),
+        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/courses/${courseId}/students`, { headers: { Authorization: `Bearer ${authToken}` } }),
+        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/course/${courseId}`, { headers: { Authorization: `Bearer ${authToken}` } }),
+        axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/classes/options`, { headers: { Authorization: `Bearer ${authToken}` } })
       ]);
       setOverview(courseRes.data);
       setStudents(studentsRes.data);

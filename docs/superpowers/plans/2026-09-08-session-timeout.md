@@ -66,6 +66,7 @@
 สคริปต์นี้สร้างข้อมูลทดสอบชั่วคราวใน DB จริง แล้วลบทิ้งเสมอเมื่อจบ
 """
 import os
+import time
 import uuid
 from datetime import datetime, timedelta
 import jwt
@@ -123,6 +124,9 @@ with app.app_context():
     check('token ที่หมดอายุแล้วถูกปฏิเสธ', me(stale) == 401, me(stale))
 
     print('\n[3] ต่ออายุได้เมื่อยังใช้งานอยู่')
+    # JWT เก็บเวลาเป็นวินาทีเต็ม ถ้าออก token สองใบภายในวินาทีเดียวกัน exp จะเท่ากันพอดี
+    # ต้องรอให้ข้ามวินาทีก่อน ไม่งั้นเทสต์ข้อถัดไปจะผ่านหรือไม่ผ่านตามความเร็วเครื่อง
+    time.sleep(1.1)
     st, tok2 = refresh(tok)
     check('เรียก refresh ได้', st == 200, st)
     check('ได้ token ใหม่ที่ exp ขยับออกไป', peek(tok2)['exp'] > peek(tok)['exp'],
@@ -753,6 +757,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 /** รับ session ที่มาจากแท็บอื่นหรือจาก storage ของแท็บนี้ โดยไม่ประกาศซ้ำออกไปอีก */
 const adoptSession = (session: StoredSession | null) => {
   if (!session) {
+    // ต้องล้าง storage ของแท็บนี้ด้วย ไม่ใช่แค่ล้าง state ในหน่วยความจำ ไม่งั้นแท็บที่
+    // ได้ยินประกาศออกจากระบบจากแท็บอื่นจะยังเก็บ token ที่ตายแล้วไว้ พอกด F5 มันจะ
+    // ล็อกอินกลับเข้ามาด้วย token ใบนั้น แล้วโดนเด้งออกพร้อมข้อความว่า "บัญชีนี้ถูก
+    // ใช้งานที่เครื่องอื่น" ซึ่งไม่จริง เจ้าตัวแค่กดออกจากระบบเอง
+    clearSession();
     setAuthHeader(null);
     useAuthStore.setState({ user: null, token: null, isAuthenticated: false, authReady: true });
     return;
@@ -791,14 +800,17 @@ axios.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
+      // 401 ของคำขอที่ไม่ได้ถือ token มาด้วย (เช่น พิมพ์รหัสผ่านผิดในหน้าเข้าสู่ระบบ)
+      // ไม่ใช่การหลุดจากระบบ ถ้าสั่ง logout ตรงนี้ การประกาศข้ามแท็บจะไปเตะแท็บอื่น
+      // ที่ยังใช้งานอยู่ออกทั้งหมด โดยเจ้าตัวไม่รู้ด้วยซ้ำว่าเกิดอะไรขึ้น
       const token = getToken();
       if (token) {
         // แยกให้ออกว่าหลุดเพราะอะไร ไม่งั้นคนที่แค่ทิ้งเครื่องไว้จนหมดเวลาจะถูก
         // บอกว่า "มีคนใช้บัญชีนี้ที่เครื่องอื่น" ซึ่งไม่จริงและทำให้ตกใจเปล่า ๆ
         const expiresAt = tokenExpiresAt(token);
         rememberLogoutReason(expiresAt && expiresAt <= Date.now() ? 'expired' : 'session_replaced');
+        useAuthStore.getState().logout();
       }
-      useAuthStore.getState().logout();
     }
     return Promise.reject(error);
   }
@@ -1199,7 +1211,7 @@ Expected: PASS ทั้งหมด — เทสต์ข้อ "ค่าค�
 - [ ] **Step 8: รันชุดตรวจทั้งหมดปิดงาน**
 
 ```bash
-cd /Users/panupongdonkrathok16/Desktop/FlowChart/frontend && node --test tests/ && npm run build && npm run lint
+cd /Users/panupongdonkrathok16/Desktop/FlowChart/frontend && cd /Users/panupongdonkrathok16/Desktop/FlowChart/frontend && node --test tests/*.test.mjs && npm run build && npm run lint
 ```
 
 ```bash

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from './useAuthStore';
+import { getToken } from '../utils/sessionToken';
 
 export const API_URL = `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1`;
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -117,7 +118,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     // และไม่ต้องเชื่อ user_id ที่ client ส่งมาในแต่ละอีเวนต์
     const socket = io(SOCKET_URL, {
       transports: ['polling'],
-      auth: { token: localStorage.getItem('token') },
+      auth: { token: getToken() },
     });
     
     socket.on('connect', () => {

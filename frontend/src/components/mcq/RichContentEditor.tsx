@@ -6,6 +6,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import { Bold, Italic, List, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { resolveImageUrl, uploadImage, withAbsoluteImages, withRelativeImages, type RichDoc } from './blocks';
+import { getToken } from '../../utils/sessionToken';
 
 interface Props {
   doc: RichDoc;
@@ -65,7 +66,7 @@ function RichContentEditor({ doc, onChange, variant, placeholder }: Props) {
     if (!editor) return;
     setUploading(true);
     try {
-      const url = await uploadImage(file, localStorage.getItem('token'));
+      const url = await uploadImage(file, getToken());
       // ใส่ URL เต็มลงตัวแก้ไขเพื่อให้รูปขึ้น ตอนบันทึกจะถูกแปลงกลับเป็น path
       editor.chain().focus().setImage({ src: resolveImageUrl(url) }).run();
     } catch (err) {
