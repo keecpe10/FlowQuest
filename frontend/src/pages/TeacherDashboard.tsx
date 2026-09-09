@@ -296,7 +296,7 @@ const TeacherDashboard = () => {
     if (user && user.role === 'teacher') fetchData();
     
     // Listen for real-time mission updates
-    const socket = io(import.meta.env.VITE_API_BASE_URL || '', { transports: ['polling'] });
+    const socket = io(import.meta.env.VITE_API_BASE_URL || '');
     socket.on('missions_updated', () => {
       fetchData();
     });

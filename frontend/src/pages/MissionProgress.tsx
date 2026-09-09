@@ -101,7 +101,7 @@ const MissionProgress = () => {
       fetchMissionDetails();
       fetchProgress().finally(() => setIsLoading(false));
       
-      const socket = io(import.meta.env.VITE_API_BASE_URL || '', { transports: ['polling'] });
+      const socket = io(import.meta.env.VITE_API_BASE_URL || '');
       socket.on('missions_updated', () => {
         fetchProgress();
       });

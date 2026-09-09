@@ -59,7 +59,7 @@ export default function MCQLeaderboard({ missionId, currentUserId }: Props) {
   useEffect(() => {
     fetchLeaderboard();
 
-    const socket = io(import.meta.env.VITE_API_BASE_URL || '', { transports: ['polling'] });
+    const socket = io(import.meta.env.VITE_API_BASE_URL || '');
     socket.on('points_awarded', () => fetchLeaderboard(true));
     socket.on('missions_updated', () => fetchLeaderboard());
 

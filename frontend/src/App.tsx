@@ -1,8 +1,6 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import FlowBuilder from './FlowBuilder';
-import Leaderboard from './Leaderboard';
 import LiveTimer from './components/LiveTimer';
 import { handleMissionAccessError } from './utils/missionAccess';
 import Toolbox from './components/Toolbox';
@@ -10,31 +8,40 @@ import ProtectedRoute from './components/ProtectedRoute';
 import SessionGuard from './components/SessionGuard';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Profile from './pages/Profile';
-import MissionSelect from './pages/MissionSelect';
-import TeacherDashboard from './pages/TeacherDashboard';
-import TeacherCourseList from './pages/TeacherCourseList';
-import StudentCourseList from './pages/StudentCourseList';
-import TeacherFlowBuilder from './pages/TeacherFlowBuilder';
-import MissionProgress from './pages/MissionProgress';
-import StudentFlowchartView from './pages/StudentFlowchartView';
-import { BrainstormStation } from './pages/BrainstormStation';
-import TeacherMCQBuilder from './pages/TeacherMCQBuilder';
-import StudentMCQPlayer from './pages/StudentMCQPlayer';
-import StudentMCQView from './pages/StudentMCQView';
-import TeacherSudokuBuilder from './pages/TeacherSudokuBuilder';
-import StudentSudokuPlayer from './pages/StudentSudokuPlayer';
-import TeacherSudokuStudentView from './pages/TeacherSudokuStudentView';
-import CharacterCreator from './pages/CharacterCreator';
-import Shop from './pages/Shop';
-import Inventory from './pages/Inventory';
-import TradeMarket from './pages/TradeMarket';
-import Leaderboard3D from './pages/Leaderboard3D';
-import TeacherManagement from './pages/TeacherManagement';
-import StudentManagement from './pages/StudentManagement';
 import { LayoutGrid, UserCircle, Zap, LogOut, BarChart3, ArrowLeft, BrainCircuit, Play, ShoppingBag, Archive, ArrowRightLeft, BookOpen, Trophy, Users, GraduationCap } from 'lucide-react';
 import ClickSpark from './components/reactbits/ClickSpark';
 import { useAuthStore } from './store/useAuthStore';
+
+// แต่ละหน้าถูกโหลดตอนเข้าใช้จริงเท่านั้น ไม่ได้มัดรวมมากับไฟล์แรก
+// เหตุผล: หอเกียรติยศ 3 มิติลากไลบรารีสามมิติทั้งก้อนมาด้วย และหน้าออกแบบผังงาน
+// ลากตัววาดผังงานมา ทั้งที่นักเรียนที่เข้ามาทำข้อสอบไม่ได้ใช้สักอย่าง การรวมไว้
+// ก้อนเดียวแปลว่าทุกเครื่องในห้องต้องโหลดของที่ตัวเองไม่ได้เปิดด้วย
+const FlowBuilder = lazy(() => import('./FlowBuilder'));
+const Leaderboard = lazy(() => import('./Leaderboard'));
+const Profile = lazy(() => import('./pages/Profile'));
+const MissionSelect = lazy(() => import('./pages/MissionSelect'));
+const TeacherDashboard = lazy(() => import('./pages/TeacherDashboard'));
+const TeacherCourseList = lazy(() => import('./pages/TeacherCourseList'));
+const StudentCourseList = lazy(() => import('./pages/StudentCourseList'));
+const TeacherFlowBuilder = lazy(() => import('./pages/TeacherFlowBuilder'));
+const MissionProgress = lazy(() => import('./pages/MissionProgress'));
+const StudentFlowchartView = lazy(() => import('./pages/StudentFlowchartView'));
+const TeacherMCQBuilder = lazy(() => import('./pages/TeacherMCQBuilder'));
+const StudentMCQPlayer = lazy(() => import('./pages/StudentMCQPlayer'));
+const StudentMCQView = lazy(() => import('./pages/StudentMCQView'));
+const TeacherSudokuBuilder = lazy(() => import('./pages/TeacherSudokuBuilder'));
+const StudentSudokuPlayer = lazy(() => import('./pages/StudentSudokuPlayer'));
+const TeacherSudokuStudentView = lazy(() => import('./pages/TeacherSudokuStudentView'));
+const CharacterCreator = lazy(() => import('./pages/CharacterCreator'));
+const Shop = lazy(() => import('./pages/Shop'));
+const Inventory = lazy(() => import('./pages/Inventory'));
+const TradeMarket = lazy(() => import('./pages/TradeMarket'));
+const Leaderboard3D = lazy(() => import('./pages/Leaderboard3D'));
+const TeacherManagement = lazy(() => import('./pages/TeacherManagement'));
+const StudentManagement = lazy(() => import('./pages/StudentManagement'));
+const BrainstormStation = lazy(() =>
+  import('./pages/BrainstormStation').then(m => ({ default: m.BrainstormStation })));
+
 
 const HomeRoute = () => {
   const user = useAuthStore(state => state.user);
@@ -445,6 +452,9 @@ function App() {
     <ClickSpark sparkColor="#a78bfa" sparkSize={9} sparkRadius={18} sparkCount={8} duration={420}>
     <BrowserRouter>
       <SessionGuard />
+      {/* ระหว่างที่ก้อนของหน้านั้นกำลังโหลด ให้ค้างหน้าจอเปล่าที่มีพื้นหลังเดียวกันไว้ก่อน
+          บนเน็ตช้าจังหวะนี้กินเวลาสังเกตได้ ถ้าไม่มีอะไรคั่นจะเห็นเป็นจอขาววาบ */}
+      <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
       <Routes>
         <Route path="/login" element={<PageWithTitle title="เข้าสู่ระบบ"><Login /></PageWithTitle>} />
         <Route path="/register" element={<PageWithTitle title="สมัครสมาชิก"><Register /></PageWithTitle>} />
@@ -478,6 +488,7 @@ function App() {
           <Route path="/teacher/mission/:id/sudoku-student/:studentId" element={<PageWithTitle title="ผลงานซูโดกุนักเรียน"><TeacherSudokuStudentView /></PageWithTitle>} />
         </Route>
       </Routes>
+      </Suspense>
     </BrowserRouter>
     </ClickSpark>
   );

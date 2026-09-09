@@ -185,7 +185,7 @@ const Leaderboard3D = () => {
 
     useEffect(() => {
         fetchLeaderboard();
-        const socket = io(API_BASE, { transports: ['polling'] });
+        const socket = io(API_BASE);
         socket.on('points_awarded', () => { fetchLeaderboard(); });
         return () => { socket.disconnect(); };
     // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่

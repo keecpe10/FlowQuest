@@ -117,7 +117,6 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     // ส่ง token ตอนจับมือ เซิร์ฟเวอร์จะได้รู้ว่า connection นี้เป็นของใคร
     // และไม่ต้องเชื่อ user_id ที่ client ส่งมาในแต่ละอีเวนต์
     const socket = io(SOCKET_URL, {
-      transports: ['polling'],
       auth: { token: getToken() },
     });
     
