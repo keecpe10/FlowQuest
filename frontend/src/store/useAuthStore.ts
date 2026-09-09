@@ -129,8 +129,13 @@ axios.interceptors.response.use(
       if (token) {
         // แยกให้ออกว่าหลุดเพราะอะไร ไม่งั้นคนที่แค่ทิ้งเครื่องไว้จนหมดเวลาจะถูก
         // บอกว่า "มีคนใช้บัญชีนี้ที่เครื่องอื่น" ซึ่งไม่จริงและทำให้ตกใจเปล่า ๆ
+        //
+        // 401 ที่มาจากการต่ออายุคือรอบเข้าใช้งานถึงกำหนดสิ้นสุด (ครบเพดานอายุรวม
+        // หรือสถานะบัญชีถูกเปลี่ยน) ไม่ใช่การถูกแย่งเครื่อง จึงนับเป็นหมดอายุ
+        const fromRefresh = String(error.config?.url || '').includes('/auth/refresh');
         const expiresAt = tokenExpiresAt(token);
-        const reason: LogoutReason = expiresAt && expiresAt <= Date.now() ? 'expired' : 'session_replaced';
+        const reason: LogoutReason =
+          fromRefresh || (expiresAt && expiresAt <= Date.now()) ? 'expired' : 'session_replaced';
         rememberLogoutReason(reason);
         // ส่งเหตุผลไปกับประกาศด้วย ไม่งั้นแท็บอื่นจะเด้งออกแบบไม่มีคำอธิบาย ทั้งที่
         // "บัญชีนี้ถูกใช้งานที่เครื่องอื่น" คือกรณีที่ผู้ใช้ต้องรู้มากที่สุด

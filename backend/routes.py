@@ -20,8 +20,18 @@ TOKEN_LIFETIME = timedelta(minutes=30)
 # กลับมาใช้ได้อีกในช่วงคาบเกี่ยวนั้น
 SESSION_TTL_SECONDS = int(TOKEN_LIFETIME.total_seconds()) + 300
 
+# เพดานอายุรวมของหนึ่งรอบเข้าใช้งาน นับจากตอนล็อกอิน ไม่ใช่จากตอนต่ออายุครั้งล่าสุด
+# ถ้าไม่มีเพดานนี้ token ที่ถูกคัดลอกออกไปจะยืดอายุตัวเองได้ตลอดกาล ตั้งไว้ยาวกว่า
+# หนึ่งวันสอนพอสมควร ครูที่ใช้ทั้งวันจึงไม่โดนตัดกลางคัน
+SESSION_MAX_LIFETIME = timedelta(hours=12)
 
-def generate_token(user_id, session_id=None):
+# ไคลเอนต์ปกติต่ออายุราว 15 นาทีต่อครั้งต่อแท็บ เพดานนี้จึงเหลือเฟือแม้เปิดหลายแท็บ
+# มีไว้กันไคลเอนต์ที่เพี้ยนหรือถูกดัดแปลงยิงรัวใส่เซิร์ฟเวอร์
+REFRESH_MAX_PER_WINDOW = 20
+REFRESH_WINDOW_SECONDS = 300
+
+
+def generate_token(user_id, session_id=None, session_start=None):
     """ออก token ใหม่ พร้อมบันทึกว่ารอบนี้คือรอบล่าสุดของบัญชีนี้
 
     หนึ่งบัญชีล็อกอินได้ทีละเครื่อง การล็อกอินใหม่ (ไม่ส่ง session_id มา) จึงสุ่ม
@@ -33,9 +43,12 @@ def generate_token(user_id, session_id=None):
     """
     secret_key = os.getenv('SECRET_KEY', 'dev_secret_key')
     session_id = session_id or uuid.uuid4().hex
+    now = datetime.utcnow()
+    # sst = เวลาที่รอบนี้เริ่ม ต่ออายุกี่ครั้งค่านี้ก็ไม่ขยับ จึงใช้เป็นตัววัดเพดานอายุรวมได้
     payload = {
-        'exp': datetime.utcnow() + TOKEN_LIFETIME,
-        'iat': datetime.utcnow(),
+        'exp': now + TOKEN_LIFETIME,
+        'iat': now,
+        'sst': int((session_start or now).timestamp()),
         'sub': user_id,
         'sid': session_id,
     }
@@ -139,7 +152,33 @@ def refresh():
         # token ที่ไม่มี sid ต่ออายุไม่ได้ ถ้าปล่อยผ่าน generate_token จะสุ่ม sid ใหม่แล้ว
         # เขียนทับรอบของเครื่องที่กำลังใช้งานอยู่ กลายเป็นเตะเจ้าของบัญชีออกเสียเอง
         return jsonify({'message': 'Unauthorized'}), 401
-    token = generate_token(payload['sub'], payload['sid'])
+
+    user_id = payload['sub']
+
+    # กันไคลเอนต์ที่เพี้ยนหรือถูกดัดแปลงยิงรัว ๆ ใส่เซิร์ฟเวอร์ นับรวมทุกแท็บของบัญชีนี้
+    throttle_key = f'refresh_rate:{user_id}'
+    if shared_state.incr_counter(throttle_key, REFRESH_WINDOW_SECONDS) > REFRESH_MAX_PER_WINDOW:
+        return jsonify({'message': 'ต่ออายุถี่เกินไป กรุณารอสักครู่'}), 429
+
+    # รอบที่เริ่มมานานเกินเพดานต้องล็อกอินใหม่ ไม่ใช่ต่อไปเรื่อย ๆ
+    # token เก่าที่ออกก่อนมีฟิลด์นี้ยังไม่มี sst จึงถอยไปนับจาก iat แทน
+    started = payload.get('sst') or payload.get('iat')
+    if started:
+        age = datetime.utcnow() - datetime.utcfromtimestamp(started)
+        if age > SESSION_MAX_LIFETIME:
+            return jsonify({'message': 'รอบการเข้าใช้งานครบกำหนดแล้ว กรุณาเข้าสู่ระบบใหม่'}), 401
+
+    # ตรวจสถานะผู้ใช้ซ้ำ ไม่ใช่เชื่อแค่ตอนล็อกอินครั้งแรก บัญชีที่ถูกลบหรือครูที่ถูก
+    # ถอนอนุมัติจะได้หลุดออกภายในหนึ่งรอบต่ออายุ ไม่ใช่ใช้ต่อได้ไม่จำกัด
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'message': 'Unauthorized'}), 401
+    role_name = user.role.role_name if user.role else 'student'
+    if role_name == 'teacher' and not user.is_approved:
+        return jsonify({'message': 'บัญชีนี้ถูกระงับการอนุมัติ'}), 401
+
+    token = generate_token(user_id, payload['sid'],
+                           datetime.utcfromtimestamp(started) if started else None)
     return jsonify({'access_token': token}), 200
 
 
