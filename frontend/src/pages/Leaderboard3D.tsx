@@ -1,4 +1,5 @@
 import React, { useState, useEffect, Suspense } from 'react';
+import { getToken } from '../utils/sessionToken';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Environment, Text } from '@react-three/drei';
 import axios from 'axios';
@@ -165,13 +166,17 @@ const Leaderboard3D = () => {
     const courseId = searchParams.get('course_id');
 
     const fetchLeaderboard = async () => {
+        // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
+        // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
+        // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
+        const authToken = getToken();
         try {
             const url = missionId
                 ? `${API_BASE}/api/v1/game/leaderboard-3d?mission_id=${missionId}`
                 : courseId
                 ? `${API_BASE}/api/v1/game/leaderboard-3d?course_id=${courseId}`
                 : `${API_BASE}/api/v1/game/leaderboard-3d`;
-            const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+            const res = await axios.get(url, { headers: { Authorization: `Bearer ${authToken}` } });
             setUsers(res.data);
         } catch (error) {
             console.error('Failed to fetch leaderboard', error);

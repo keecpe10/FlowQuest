@@ -130,8 +130,11 @@ axios.interceptors.response.use(
         // แยกให้ออกว่าหลุดเพราะอะไร ไม่งั้นคนที่แค่ทิ้งเครื่องไว้จนหมดเวลาจะถูก
         // บอกว่า "มีคนใช้บัญชีนี้ที่เครื่องอื่น" ซึ่งไม่จริงและทำให้ตกใจเปล่า ๆ
         const expiresAt = tokenExpiresAt(token);
-        rememberLogoutReason(expiresAt && expiresAt <= Date.now() ? 'expired' : 'session_replaced');
-        useAuthStore.getState().logout();
+        const reason: LogoutReason = expiresAt && expiresAt <= Date.now() ? 'expired' : 'session_replaced';
+        rememberLogoutReason(reason);
+        // ส่งเหตุผลไปกับประกาศด้วย ไม่งั้นแท็บอื่นจะเด้งออกแบบไม่มีคำอธิบาย ทั้งที่
+        // "บัญชีนี้ถูกใช้งานที่เครื่องอื่น" คือกรณีที่ผู้ใช้ต้องรู้มากที่สุด
+        useAuthStore.getState().logout(reason);
       }
     }
     return Promise.reject(error);

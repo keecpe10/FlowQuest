@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getToken } from '../utils/sessionToken';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
@@ -63,10 +64,14 @@ const MissionProgress = () => {
   const [isAnalyzingStats, setIsAnalyzingStats] = useState(false);
 
   const fetchProgress = async () => {
-    if (!token || !missionId) return;
+    // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
+    // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
+    // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
+    const authToken = getToken();
+    if (!authToken || !missionId) return;
     try {
       const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}/students-progress`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${authToken}` }
       });
       setStudents(response.data);
     } catch (error) {
