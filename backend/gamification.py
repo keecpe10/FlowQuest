@@ -268,7 +268,8 @@ def get_leaderboard():
     if mission_id and not course_id:
         # ดึงแค่คอลัมน์เดียวที่ต้องใช้ ไม่ใช่ทั้งแถว เพราะแถวของด่านมี description กับ
         # ผังงานเฉลยเป็น JSON ก้อนใหญ่ติดมาด้วย และเส้นทางนี้คือเส้นที่ทุกเครื่องยิงซ้ำ
-        # ทุก 30 วินาที
+        # เป็นระยะถี่ตลอดคาบ (หน้าอันดับข้างจอ Leaderboard.tsx โพลทุก 10 วินาที
+        # ส่วนหน้าอันดับ MCQLeaderboard.tsx โพลทุก 30 วินาที)
         row = db.session.query(Mission.course_id).filter_by(mission_id=mission_id).first()
         if not row:
             return jsonify({'error': 'Mission not found'}), 404

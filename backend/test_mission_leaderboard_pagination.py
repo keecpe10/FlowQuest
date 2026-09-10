@@ -218,24 +218,43 @@ with app.app_context():
         # เรียกซ้ำแปดรอบ) ผลก็ยังออกมาเรียงเหมือนเดิมทุกครั้งเพราะตัวเปรียบเทียบเจอ
         # ค่าเท่ากันหมดพอดี จึงต้องเช็ก SQL ที่ยิงจริงตรง ๆ อีกชั้น ไม่พึ่งพฤติกรรม
         # บังเอิญของ query planner
-        captured_sql = {}
+
+        def _order_by_tiebreaks_on_user_id_last(sql_text):
+            """True ถ้า ORDER BY ของ sql_text ปิดท้ายด้วย user_id หลัง total_time จริง ๆ
+            เช็กแบบนี้เพื่อกันเคสที่ order_by เรียง user_id ไว้ "ก่อน" total_points
+            (เช่น ORDER BY user_id ASC, total_points DESC) ซึ่งไม่ใช่การขาดตัวตัดเสมอ
+            แต่เป็นกระดานอันดับที่พังไปคนละเรื่อง — เรียงตาม id แทนที่จะเรียงตามคะแนน
+            แค่เช็กว่ามีคำว่า user_id ปนอยู่ที่ไหนก็ได้ใน ORDER BY จะจับเคสนี้ไม่ได้เลย"""
+            sql_lower = (sql_text or '').lower()
+            order_by_part = sql_lower.split('order by', 1)[-1] if 'order by' in sql_lower else ''
+            total_time_pos = order_by_part.find('total_time')
+            user_id_pos = order_by_part.rfind('user_id')
+            return (total_time_pos != -1 and user_id_pos != -1
+                    and total_time_pos < user_id_pos
+                    and order_by_part.strip().endswith('user_id asc'))
+
+        captured_sql = []
 
         def _capture(conn, cursor, statement, parameters, context, executemany):
             if 'total_points' in statement:
-                captured_sql['sql'] = statement
+                captured_sql.append(statement)
         event.listen(db.engine, 'before_cursor_execute', _capture)
         try:
             st, t1 = get(mid=tmid, page=1)
         finally:
             event.remove(db.engine, 'before_cursor_execute', _capture)
 
-        sql_lower = (captured_sql.get('sql') or '').lower()
-        order_by_part = sql_lower.split('order by', 1)[-1] if 'order by' in sql_lower else ''
-        check('SQL ที่ยิงจริงมี user_id เป็นตัวตัดเสมอท้ายสุดใน ORDER BY',
-              'user_id' in order_by_part, captured_sql.get('sql'))
+        check('เรียกหน้า 1 ได้', st == 200, st)
+
+        check('ดักจับ SQL ที่มี total_points ได้พอดีหนึ่งคำสั่ง (ถ้าดักได้มากกว่านั้น '
+              'แปลว่ามีคิวรีอื่นมาปนและเช็กข้างล่างอาจไปเทียบกับคิวรีผิดตัวโดยไม่รู้ตัว)',
+              len(captured_sql) == 1, len(captured_sql))
+        check('SQL ที่ยิงจริงเรียง user_id ไว้เป็นตัวตัดเสมอ "ท้ายสุด" ต่อจากคะแนนและเวลา '
+              '(ไม่ใช่แค่มีคำว่า user_id ปนอยู่ที่ไหนก็ได้ใน ORDER BY)',
+              bool(captured_sql) and _order_by_tiebreaks_on_user_id_last(captured_sql[0]),
+              captured_sql[0] if captured_sql else None)
 
         st2, t2 = get(mid=tmid, page=2)
-        check('เรียกหน้า 1 ได้', st == 200, st)
         check('เรียกหน้า 2 ได้', st2 == 200, st2)
 
         page1_order = [u['user_id'] for u in t1.get('top3') or []] + \
@@ -250,10 +269,42 @@ with app.app_context():
         # เรียกหน้า 1 ซ้ำเป็นคิวรีใหม่แยกต่างหาก ถ้าไม่มี user_id ผูกท้าย order_by
         # ลำดับมีสิทธิ์สลับได้ทุกครั้งที่เรียก แม้ข้อมูลไม่เปลี่ยนเลย
         st3, t1_again = get(mid=tmid, page=1)
+        check('เรียกหน้า 1 ซ้ำได้', st3 == 200, st3)
         page1_order_again = [u['user_id'] for u in t1_again.get('top3') or []] + \
             [r['user_id'] for r in t1_again.get('rows') or []]
         check('เรียกหน้า 1 ซ้ำได้ลำดับเดียวกันทุกครั้ง (คิวรีเสถียร)',
               page1_order_again == page1_order, (page1_order_again, page1_order))
+
+        print('\n[12] ตัวตัดเสมอ user_id ต้องมีใน ORDER BY ของ /leaderboard-3d ด้วย '
+              '(order_by ชุดเดียวกับ /leaderboard แต่คนละ endpoint คนละคิวรี)')
+        # ใช้ด่าน tie_mission กับ tie_students ชุดเดิมจาก [11] เพราะทุกคนคะแนน 0
+        # เวลา 0 เท่ากันหมดอยู่แล้ว ไม่ต้องสร้างข้อมูลผูกเสมอซ้ำอีกชุด
+        def get3d(mid=None, page=None, who=None):
+            qs = []
+            if mid is not None: qs.append(f'mission_id={mid}')
+            if page is not None: qs.append(f'page={page}')
+            head = {'Authorization': f'Bearer {token_of(who)}'} if who else {}
+            r = c.get('/api/v1/game/leaderboard-3d?' + '&'.join(qs), headers=head)
+            return r.status_code, (r.get_json() or {})
+
+        captured_sql_3d = []
+
+        def _capture_3d(conn, cursor, statement, parameters, context, executemany):
+            if 'total_points' in statement:
+                captured_sql_3d.append(statement)
+        event.listen(db.engine, 'before_cursor_execute', _capture_3d)
+        try:
+            st3d, _t3d = get3d(mid=tmid, page=1)
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', _capture_3d)
+
+        check('เรียก /leaderboard-3d ได้', st3d == 200, st3d)
+        check('ดักจับ SQL ของ /leaderboard-3d ที่มี total_points ได้พอดีหนึ่งคำสั่ง',
+              len(captured_sql_3d) == 1, len(captured_sql_3d))
+        check('SQL ของ /leaderboard-3d เรียง user_id ไว้เป็นตัวตัดเสมอ "ท้ายสุด" '
+              'ต่อจากคะแนนและเวลาเช่นกัน',
+              bool(captured_sql_3d) and _order_by_tiebreaks_on_user_id_last(captured_sql_3d[0]),
+              captured_sql_3d[0] if captured_sql_3d else None)
 
     finally:
         ids = [u.user_id for u in made]
