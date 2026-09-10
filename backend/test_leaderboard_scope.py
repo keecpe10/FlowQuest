@@ -97,7 +97,9 @@ with app.app_context():
         ])
         db.session.commit()
         r = c.get(f'/api/v1/game/leaderboard-3d?mission_id={mission.mission_id}')
-        rows3d = r.get_json() or []
+        body = r.get_json() or {}
+        # leaderboard-3d แบ่งหน้าแล้ว คนที่มีแต้มจะอยู่ในโพเดียมหรือแถบข้างก็ได้ ต้องหาทั้งสองที่
+        rows3d = body.get('top3', []) + body.get('rows', [])
         mine = next((x for x in rows3d if x['user_id'] == played.user_id), None)
         check('เรียกได้', r.status_code == 200, r.status_code)
         check('นับทั้งแต้มจากด่านและแต้มพิเศษ (10+5)',

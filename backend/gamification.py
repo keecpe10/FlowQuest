@@ -3,7 +3,7 @@ import os
 from flask import Blueprint, request, jsonify
 from app import db
 from models import User, PointHistory, LeaderboardSnapshot, Mission, UserMission, Role
-from auth_utils import has_course_access, can_play_mission
+from auth_utils import has_course_access, can_play_mission, get_current_user_id
 from engine import XP_SOURCES
 from datetime import datetime
 from engine import validate_flowchart
@@ -308,6 +308,60 @@ def get_profile():
         'badges': [b.badge.name for b in user.badges]
     }), 200
 
+# โพเดียมมีสามที่เสมอ และแถบข้างแสดงทีละสิบคน
+PODIUM_SIZE = 3
+LEADERBOARD_PAGE_SIZE = 10
+
+
+def _character_payload(user_id):
+    """ข้อมูลตัวละครสามมิติของคนหนึ่งคน คืน (config, equipped)
+
+    แยกออกมาเพราะใช้เฉพาะสามคนบนโพเดียม การ์ดในแถบข้างใช้แค่ชื่อ รูป คะแนน เวลา
+    ถ้าแนบไปกับทุกแถวด้วย ข้อมูลต่อหนึ่งหน้าจะบวมโดยไม่มีใครเอาไปใช้
+    """
+    from models import CharacterConfig, UserInventory
+
+    equipped = {
+        'hair': None,
+        'top': None,
+        'bottom': None,
+        'shoes': None,
+        'accessories': [],
+        'emote': None
+    }
+    for inv in UserInventory.query.filter_by(user_id=user_id, is_equipped=True).all():
+        item = inv.item
+        if item.category == 'accessory':
+            equipped['accessories'].append(item.render_config)
+        else:
+            equipped[item.category] = item.render_config
+
+    config = CharacterConfig.query.filter_by(user_id=user_id).first()
+    if not config:
+        return None, equipped
+
+    return {
+        'gender': config.gender,
+        'skin_color': config.skin_color,
+        'head_shape': config.head_shape,
+        'eye_type': config.eye_type,
+        'eye_color': config.eye_color,
+        'mouth_type': config.mouth_type,
+        'eyebrow_type': config.eyebrow_type,
+        'hair_color': config.hair_color,
+        'body_config': config.body_config,
+        'body_height': config.body_height,
+        'body_width': config.body_width,
+        'head_scale': config.head_scale,
+        'body_type': config.body_type,
+        'proportion': config.proportion,
+        'nose_type': config.nose_type,
+        'beard_type': config.beard_type,
+        'makeup_type': config.makeup_type,
+        'expression': config.expression
+    }, equipped
+
+
 @game_bp.route('/leaderboard-3d', methods=['GET'])
 def get_leaderboard_3d():
     course_id = request.args.get('course_id', type=int)
@@ -321,7 +375,7 @@ def get_leaderboard_3d():
             return jsonify({'error': 'Mission not found'}), 404
             
         leaderboard_query = db.session.query(
-            User,
+            User.user_id,
             db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
             db.func.coalesce(
                 db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
@@ -349,7 +403,7 @@ def get_leaderboard_3d():
         course_mission_ids = [m.mission_id for m in missions] or [-1]
         
         leaderboard_query = db.session.query(
-            User,
+            User.user_id,
             db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
             db.func.coalesce(
                 db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
@@ -373,7 +427,7 @@ def get_leaderboard_3d():
         )
     else:
         leaderboard_query = db.session.query(
-            User,
+            User.user_id,
             db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
             db.func.coalesce(
                 db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
@@ -387,65 +441,69 @@ def get_leaderboard_3d():
             User.role_id == student_role.role_id if student_role else False
         )
         
-    leaderboard_query = leaderboard_query.group_by(User.user_id).order_by(db.desc('total_points'), db.asc('total_time')).limit(10)
-    results = leaderboard_query.all()
-    
-    from models import CharacterConfig, UserInventory
-    
-    leaderboard = []
-    for idx, (user, total_points, total_time) in enumerate(results):
-        config = CharacterConfig.query.filter_by(user_id=user.user_id).first()
-        equipped_items = UserInventory.query.filter_by(user_id=user.user_id, is_equipped=True).all()
-        
-        equipped = {
-            'hair': None,
-            'top': None,
-            'bottom': None,
-            'shoes': None,
-            'accessories': [],
-            'emote': None
-        }
-        
-        for inv in equipped_items:
-            item = inv.item
-            if item.category == 'accessory':
-                equipped['accessories'].append(item.render_config)
-            else:
-                equipped[item.category] = item.render_config
+    # ไม่ใส่ limit แล้ว เพราะต้องรู้อันดับของทุกคนเพื่อบอกว่าผู้เรียกอยู่หน้าไหน
+    # คิวรีนี้ดึงแค่ id กับตัวเลข จึงเบาแม้มีนักเรียนหลายร้อยคน
+    ranking = leaderboard_query.group_by(User.user_id).order_by(
+        db.desc('total_points'), db.asc('total_time')).all()
 
-        if config:
-            config_dict = {
-                'gender': config.gender,
-                'skin_color': config.skin_color,
-                'head_shape': config.head_shape,
-                'eye_type': config.eye_type,
-                'eye_color': config.eye_color,
-                'mouth_type': config.mouth_type,
-                'eyebrow_type': config.eyebrow_type,
-                'hair_color': config.hair_color,
-                'body_config': config.body_config,
-                'body_height': config.body_height,
-                'body_width': config.body_width,
-                'head_scale': config.head_scale,
-                'body_type': config.body_type,
-                'proportion': config.proportion,
-                'nose_type': config.nose_type,
-                'beard_type': config.beard_type,
-                'makeup_type': config.makeup_type,
-                'expression': config.expression
-            }
-        else:
-            config_dict = None
-            
-        leaderboard.append({
-            'user_id': user.user_id,
-            'name': f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
-            'avatar_url': user.avatar_url,
-            'points': int(total_points),
-            'total_time': int(total_time),
-            'rank': idx + 1,
-            'config': config_dict,
-            'equipped': equipped
-        })
-        
-    return jsonify(leaderboard), 200
+    total = len(ranking)
+    rest_count = max(0, total - PODIUM_SIZE)
+    total_pages = max(1, -(-rest_count // LEADERBOARD_PAGE_SIZE))
+
+    # หน้าที่ขอเกินช่วงให้บีบกลับ ดีกว่าตอบ error หรือรายชื่อว่างซึ่งผู้ใช้ตีความไม่ออก
+    page = request.args.get('page', default=1, type=int) or 1
+    page = max(1, min(page, total_pages))
+
+    viewer_id = get_current_user_id()
+    my_rank, my_page = None, None
+    if viewer_id:
+        for idx, row in enumerate(ranking):
+            if row.user_id == viewer_id:
+                my_rank = idx + 1
+                # คนบนโพเดียมเห็นตัวเองได้จากหน้าแรกอยู่แล้ว จึงชี้ไปหน้า 1
+                # หน้าเว็บจะได้ไม่ต้องมีกรณีพิเศษ
+                my_page = 1 if my_rank <= PODIUM_SIZE else \
+                    (my_rank - PODIUM_SIZE - 1) // LEADERBOARD_PAGE_SIZE + 1
+                break
+
+    podium_rows = ranking[:PODIUM_SIZE]
+    start = PODIUM_SIZE + (page - 1) * LEADERBOARD_PAGE_SIZE
+    page_rows = ranking[start:start + LEADERBOARD_PAGE_SIZE]
+
+    # คิวรีที่สอง ดึงข้อมูลเต็มเฉพาะแถวที่จะส่งออกจริง
+    wanted_ids = [r.user_id for r in podium_rows] + [r.user_id for r in page_rows]
+    users = {u.user_id: u for u in User.query.filter(User.user_id.in_(wanted_ids)).all()} \
+        if wanted_ids else {}
+
+    def entry(row, rank):
+        u = users.get(row.user_id)
+        name = ''
+        if u:
+            name = f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username
+        return {
+            'user_id': row.user_id,
+            'name': name,
+            'avatar_url': u.avatar_url if u else None,
+            'points': int(row.total_points),
+            'total_time': int(row.total_time),
+            'rank': rank,
+        }
+
+    top3 = []
+    for i, row in enumerate(podium_rows):
+        item = entry(row, i + 1)
+        item['config'], item['equipped'] = _character_payload(row.user_id)
+        top3.append(item)
+
+    rows = [entry(row, start + i + 1) for i, row in enumerate(page_rows)]
+
+    return jsonify({
+        'top3': top3,
+        'rows': rows,
+        'page': page,
+        'page_size': LEADERBOARD_PAGE_SIZE,
+        'total': total,
+        'total_pages': total_pages,
+        'my_rank': my_rank,
+        'my_page': my_page,
+    }), 200
