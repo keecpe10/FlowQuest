@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { getToken } from '../utils/sessionToken';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Environment, Text } from '@react-three/drei';
@@ -122,12 +122,19 @@ const RANK_GRADIENTS = [
     'from-slate-500 to-slate-700',
 ];
 
-const SidebarRankCard = ({ user, index }: { user: LeaderboardUser; index: number }) => {
-    const rankNum = index + 4;
+const SidebarRankCard = ({ user, index, isMe }: {
+    user: LeaderboardUser; index: number; isMe: boolean;
+}) => {
+    // อันดับมาจากเซิร์ฟเวอร์ ไม่ใช่คำนวณจากตำแหน่งในหน้า เพราะหน้า 2 เริ่มที่อันดับ 14
+    const rankNum = user.rank;
     const grad = RANK_GRADIENTS[index % RANK_GRADIENTS.length];
     const initials = user.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || '?';
     return (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200">
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all duration-200 ${
+            isMe
+                ? 'bg-violet-500/20 border-violet-400/60 ring-1 ring-violet-400/40'
+                : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+        }`}>
             <div className={`flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-white text-xs font-black shadow-lg`}>
                 {rankNum}
             </div>
@@ -156,43 +163,82 @@ const SidebarRankCard = ({ user, index }: { user: LeaderboardUser; index: number
 };
 
 const Leaderboard3D = () => {
-    const [users, setUsers] = useState<LeaderboardUser[]>([]);
+    const [board, setBoard] = useState<{
+        top3: LeaderboardUser[];
+        rows: LeaderboardUser[];
+        page: number;
+        total: number;
+        total_pages: number;
+        my_rank: number | null;
+        my_page: number | null;
+    }>({ top3: [], rows: [], page: 1, total: 0, total_pages: 1, my_rank: null, my_page: null });
+    const [page, setPage] = useState(1);
+    const [switching, setSwitching] = useState(false);
+    const [courses, setCourses] = useState<{ course_id: number; course_name: string }[]>([]);
+    const [pickedCourse, setPickedCourse] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const missionId = searchParams.get('mission_id');
     const courseId = searchParams.get('course_id');
 
-    const fetchLeaderboard = async () => {
+    // รายวิชาของผู้ใช้ ใช้ทั้งเป็นค่าเริ่มต้นและเป็นตัวเลือกให้คนที่ลงหลายวิชา
+    // ถ้า URL ระบุ course_id หรือ mission_id มาแล้ว ไม่ต้องยุ่ง ให้เคารพลิงก์ที่ครูส่งมา
+    useEffect(() => {
+        if (missionId || courseId) return;
+        axios.get(`${API_BASE}/api/v1/courses`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+        })
+            .then((res) => {
+                const list = Array.isArray(res.data) ? res.data : [];
+                setCourses(list);
+                if (list.length > 0) setPickedCourse(list[0].course_id);
+            })
+            .catch(() => {});
+    }, [missionId, courseId]);
+
+    const activeCourse = courseId || (pickedCourse != null ? String(pickedCourse) : null);
+
+    const fetchLeaderboard = useCallback(async (wantPage: number) => {
         // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
-        // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
+        // socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
         // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
         const authToken = getToken();
         try {
-            const url = missionId
-                ? `${API_BASE}/api/v1/game/leaderboard-3d?mission_id=${missionId}`
-                : courseId
-                ? `${API_BASE}/api/v1/game/leaderboard-3d?course_id=${courseId}`
-                : `${API_BASE}/api/v1/game/leaderboard-3d`;
-            const res = await axios.get(url, { headers: { Authorization: `Bearer ${authToken}` } });
-            setUsers(res.data);
+            setSwitching(true);
+            const url = new URL(`${API_BASE}/api/v1/game/leaderboard-3d`);
+            if (missionId) url.searchParams.set('mission_id', missionId);
+            else if (activeCourse) url.searchParams.set('course_id', activeCourse);
+            url.searchParams.set('page', String(wantPage));
+            const res = await axios.get(url.toString(), {
+                headers: { Authorization: `Bearer ${authToken}` },
+            });
+            setBoard(res.data);
+            setPage(res.data.page);
         } catch (error) {
             console.error('Failed to fetch leaderboard', error);
         } finally {
             setLoading(false);
+            setSwitching(false);
         }
-    };
+    }, [missionId, activeCourse]);
 
     useEffect(() => {
-        fetchLeaderboard();
+        if (!missionId && !courseId && pickedCourse == null) return;
+        fetchLeaderboard(page);
+
         const socket = io(API_BASE);
-        socket.on('points_awarded', () => { fetchLeaderboard(); });
+        socket.on('points_awarded', () => {
+            // โหลดสดเฉพาะตอนอยู่หน้าแรก หน้าอื่นคือการตั้งใจไปดู ถ้าดึงข้อมูลใหม่
+            // ระหว่างนั้นอันดับจะสลับกลางคันทุกครั้งที่เพื่อนทำข้อสอบเสร็จ
+            if (page === 1) fetchLeaderboard(1);
+        });
         return () => { socket.disconnect(); };
     // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
-    }, []);
+    }, [missionId, courseId, pickedCourse, page, fetchLeaderboard]);
 
-    const top3 = users.filter(u => u.rank <= 3);
-    const rest = users.filter(u => u.rank > 3).sort((a, b) => a.rank - b.rank);
+    const top3 = board.top3;
+    const rest = board.rows;
 
     const podiums = [
         { rank: 1, position: [0, 0, -1] as [number, number, number], height: 2.5, color: '#f59e0b', animation: 'victory', emote: 'laugh' },
@@ -282,10 +328,25 @@ const Leaderboard3D = () => {
                             <h2 className="text-white font-black text-sm">อันดับรองชนะเลิศ</h2>
                         </div>
                         <p className="text-slate-500 text-xs">อันดับที่ 4 – 10</p>
+                        {courses.length > 1 && (
+                            // แสดงเฉพาะคนที่ลงหลายวิชา คนที่ลงวิชาเดียวไม่ควรเห็นตัวเลือก
+                            // ที่มีทางเลือกเดียว
+                            <select
+                                value={pickedCourse ?? ''}
+                                onChange={(e) => { setPickedCourse(Number(e.target.value)); setPage(1); }}
+                                className="mt-2 w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-400"
+                            >
+                                {courses.map((c) => (
+                                    <option key={c.course_id} value={c.course_id} className="bg-slate-900">
+                                        {c.course_name}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                         <div className="mt-3 h-px bg-gradient-to-r from-violet-500/40 via-pink-500/20 to-transparent" />
                     </div>
 
-                    <div className="px-4 pb-4 flex flex-col gap-2 flex-1">
+                    <div className={`px-4 pb-4 flex flex-col gap-2 flex-1 transition-opacity duration-200 ${switching ? 'opacity-40' : 'opacity-100'}`}>
                         {rest.length === 0 ? (
                             <div className="flex-1 flex flex-col items-center justify-center text-center py-16">
                                 <Trophy size={36} className="text-slate-700 mb-3" />
@@ -293,29 +354,67 @@ const Leaderboard3D = () => {
                                 <p className="text-slate-600 text-xs mt-1">ทำด่านให้เสร็จเพื่อปรากฏที่นี่</p>
                             </div>
                         ) : (
-                            rest.map((user, i) => <SidebarRankCard key={user.user_id} user={user} index={i} />)
+                            rest.map((user, i) => (
+                                <SidebarRankCard key={user.user_id} user={user} index={i}
+                                    isMe={board.my_rank === user.rank} />
+                            ))
                         )}
                     </div>
 
-                    {users.length > 0 && (
+                    {board.total_pages > 1 && (
+                        <div className="px-4 pb-4 flex flex-col gap-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                    disabled={page <= 1 || switching}
+                                    className="px-3 py-2 rounded-xl bg-white/10 text-white text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/20 transition-colors"
+                                >
+                                    ← ก่อนหน้า
+                                </button>
+                                <span className="text-slate-400 text-xs font-medium">
+                                    หน้า {page} / {board.total_pages}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setPage((p) => Math.min(board.total_pages, p + 1))}
+                                    disabled={page >= board.total_pages || switching}
+                                    className="px-3 py-2 rounded-xl bg-white/10 text-white text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/20 transition-colors"
+                                >
+                                    ถัดไป →
+                                </button>
+                            </div>
+                            {board.my_page != null && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPage(board.my_page as number)}
+                                    className="w-full py-2 rounded-xl bg-violet-600/80 hover:bg-violet-600 text-white text-xs font-bold transition-colors"
+                                >
+                                    ไปที่อันดับของฉัน (#{board.my_rank})
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {board.total > 0 && (
                         <div className="px-4 pb-6 pt-2 border-t border-white/5">
                             <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-2">
                                 <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">สถิติรวม</p>
                                 <div className="flex justify-between items-center">
                                     <span className="text-slate-400 text-xs">ผู้เข้าร่วมทั้งหมด</span>
-                                    <span className="text-white text-xs font-bold">{users.length} คน</span>
+                                    <span className="text-white text-xs font-bold">{board.total} คน</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-slate-400 text-xs">XP สูงสุด</span>
                                     <span className="text-yellow-400 text-xs font-bold flex items-center gap-1">
-                                        <Zap size={10} /> {(users[0]?.points || 0).toLocaleString()}
+                                        <Zap size={10} /> {(board.top3[0]?.points || 0).toLocaleString()}
                                     </span>
                                 </div>
-                                {(users[0]?.total_time || 0) > 0 && (
+                                {(board.top3[0]?.total_time || 0) > 0 && (
                                     <div className="flex justify-between items-center">
                                         <span className="text-slate-400 text-xs">เวลาดีที่สุด</span>
                                         <span className="text-cyan-400 text-xs font-bold flex items-center gap-1">
-                                            <Clock size={10} /> {formatTime(users[0].total_time)}
+                                            <Clock size={10} /> {formatTime(board.top3[0].total_time)}
                                         </span>
                                     </div>
                                 )}
