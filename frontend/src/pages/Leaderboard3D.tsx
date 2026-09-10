@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { getToken } from '../utils/sessionToken';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, ContactShadows, Environment, Text } from '@react-three/drei';
@@ -177,6 +177,10 @@ const Leaderboard3D = () => {
     const [courses, setCourses] = useState<{ course_id: number; course_name: string }[]>([]);
     const [pickedCourse, setPickedCourse] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
+    // true เมื่อดึงรายวิชาของผู้ใช้เสร็จแล้วแต่ไม่มีวิชาให้เลือกเลย (ยิง error หรือ list ว่าง)
+    // ถ้าไม่มี flag นี้ pickedCourse จะไม่มีวันได้ค่า ทำให้ effect หลักไม่เปิด และ loading
+    // ค้าง true ตลอดไป — สปินเนอร์ที่ไม่มีวันจบแย่กว่าหน้าว่างที่บอกตามตรง
+    const [noCourse, setNoCourse] = useState(false);
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const missionId = searchParams.get('mission_id');
@@ -192,9 +196,17 @@ const Leaderboard3D = () => {
             .then((res) => {
                 const list = Array.isArray(res.data) ? res.data : [];
                 setCourses(list);
-                if (list.length > 0) setPickedCourse(list[0].course_id);
+                if (list.length > 0) {
+                    setPickedCourse(list[0].course_id);
+                } else {
+                    setLoading(false);
+                    setNoCourse(true);
+                }
             })
-            .catch(() => {});
+            .catch(() => {
+                setLoading(false);
+                setNoCourse(true);
+            });
     }, [missionId, courseId]);
 
     const activeCourse = courseId || (pickedCourse != null ? String(pickedCourse) : null);
@@ -223,19 +235,30 @@ const Leaderboard3D = () => {
         }
     }, [missionId, activeCourse]);
 
+    // เก็บหน้าปัจจุบันไว้ใน ref เพื่อให้ handler ของ socket อ่านค่าสดได้ โดยไม่ต้องเอา page
+    // ไปใส่ dependency ของ effect ที่สร้าง socket — ถ้าใส่ socket จะถูกทำลายแล้วสร้างใหม่
+    // ทุกครั้งที่ผู้ใช้กดเปลี่ยนหน้า ซึ่งไม่มีประโยชน์อะไรเลย
+    const pageRef = useRef(page);
+    useEffect(() => { pageRef.current = page; }, [page]);
+
     useEffect(() => {
         if (!missionId && !courseId && pickedCourse == null) return;
         fetchLeaderboard(page);
+    }, [missionId, courseId, pickedCourse, page, fetchLeaderboard]);
+
+    useEffect(() => {
+        if (!missionId && !courseId && pickedCourse == null) return;
 
         const socket = io(API_BASE);
         socket.on('points_awarded', () => {
             // โหลดสดเฉพาะตอนอยู่หน้าแรก หน้าอื่นคือการตั้งใจไปดู ถ้าดึงข้อมูลใหม่
             // ระหว่างนั้นอันดับจะสลับกลางคันทุกครั้งที่เพื่อนทำข้อสอบเสร็จ
-            if (page === 1) fetchLeaderboard(1);
+            if (pageRef.current === 1) fetchLeaderboard(1);
         });
         return () => { socket.disconnect(); };
-    // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
-    }, [missionId, courseId, pickedCourse, page, fetchLeaderboard]);
+    // ไม่ใส่ token และ page ใน deps: token หมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน และ page
+    // เปลี่ยนทุกครั้งที่กดเปลี่ยนหน้า ถ้าใส่ทั้งคู่ effect นี้จะรันซ้ำจนต่อ/ตัด socket วนไม่จบ
+    }, [missionId, courseId, pickedCourse, fetchLeaderboard]);
 
     const top3 = board.top3;
     const rest = board.rows;
@@ -252,6 +275,18 @@ const Leaderboard3D = () => {
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-14 h-14 rounded-full border-4 border-violet-400 border-t-transparent animate-spin shadow-[0_0_20px_#8b5cf6]" />
                     <p className="text-violet-300 font-bold animate-pulse">กำลังโหลดหอเกียรติยศ...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (noCourse) {
+        return (
+            <div className="flex-1 h-screen flex items-center justify-center bg-slate-950">
+                <div className="flex flex-col items-center gap-2 text-center px-6">
+                    <Trophy size={36} className="text-slate-700 mb-3" />
+                    <p className="text-slate-400 text-sm font-bold">ยังไม่มีรายวิชาให้จัดอันดับ</p>
+                    <p className="text-slate-600 text-xs mt-1">เข้าร่วมรายวิชาก่อนจึงจะเห็นหอเกียรติยศ</p>
                 </div>
             </div>
         );
