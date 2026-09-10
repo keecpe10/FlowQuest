@@ -266,10 +266,13 @@ def get_leaderboard():
         return jsonify({'error': 'ต้องระบุ course_id หรือ mission_id'}), 400
 
     if mission_id and not course_id:
-        mission = Mission.query.get(mission_id)
-        if not mission:
+        # ดึงแค่คอลัมน์เดียวที่ต้องใช้ ไม่ใช่ทั้งแถว เพราะแถวของด่านมี description กับ
+        # ผังงานเฉลยเป็น JSON ก้อนใหญ่ติดมาด้วย และเส้นทางนี้คือเส้นที่ทุกเครื่องยิงซ้ำ
+        # ทุก 30 วินาที
+        row = db.session.query(Mission.course_id).filter_by(mission_id=mission_id).first()
+        if not row:
             return jsonify({'error': 'Mission not found'}), 404
-        course_id = mission.course_id
+        course_id = row.course_id
 
     if mission_id:
         # ถามมาเจาะจงด่านไหน ก็คิดคะแนนและเวลาเฉพาะด่านนั้น ไม่ต้องรู้จักด่านอื่นในคอร์สเลย

@@ -10,6 +10,7 @@ base64 เฉลี่ยคนละ 34 KB ห้องละ 40 คนจึ�
 import json
 import uuid
 from werkzeug.security import generate_password_hash
+from sqlalchemy import event
 from app import create_app, db
 from models import (User, Role, Course, Mission, CourseEnrollment, UserMission,
                     PointHistory)
@@ -87,19 +88,24 @@ with app.app_context():
 
         print('\n[2] โพเดียมคงที่ทุกหน้า แบ่งหน้าไม่ซ้ำไม่ข้าม')
         st, p2 = get(mid=mid, page=2)
-        check('มี top3 ครบสามคน', len(p1.get('top3', [])) == PODIUM_SIZE, p1.get('top3'))
+        # ใช้ .get(..., []) แทนการเข้าถึงคีย์ตรง ๆ ทุกจุด เผื่อ response ผิดรูปทรง
+        # (เช่นเคส [1] ที่รายงาน FAIL ไปแล้วแต่ยังทำงานต่อ) จะได้รายงาน FAIL ผ่าน
+        # check() ต่อไปเรื่อย ๆ จนถึงบรรทัดสรุปท้ายไฟล์ แทนที่จะโยน KeyError คว่ำสคริปต์
+        p1_top3 = p1.get('top3') or []
+        p2_top3 = p2.get('top3') or []
+        p1_rows = p1.get('rows') or []
+        p2_rows = p2.get('rows') or []
+        check('มี top3 ครบสามคน', len(p1_top3) == PODIUM_SIZE, p1_top3)
         check('โพเดียมหน้า 2 เป็นคนเดียวกับหน้า 1',
-              [u['user_id'] for u in p2['top3']] == [u['user_id'] for u in p1['top3']])
-        # เข้าถึงผ่าน [0]/[-1] ตรง ๆ ถ้า rows ว่าง (เคสพังที่อยากจับได้จริง ๆ) จะได้
-        # IndexError คว่ำทั้งสคริปต์แทนที่จะรายงาน FAIL เป็นชื่อ ๆ ไป จึงกันไว้ก่อน
-        check('หน้า 1 เริ่มที่อันดับ 4', bool(p1['rows']) and p1['rows'][0]['rank'] == 4,
-              p1['rows'][0] if p1['rows'] else 'rows ว่าง')
-        check('หน้า 1 จบที่อันดับ 13', bool(p1['rows']) and p1['rows'][-1]['rank'] == 13,
-              p1['rows'][-1] if p1['rows'] else 'rows ว่าง')
-        check('หน้า 2 เริ่มที่อันดับ 14', bool(p2['rows']) and p2['rows'][0]['rank'] == 14,
-              p2['rows'][0] if p2['rows'] else 'rows ว่าง')
+              [u['user_id'] for u in p2_top3] == [u['user_id'] for u in p1_top3])
+        check('หน้า 1 เริ่มที่อันดับ 4', bool(p1_rows) and p1_rows[0]['rank'] == 4,
+              p1_rows[0] if p1_rows else 'rows ว่าง')
+        check('หน้า 1 จบที่อันดับ 13', bool(p1_rows) and p1_rows[-1]['rank'] == 13,
+              p1_rows[-1] if p1_rows else 'rows ว่าง')
+        check('หน้า 2 เริ่มที่อันดับ 14', bool(p2_rows) and p2_rows[0]['rank'] == 14,
+              p2_rows[0] if p2_rows else 'rows ว่าง')
         check('ไม่มีคนซ้ำระหว่างสองหน้า',
-              not ({r['user_id'] for r in p1['rows']} & {r['user_id'] for r in p2['rows']}))
+              not ({r['user_id'] for r in p1_rows} & {r['user_id'] for r in p2_rows}))
         check('total_pages = 3 (25 คน หักโพเดียม 3 เหลือ 22 หน้าละ 10)',
               p1.get('total_pages') == 3, p1.get('total_pages'))
 
@@ -179,6 +185,75 @@ with app.app_context():
         # เท่านั้น ขนาดจริงของ response จึงต้องเล็กกว่านั้นมาก
         size_bytes = len(json.dumps(p1))
         check('ขนาด response เล็กกว่า 30,000 ไบต์', size_bytes < 30000, f'{size_bytes} ไบต์')
+
+        print('\n[11] คะแนนเท่ากันหมดต้องยังแบ่งหน้าไม่ซ้ำไม่ขาด เพราะ user_id เป็นตัวตัดเสมอ')
+        # ด่านนี้ตั้งใจไม่ใส่ PointHistory ให้ใครเลย ทุกคนจึงติดอยู่ที่ 0 คะแนน 0 เวลา
+        # เหมือนกันหมด ๆ ซึ่งคือสถานการณ์ปกติระหว่างด่านกำลังเล่นอยู่ ถ้าไม่มี user_id
+        # เป็นตัวตัดเสมอท้ายสุดใน order_by, Postgres ไม่รับประกันลำดับของแถวที่เท่ากัน
+        # ข้ามการคิวรีแต่ละครั้ง คนเดียวกันจึงเผลอไปโผล่สองหน้าหรือหายไปเลยก็ได้
+        tie_course = Course(course_name=f'ml_tie_{tag}', teacher_id=teacher.user_id)
+        db.session.add(tie_course); db.session.commit()
+        tie_mission = Mission(title=f'ml_mtie_{tag}', course_id=tie_course.course_id,
+                              mission_type='mcq')
+        db.session.add(tie_mission); db.session.commit()
+
+        tie_students = []
+        for i in range(14):
+            s = mk(f'ml_tie{i:02d}_{tag}', srole)
+            tie_students.append(s)
+            db.session.add(CourseEnrollment(course_id=tie_course.course_id,
+                                            user_id=s.user_id, role_in_course='student'))
+            db.session.add(UserMission(user_id=s.user_id, mission_id=tie_mission.mission_id,
+                                       status='completed'))
+            # ไม่ใส่ PointHistory ให้ใครเลย ทุกคนจึงคะแนน 0 เวลา 0 เท่ากันหมด
+        db.session.commit()
+
+        tmid = tie_mission.mission_id
+        expected_ids = {s.user_id for s in tie_students}
+
+        # แอบดัก SQL จริงที่ยิงออกไปด้วย เพราะพิสูจน์ด้วยมือแล้วว่าเช็กจากผล HTTP
+        # อย่างเดียวไม่พอ: บนเครื่องทดสอบนี้ Postgres เลือกแผนที่ join ผ่าน index ของ
+        # users_pkey ซึ่งคืนแถวเรียงตาม user_id มาให้ "โดยบังเอิญ" อยู่แล้ว ต่อให้ลบ
+        # db.asc(User.user_id) ออกจาก order_by จริง ๆ (ลองแล้วด้วยนักเรียนหลักพันคน
+        # เรียกซ้ำแปดรอบ) ผลก็ยังออกมาเรียงเหมือนเดิมทุกครั้งเพราะตัวเปรียบเทียบเจอ
+        # ค่าเท่ากันหมดพอดี จึงต้องเช็ก SQL ที่ยิงจริงตรง ๆ อีกชั้น ไม่พึ่งพฤติกรรม
+        # บังเอิญของ query planner
+        captured_sql = {}
+
+        def _capture(conn, cursor, statement, parameters, context, executemany):
+            if 'total_points' in statement:
+                captured_sql['sql'] = statement
+        event.listen(db.engine, 'before_cursor_execute', _capture)
+        try:
+            st, t1 = get(mid=tmid, page=1)
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', _capture)
+
+        sql_lower = (captured_sql.get('sql') or '').lower()
+        order_by_part = sql_lower.split('order by', 1)[-1] if 'order by' in sql_lower else ''
+        check('SQL ที่ยิงจริงมี user_id เป็นตัวตัดเสมอท้ายสุดใน ORDER BY',
+              'user_id' in order_by_part, captured_sql.get('sql'))
+
+        st2, t2 = get(mid=tmid, page=2)
+        check('เรียกหน้า 1 ได้', st == 200, st)
+        check('เรียกหน้า 2 ได้', st2 == 200, st2)
+
+        page1_order = [u['user_id'] for u in t1.get('top3') or []] + \
+            [r['user_id'] for r in t1.get('rows') or []]
+        page2_ids = [r['user_id'] for r in t2.get('rows') or []]
+        combined = page1_order + page2_ids
+        check('ไม่มีคนซ้ำเมื่อรวมทุกหน้ากับโพเดียม',
+              len(combined) == len(set(combined)), combined)
+        check('ครบทุกคน 14 คน ไม่ขาดไม่เกิน',
+              set(combined) == expected_ids, sorted(combined))
+
+        # เรียกหน้า 1 ซ้ำเป็นคิวรีใหม่แยกต่างหาก ถ้าไม่มี user_id ผูกท้าย order_by
+        # ลำดับมีสิทธิ์สลับได้ทุกครั้งที่เรียก แม้ข้อมูลไม่เปลี่ยนเลย
+        st3, t1_again = get(mid=tmid, page=1)
+        page1_order_again = [u['user_id'] for u in t1_again.get('top3') or []] + \
+            [r['user_id'] for r in t1_again.get('rows') or []]
+        check('เรียกหน้า 1 ซ้ำได้ลำดับเดียวกันทุกครั้ง (คิวรีเสถียร)',
+              page1_order_again == page1_order, (page1_order_again, page1_order))
 
     finally:
         ids = [u.user_id for u in made]
