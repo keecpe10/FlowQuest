@@ -218,7 +218,10 @@ const Leaderboard3D = () => {
         const authToken = getToken();
         try {
             setSwitching(true);
-            const url = new URL(`${API_BASE}/api/v1/game/leaderboard-3d`);
+            // ต้องมี base เสมอ เพราะตอนขึ้นเซิร์ฟเวอร์จริง API_BASE เป็นค่าว่าง
+            // (เรียก /api/ บนโดเมนเดียวกันผ่าน nginx) แล้ว new URL ของ path ล้วน
+            // จะโยน Invalid URL ทันที หน้าจะว่างเปล่าโดยไม่มีอะไรบอก
+            const url = new URL(`${API_BASE}/api/v1/game/leaderboard-3d`, window.location.origin);
             if (missionId) url.searchParams.set('mission_id', missionId);
             else if (activeCourse) url.searchParams.set('course_id', activeCourse);
             url.searchParams.set('page', String(wantPage));
@@ -362,7 +365,13 @@ const Leaderboard3D = () => {
                             <Medal size={16} className="text-violet-400" />
                             <h2 className="text-white font-black text-sm">อันดับรองชนะเลิศ</h2>
                         </div>
-                        <p className="text-slate-500 text-xs">อันดับที่ 4 – 10</p>
+                        {/* บอกช่วงอันดับของหน้าที่กำลังดูจริง เดิมเขียน "4 – 10" ตายตัวไว้
+                            ซึ่งไม่ตรงตั้งแต่แรกและยิ่งไม่ตรงเมื่อเปลี่ยนหน้าได้แล้ว */}
+                        <p className="text-slate-500 text-xs">
+                            {rest.length > 0
+                                ? `อันดับที่ ${rest[0].rank} – ${rest[rest.length - 1].rank}`
+                                : 'อันดับที่ 4 เป็นต้นไป'}
+                        </p>
                         {courses.length > 1 && (
                             // แสดงเฉพาะคนที่ลงหลายวิชา คนที่ลงวิชาเดียวไม่ควรเห็นตัวเลือก
                             // ที่มีทางเลือกเดียว

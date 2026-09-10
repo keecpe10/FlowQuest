@@ -31,7 +31,9 @@ const Leaderboard: React.FC = () => {
 
   const fetchLeaderboard = async () => {
     try {
-      const url = new URL(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/game/leaderboard`);
+      // ต้องมี base เสมอ ไม่งั้นตอนขึ้นเซิร์ฟเวอร์จริงที่ตัวแปรนี้เป็นค่าว่าง new URL
+      // ของ path ล้วนจะโยน Invalid URL แล้วหน้าอันดับว่างเปล่าโดยไม่มีอะไรบอก
+      const url = new URL(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/game/leaderboard`, window.location.origin);
       if (id) {
         url.searchParams.append('mission_id', id);
       }
