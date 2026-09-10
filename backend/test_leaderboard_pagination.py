@@ -40,7 +40,8 @@ with app.app_context():
         # นักเรียน 25 คน คะแนนไล่ลงจาก 250 ทีละ 10 อันดับจึงคาดเดาได้แน่นอน
         students = []
         for i in range(25):
-            s = mk(f'lp_s{i:02d}_{tag}', srole)
+            s = mk(f'lp_s{i:02d}_{tag}', srole,
+                   avatar_url='data:image/png;base64,' + 'A' * 4000)
             students.append(s)
             db.session.add(CourseEnrollment(course_id=course.course_id,
                                             user_id=s.user_id, role_in_course='student'))
@@ -235,6 +236,14 @@ with app.app_context():
         print('\n[14] ไม่ระบุ course_id และ mission_id เลยต้องถูกปฏิเสธ')
         r = c.get('/api/v1/game/leaderboard-3d')
         check('ไม่ส่งขอบเขตมาเลยได้ 400', r.status_code == 400, r.status_code)
+
+        print('\n[15] หอเกียรติยศ 3D ต้องมีรูปทุกแถว ไม่ใช่แค่โพเดียม')
+        # row_avatars=True เป็นสิ่งที่ทำให้หน้านี้ต่างจาก /leaderboard ตอนทำด่าน
+        # ถ้าค่านี้พลิกเป็น False โดยไม่ตั้งใจ แถวนอกโพเดียมจะกลายเป็นตัวอักษรย่อ
+        # แทนรูปจริง โดยไม่มีอะไรจับได้เลยถ้าไม่เช็กตรงนี้
+        check('โพเดียมมีรูปครบ', all(u.get('avatar_url') for u in p1['top3']), p1['top3'])
+        check('แถวนอกโพเดียมก็มีรูปเช่นกัน', all(r.get('avatar_url') for r in p1['rows']),
+              [r.get('user_id') for r in p1['rows'] if not r.get('avatar_url')])
 
     finally:
         ids = [u.user_id for u in made]

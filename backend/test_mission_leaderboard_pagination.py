@@ -7,6 +7,7 @@ base64 เฉลี่ยคนละ 34 KB ห้องละ 40 คนจึ�
 รัน: docker compose exec -T backend python test_mission_leaderboard_pagination.py
 สคริปต์นี้สร้างข้อมูลทดสอบชั่วคราวใน DB จริง แล้วลบทิ้งเสมอเมื่อจบ
 """
+import json
 import uuid
 from werkzeug.security import generate_password_hash
 from app import create_app, db
@@ -89,9 +90,14 @@ with app.app_context():
         check('มี top3 ครบสามคน', len(p1.get('top3', [])) == PODIUM_SIZE, p1.get('top3'))
         check('โพเดียมหน้า 2 เป็นคนเดียวกับหน้า 1',
               [u['user_id'] for u in p2['top3']] == [u['user_id'] for u in p1['top3']])
-        check('หน้า 1 เริ่มที่อันดับ 4', p1['rows'][0]['rank'] == 4, p1['rows'][0])
-        check('หน้า 1 จบที่อันดับ 13', p1['rows'][-1]['rank'] == 13, p1['rows'][-1])
-        check('หน้า 2 เริ่มที่อันดับ 14', p2['rows'][0]['rank'] == 14, p2['rows'][0])
+        # เข้าถึงผ่าน [0]/[-1] ตรง ๆ ถ้า rows ว่าง (เคสพังที่อยากจับได้จริง ๆ) จะได้
+        # IndexError คว่ำทั้งสคริปต์แทนที่จะรายงาน FAIL เป็นชื่อ ๆ ไป จึงกันไว้ก่อน
+        check('หน้า 1 เริ่มที่อันดับ 4', bool(p1['rows']) and p1['rows'][0]['rank'] == 4,
+              p1['rows'][0] if p1['rows'] else 'rows ว่าง')
+        check('หน้า 1 จบที่อันดับ 13', bool(p1['rows']) and p1['rows'][-1]['rank'] == 13,
+              p1['rows'][-1] if p1['rows'] else 'rows ว่าง')
+        check('หน้า 2 เริ่มที่อันดับ 14', bool(p2['rows']) and p2['rows'][0]['rank'] == 14,
+              p2['rows'][0] if p2['rows'] else 'rows ว่าง')
         check('ไม่มีคนซ้ำระหว่างสองหน้า',
               not ({r['user_id'] for r in p1['rows']} & {r['user_id'] for r in p2['rows']}))
         check('total_pages = 3 (25 คน หักโพเดียม 3 เหลือ 22 หน้าละ 10)',
@@ -166,6 +172,13 @@ with app.app_context():
         check('เรียกได้', st == 200, st)
         check('นับรวมคนที่ยังไม่ได้แตะด่านด้วย (26 คน)', bycourse.get('total') == 26,
               bycourse.get('total'))
+
+        print('\n[10] ก้อนข้อมูลต้องเล็กจริง ไม่ใช่แค่ไม่มี avatar_url ในแถวนอกโพเดียม')
+        # นี่คือเหตุผลทั้งหมดที่ต้องมีฟีเจอร์นี้: 25 คนมีรูป base64 คนละ ~4000 ตัวอักษร
+        # ถ้าส่งมาทุกแถวจะเกิน 100,000 ไบต์แน่นอน แต่หน้านี้ส่งรูปแค่ 3 คนบนโพเดียม
+        # เท่านั้น ขนาดจริงของ response จึงต้องเล็กกว่านั้นมาก
+        size_bytes = len(json.dumps(p1))
+        check('ขนาด response เล็กกว่า 30,000 ไบต์', size_bytes < 30000, f'{size_bytes} ไบต์')
 
     finally:
         ids = [u.user_id for u in made]

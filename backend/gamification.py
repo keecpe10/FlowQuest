@@ -2,7 +2,7 @@ import jwt
 import os
 from flask import Blueprint, request, jsonify
 from app import db
-from models import User, PointHistory, LeaderboardSnapshot, Mission, UserMission, Role
+from models import User, PointHistory, LeaderboardSnapshot, Mission, UserMission
 from auth_utils import has_course_access, can_play_mission, get_current_user_id
 from engine import XP_SOURCES
 from datetime import datetime
@@ -19,6 +19,10 @@ game_bp = Blueprint('game', __name__, url_prefix='/api/v1/game')
 # 100 คะแนนสะสมต่อ 1 เลเวล เริ่มที่เลเวล 1 — ให้พอดีกับเกณฑ์ยศที่ใช้อยู่
 # (200 คะแนน = Skilled ≈ เลเวล 3, 500 = Expert ≈ เลเวล 6, 1000 = Master ≈ เลเวล 11)
 POINTS_PER_LEVEL = 100
+
+# โพเดียมมีสามที่เสมอ และแถบข้างแสดงทีละสิบคน
+PODIUM_SIZE = 3
+LEADERBOARD_PAGE_SIZE = 10
 
 
 def level_from_points(total_points):
@@ -267,11 +271,16 @@ def get_leaderboard():
             return jsonify({'error': 'Mission not found'}), 404
         course_id = mission.course_id
 
-    missions = Mission.query.filter_by(course_id=course_id).all()
-    course_mission_ids = [m.mission_id for m in missions] or [-1]
-
-    # ถามมาเจาะจงด่านไหน ก็คิดคะแนนและเวลาเฉพาะด่านนั้น ไม่ใช่ทั้งคอร์ส
-    scoped_mission_ids = [mission_id] if mission_id else course_mission_ids
+    if mission_id:
+        # ถามมาเจาะจงด่านไหน ก็คิดคะแนนและเวลาเฉพาะด่านนั้น ไม่ต้องรู้จักด่านอื่นในคอร์สเลย
+        scoped_mission_ids = [mission_id]
+    else:
+        # ดึงแค่คอลัมน์ id ไม่ใช่ทั้งแถว เพราะแถวของด่านมี description กับผังงานเฉลย
+        # เป็น JSON ก้อนใหญ่ติดมาด้วย ทั้งที่ตรงนี้ใช้แค่ id
+        scoped_mission_ids = [
+            m.mission_id for m in db.session.query(Mission.mission_id).filter_by(
+                course_id=course_id).all()
+        ] or [-1]
 
     leaderboard_query = db.session.query(
         User.user_id,
@@ -307,8 +316,14 @@ def get_leaderboard():
         ).distinct()
         leaderboard_query = leaderboard_query.filter(User.user_id.in_(participants))
 
+    # ตอนด่านกำลังเล่นอยู่ คนส่วนใหญ่ยังคะแนน 0 เวลา 0 เท่ากันหมด (คะแนนคิดจาก
+    # source_id ที่จำกัดขอบเขตแล้ว และเวลาก็นับเฉพาะ status='completed')
+    # เรียงแค่สองคอลัมน์นี้จึงเจอเสมอภาคเป็นเรื่องปกติ ไม่ใช่กรณีพิเศษ และ Postgres
+    # ไม่รับประกันลำดับของแถวที่เท่ากันข้ามการคิวรีแต่ละครั้ง ถ้าไม่ผูกด้วย user_id
+    # เป็นตัวตัดสินสุดท้าย คนคนเดียวกันอาจไปโผล่ทั้งหน้า 1 และหน้า 2 พร้อมกัน
+    # หรือหายไปจากทุกหน้าเลยก็ได้ และโพเดียมก็สลับสับเปลี่ยนได้ทุกครั้งที่รีเฟรช
     ranking = leaderboard_query.group_by(User.user_id).order_by(
-        db.desc('total_points'), db.asc('total_time')).all()
+        db.desc('total_points'), db.asc('total_time'), db.asc(User.user_id)).all()
 
     # ตารางนี้แสดงแถวนอกโพเดียมเป็นเลขอันดับ ไม่ใช่รูป จึงไม่ขอรูปมาให้แถวเหล่านั้น
     return jsonify(_paginate_ranking(
@@ -340,11 +355,6 @@ def get_profile():
         'points': total_points,
         'badges': [b.badge.name for b in user.badges]
     }), 200
-
-# โพเดียมมีสามที่เสมอ และแถบข้างแสดงทีละสิบคน
-PODIUM_SIZE = 3
-LEADERBOARD_PAGE_SIZE = 10
-
 
 def _character_payload(user_id):
     """ข้อมูลตัวละครสามมิติของคนหนึ่งคน คืน (config, equipped)
@@ -466,8 +476,10 @@ def get_leaderboard_3d():
 
     # ไม่ใส่ limit แล้ว เพราะต้องรู้อันดับของทุกคนเพื่อบอกว่าผู้เรียกอยู่หน้าไหน
     # คิวรีนี้ดึงแค่ id กับตัวเลข จึงเบาแม้มีนักเรียนหลายร้อยคน
+    # ผูก user_id เป็นตัวตัดสินสุดท้าย เพราะตอนด่านกำลังเล่นอยู่หลายคนคะแนนเท่ากัน
+    # เป็นเรื่องปกติ ถ้าไม่มีตัวนี้ Postgres ไม่รับประกันลำดับของแถวที่เท่ากัน
     ranking = leaderboard_query.group_by(User.user_id).order_by(
-        db.desc('total_points'), db.asc('total_time')).all()
+        db.desc('total_points'), db.asc('total_time'), db.asc(User.user_id)).all()
 
     # หน้านี้แสดงรูปตัวละครในทุกแถว ไม่ใช่แค่โพเดียม จึงต้องขอรูปมาให้แถวนอกโพเดียมด้วย
     payload = _paginate_ranking(
