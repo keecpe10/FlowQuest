@@ -19,8 +19,8 @@ interface LeaderboardUser {
     points: number;
     total_time: number;
     rank: number;
-    config: any;
-    equipped: any;
+    config?: any;
+    equipped?: any;
 }
 
 const formatTime = (seconds: number): string => {
@@ -171,72 +171,57 @@ const Leaderboard3D = () => {
         total_pages: number;
         my_rank: number | null;
         my_page: number | null;
-    }>({ top3: [], rows: [], page: 1, total: 0, total_pages: 1, my_rank: null, my_page: null });
+        my_user_id: number | null;
+    }>({ top3: [], rows: [], page: 1, total: 0, total_pages: 1, my_rank: null, my_page: null, my_user_id: null });
     const [page, setPage] = useState(1);
     const [switching, setSwitching] = useState(false);
-    const [courses, setCourses] = useState<{ course_id: number; course_name: string }[]>([]);
-    const [pickedCourse, setPickedCourse] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
-    // true เมื่อดึงรายวิชาของผู้ใช้เสร็จแล้วแต่ไม่มีวิชาให้เลือกเลย (ยิง error หรือ list ว่าง)
-    // ถ้าไม่มี flag นี้ pickedCourse จะไม่มีวันได้ค่า ทำให้ effect หลักไม่เปิด และ loading
-    // ค้าง true ตลอดไป — สปินเนอร์ที่ไม่มีวันจบแย่กว่าหน้าว่างที่บอกตามตรง
-    const [noCourse, setNoCourse] = useState(false);
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const missionId = searchParams.get('mission_id');
+    // กระดานนี้ตั้งใจให้เป็นรายวิชาเท่านั้น ขอบเขตต้องมาจาก URL ล้วน ๆ ไม่มีการเลือกวิชา
+    // เองในหน้านี้ เพราะทุกทางเข้าสู่หน้านี้ (ปุ่ม/ลิงก์จากที่อื่นในระบบ) ใส่ course_id
+    // หรือ mission_id มาให้เสมอ ถ้าไม่มีทั้งคู่ แปลว่าเข้ามาแบบไม่มีขอบเขตจริง ๆ
+    // (เช่นพิมพ์ /leaderboard เอง) หน้านี้ต้องบอกตามตรงว่าไม่มีอะไรให้จัดอันดับ ไม่ใช่
+    // ถอยไปจัดอันดับทั้งโรงเรียนแทนอย่างเงียบ ๆ
     const courseId = searchParams.get('course_id');
+    const hasScope = Boolean(missionId || courseId);
 
-    // รายวิชาของผู้ใช้ ใช้ทั้งเป็นค่าเริ่มต้นและเป็นตัวเลือกให้คนที่ลงหลายวิชา
-    // ถ้า URL ระบุ course_id หรือ mission_id มาแล้ว ไม่ต้องยุ่ง ให้เคารพลิงก์ที่ครูส่งมา
-    useEffect(() => {
-        if (missionId || courseId) return;
-        axios.get(`${API_BASE}/api/v1/courses`, {
-            headers: { Authorization: `Bearer ${getToken()}` },
-        })
-            .then((res) => {
-                const list = Array.isArray(res.data) ? res.data : [];
-                setCourses(list);
-                if (list.length > 0) {
-                    setPickedCourse(list[0].course_id);
-                } else {
-                    setLoading(false);
-                    setNoCourse(true);
-                }
-            })
-            .catch(() => {
-                setLoading(false);
-                setNoCourse(true);
-            });
-    }, [missionId, courseId]);
+    // ตัวนับคำขอล่าสุด ดูคำอธิบายใน fetchLeaderboard
+    const reqIdRef = useRef(0);
 
-    const activeCourse = courseId || (pickedCourse != null ? String(pickedCourse) : null);
-
-    const fetchLeaderboard = useCallback(async (wantPage: number) => {
+    const fetchLeaderboard = useCallback(async (wantPage: number, silent = false) => {
         // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
         // socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
         // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
         const authToken = getToken();
+        // เลขคำขอเพิ่มขึ้นทุกครั้งที่เรียก ใช้กันการชนกันของคำตอบ: ถ้าผู้ใช้กด "ถัดไป →"
+        // แล้ว socket ยิง points_awarded แทรกเข้ามาขอหน้า 1 พร้อมกัน คำตอบของหน้า 1 (เก่ากว่า
+        // ตามคำขอ แต่เครือข่ายอาจส่งมาถึงทีหลังก็ได้) จะต้องไม่ทับคำตอบของหน้า 2 ที่ผู้ใช้
+        // ตั้งใจดู — ไม่งั้นผู้ใช้จะเห็นจอตีกลับไปหน้า 1 เองโดยไม่ได้กดอะไร
+        const myReq = ++reqIdRef.current;
         try {
-            setSwitching(true);
+            if (!silent) setSwitching(true);
             // ต้องมี base เสมอ เพราะตอนขึ้นเซิร์ฟเวอร์จริง API_BASE เป็นค่าว่าง
             // (เรียก /api/ บนโดเมนเดียวกันผ่าน nginx) แล้ว new URL ของ path ล้วน
             // จะโยน Invalid URL ทันที หน้าจะว่างเปล่าโดยไม่มีอะไรบอก
             const url = new URL(`${API_BASE}/api/v1/game/leaderboard-3d`, window.location.origin);
             if (missionId) url.searchParams.set('mission_id', missionId);
-            else if (activeCourse) url.searchParams.set('course_id', activeCourse);
+            else if (courseId) url.searchParams.set('course_id', courseId);
             url.searchParams.set('page', String(wantPage));
             const res = await axios.get(url.toString(), {
                 headers: { Authorization: `Bearer ${authToken}` },
             });
+            if (myReq !== reqIdRef.current) return; // มีคำขอใหม่กว่าแทรกเข้ามาแล้ว ทิ้งคำตอบนี้
             setBoard(res.data);
             setPage(res.data.page);
         } catch (error) {
             console.error('Failed to fetch leaderboard', error);
         } finally {
             setLoading(false);
-            setSwitching(false);
+            if (myReq === reqIdRef.current && !silent) setSwitching(false);
         }
-    }, [missionId, activeCourse]);
+    }, [missionId, courseId]);
 
     // เก็บหน้าปัจจุบันไว้ใน ref เพื่อให้ handler ของ socket อ่านค่าสดได้ โดยไม่ต้องเอา page
     // ไปใส่ dependency ของ effect ที่สร้าง socket — ถ้าใส่ socket จะถูกทำลายแล้วสร้างใหม่
@@ -245,23 +230,25 @@ const Leaderboard3D = () => {
     useEffect(() => { pageRef.current = page; }, [page]);
 
     useEffect(() => {
-        if (!missionId && !courseId && pickedCourse == null) return;
+        if (!hasScope) { setLoading(false); return; }
         fetchLeaderboard(page);
-    }, [missionId, courseId, pickedCourse, page, fetchLeaderboard]);
+    }, [hasScope, page, fetchLeaderboard]);
 
     useEffect(() => {
-        if (!missionId && !courseId && pickedCourse == null) return;
+        if (!hasScope) return;
 
         const socket = io(API_BASE);
         socket.on('points_awarded', () => {
             // โหลดสดเฉพาะตอนอยู่หน้าแรก หน้าอื่นคือการตั้งใจไปดู ถ้าดึงข้อมูลใหม่
             // ระหว่างนั้นอันดับจะสลับกลางคันทุกครั้งที่เพื่อนทำข้อสอบเสร็จ
-            if (pageRef.current === 1) fetchLeaderboard(1);
+            // silent=true เพราะนี่คือการรีเฟรชอัตโนมัติ ไม่ใช่ผู้ใช้กดเปลี่ยนหน้าเอง
+            // ถ้าเรียก setSwitching ด้วย รายชื่อจะวูบจางทุกครั้งที่เพื่อนได้แต้มระหว่างเรียน
+            if (pageRef.current === 1) fetchLeaderboard(1, true);
         });
         return () => { socket.disconnect(); };
     // ไม่ใส่ token และ page ใน deps: token หมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน และ page
     // เปลี่ยนทุกครั้งที่กดเปลี่ยนหน้า ถ้าใส่ทั้งคู่ effect นี้จะรันซ้ำจนต่อ/ตัด socket วนไม่จบ
-    }, [missionId, courseId, pickedCourse, fetchLeaderboard]);
+    }, [hasScope, fetchLeaderboard]);
 
     const top3 = board.top3;
     const rest = board.rows;
@@ -283,13 +270,15 @@ const Leaderboard3D = () => {
         );
     }
 
-    if (noCourse) {
+    // เปิดหน้านี้ตรง ๆ โดยไม่มี course_id หรือ mission_id ใน URL (เช่นพิมพ์ /leaderboard เอง)
+    // ต้องบอกตามตรงว่าไม่มีขอบเขตให้จัดอันดับ ไม่ใช่ปล่อยให้ fetch แบบไม่มีขอบเขต
+    if (!hasScope) {
         return (
             <div className="flex-1 h-screen flex items-center justify-center bg-slate-950">
-                <div className="flex flex-col items-center gap-2 text-center px-6">
+                <div className="flex flex-col items-center text-center px-6">
                     <Trophy size={36} className="text-slate-700 mb-3" />
-                    <p className="text-slate-400 text-sm font-bold">ยังไม่มีรายวิชาให้จัดอันดับ</p>
-                    <p className="text-slate-600 text-xs mt-1">เข้าร่วมรายวิชาก่อนจึงจะเห็นหอเกียรติยศ</p>
+                    <p className="text-slate-500 text-sm font-medium">เปิดหอเกียรติยศจากรายวิชา</p>
+                    <p className="text-slate-600 text-xs mt-1">กลับไปเลือกรายวิชาหรือด่านก่อน จึงจะเห็นอันดับ</p>
                 </div>
             </div>
         );
@@ -358,7 +347,7 @@ const Leaderboard3D = () => {
                     </Canvas>
                 </div>
 
-                {/* Sidebar: Ranks 4-10 */}
+                {/* Sidebar: อันดับรองชนะเลิศ (นอกโพเดียม) แบ่งหน้าทีละสิบคน */}
                 <div className="w-72 xl:w-80 flex-shrink-0 flex flex-col bg-slate-950/80 backdrop-blur-xl border-l border-white/5 overflow-y-auto z-10">
                     <div className="px-5 pt-24 pb-4">
                         <div className="flex items-center gap-2 mb-1">
@@ -372,21 +361,6 @@ const Leaderboard3D = () => {
                                 ? `อันดับที่ ${rest[0].rank} – ${rest[rest.length - 1].rank}`
                                 : 'อันดับที่ 4 เป็นต้นไป'}
                         </p>
-                        {courses.length > 1 && (
-                            // แสดงเฉพาะคนที่ลงหลายวิชา คนที่ลงวิชาเดียวไม่ควรเห็นตัวเลือก
-                            // ที่มีทางเลือกเดียว
-                            <select
-                                value={pickedCourse ?? ''}
-                                onChange={(e) => { setPickedCourse(Number(e.target.value)); setPage(1); }}
-                                className="mt-2 w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-400"
-                            >
-                                {courses.map((c) => (
-                                    <option key={c.course_id} value={c.course_id} className="bg-slate-900">
-                                        {c.course_name}
-                                    </option>
-                                ))}
-                            </select>
-                        )}
                         <div className="mt-3 h-px bg-gradient-to-r from-violet-500/40 via-pink-500/20 to-transparent" />
                     </div>
 
@@ -400,7 +374,7 @@ const Leaderboard3D = () => {
                         ) : (
                             rest.map((user, i) => (
                                 <SidebarRankCard key={user.user_id} user={user} index={i}
-                                    isMe={board.my_rank === user.rank} />
+                                    isMe={board.my_user_id === user.user_id} />
                             ))
                         )}
                     </div>

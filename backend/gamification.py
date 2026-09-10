@@ -366,8 +366,13 @@ def _character_payload(user_id):
 def get_leaderboard_3d():
     course_id = request.args.get('course_id', type=int)
     mission_id = request.args.get('mission_id', type=int)
-    student_role = Role.query.filter_by(role_name='student').first()
-    
+
+    # ต้องเช็กที่ฝั่งเซิร์ฟเวอร์ ไม่ใช่ปล่อยให้หน้าเว็บเป็นคนกันเอง เพราะ endpoint นี้
+    # ไม่ต้องล็อกอินก็เรียกได้ ถ้าไม่บังคับตรงนี้ ใครก็ยิง URL ตรง ๆ แล้วได้อันดับ
+    # ทั้งโรงเรียนในคิวรีเดียวได้ทันที ทั้งที่กระดานนี้ตั้งใจให้เป็นรายวิชาเท่านั้น
+    if not course_id and not mission_id:
+        return jsonify({'error': 'ต้องระบุ course_id หรือ mission_id'}), 400
+
     if mission_id:
         from models import CourseEnrollment
         mission = Mission.query.get(mission_id)
@@ -425,22 +430,7 @@ def get_leaderboard_3d():
             CourseEnrollment.course_id == course_id,
             CourseEnrollment.role_in_course == 'student'
         )
-    else:
-        leaderboard_query = db.session.query(
-            User.user_id,
-            db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
-            db.func.coalesce(
-                db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
-                    UserMission.user_id == User.user_id,
-                    UserMission.status == 'completed'
-                ).correlate(User).scalar_subquery(), 0
-            ).label('total_time')
-        ).outerjoin(
-            PointHistory, User.user_id == PointHistory.user_id
-        ).filter(
-            User.role_id == student_role.role_id if student_role else False
-        )
-        
+
     # ไม่ใส่ limit แล้ว เพราะต้องรู้อันดับของทุกคนเพื่อบอกว่าผู้เรียกอยู่หน้าไหน
     # คิวรีนี้ดึงแค่ id กับตัวเลข จึงเบาแม้มีนักเรียนหลายร้อยคน
     ranking = leaderboard_query.group_by(User.user_id).order_by(
@@ -506,4 +496,8 @@ def get_leaderboard_3d():
         'total_pages': total_pages,
         'my_rank': my_rank,
         'my_page': my_page,
+        # ไว้ให้หน้าเว็บเทียบ "แถวนี้คือฉันไหม" ด้วย id ไม่ใช่อันดับ เพราะอันดับซ้ำกันได้
+        # ในทางทฤษฎี (เช่นถ้าวันหน้าเปลี่ยนกติกาเรื่องอันดับเสมอกัน) เป็น null ในเงื่อนไข
+        # เดียวกับ my_rank คือไม่มีผู้เรียก หรือผู้เรียกไม่ติดอันดับ
+        'my_user_id': viewer_id if my_rank is not None else None,
     }), 200
