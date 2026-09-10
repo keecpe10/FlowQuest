@@ -181,109 +181,142 @@ def submit_flowchart():
             'points': 0
         }), 400
 
+def _paginate_ranking(ranking, page, viewer_id, row_avatars):
+    """แบ่งหน้าผลจัดอันดับให้เป็นรูปทรงเดียวกันทุกกระดาน
+
+    ranking คือผลคิวรีที่เรียงมาแล้ว แต่ละแถวมี .user_id .total_points .total_time
+    และต้องมีแค่นั้น ไม่ควรมี avatar_url ติดมา เพราะรูปเป็น base64 เฉลี่ยคนละ 34 KB
+    การดึงมาทั้งตารางเพื่อจะใช้แค่ไม่กี่แถวคือการโหลดเปล่า ๆ หลักเมกะไบต์
+
+    row_avatars บอกว่าจะส่งรูปให้แถวนอกโพเดียมด้วยไหม หอเกียรติยศ 3D แสดงรูปทุกแถว
+    จึงต้องได้ แต่ตารางข้างจอตอนทำด่านแสดงเป็นเลขอันดับ จึงไม่ต้องได้
+    """
+    total = len(ranking)
+    rest_count = max(0, total - PODIUM_SIZE)
+    total_pages = max(1, -(-rest_count // LEADERBOARD_PAGE_SIZE))
+
+    # หน้าที่ขอเกินช่วงให้บีบกลับ ดีกว่าตอบ error หรือรายชื่อว่างซึ่งผู้ใช้ตีความไม่ออก
+    page = max(1, min(page or 1, total_pages))
+
+    my_rank, my_page = None, None
+    if viewer_id:
+        for idx, row in enumerate(ranking):
+            if row.user_id == viewer_id:
+                my_rank = idx + 1
+                # คนบนโพเดียมเห็นตัวเองได้จากหน้าแรกอยู่แล้ว จึงชี้ไปหน้า 1
+                # หน้าเว็บจะได้ไม่ต้องมีกรณีพิเศษ
+                my_page = 1 if my_rank <= PODIUM_SIZE else \
+                    (my_rank - PODIUM_SIZE - 1) // LEADERBOARD_PAGE_SIZE + 1
+                break
+
+    podium_rows = ranking[:PODIUM_SIZE]
+    start = PODIUM_SIZE + (page - 1) * LEADERBOARD_PAGE_SIZE
+    page_rows = ranking[start:start + LEADERBOARD_PAGE_SIZE]
+
+    # คิวรีที่สอง ดึงข้อมูลเต็มเฉพาะแถวที่จะส่งออกจริง
+    wanted_ids = [r.user_id for r in podium_rows] + [r.user_id for r in page_rows]
+    users = {u.user_id: u for u in User.query.filter(User.user_id.in_(wanted_ids)).all()} \
+        if wanted_ids else {}
+
+    def entry(row, rank, with_avatar):
+        u = users.get(row.user_id)
+        name = ''
+        if u:
+            name = f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username
+        return {
+            'user_id': row.user_id,
+            'name': name,
+            'avatar_url': (u.avatar_url if u else None) if with_avatar else None,
+            'points': int(row.total_points),
+            'total_time': int(row.total_time),
+            'rank': rank,
+        }
+
+    return {
+        'top3': [entry(row, i + 1, True) for i, row in enumerate(podium_rows)],
+        'rows': [entry(row, start + i + 1, row_avatars)
+                 for i, row in enumerate(page_rows)],
+        'page': page,
+        'page_size': LEADERBOARD_PAGE_SIZE,
+        'total': total,
+        'total_pages': total_pages,
+        'my_rank': my_rank,
+        'my_page': my_page,
+        # ไว้ให้หน้าเว็บเทียบ "แถวนี้คือฉันไหม" ด้วย id ไม่ใช่อันดับ เพราะอันดับซ้ำกันได้
+        # ในทางทฤษฎี เป็น null ในเงื่อนไขเดียวกับ my_rank คือไม่มีผู้เรียก
+        # หรือผู้เรียกไม่ติดอันดับ
+        'my_user_id': viewer_id if my_rank is not None else None,
+    }
+
+
 @game_bp.route('/leaderboard', methods=['GET'])
 def get_leaderboard():
+    from models import CourseEnrollment
     course_id = request.args.get('course_id', type=int)
     mission_id = request.args.get('mission_id', type=int)
-    student_role = Role.query.filter_by(role_name='student').first()
-    
+
+    # ต้องเช็กที่ฝั่งเซิร์ฟเวอร์ ไม่ใช่ปล่อยให้หน้าเว็บเป็นคนกันเอง เพราะ endpoint นี้
+    # ไม่ต้องล็อกอินก็เรียกได้ ถ้าไม่บังคับตรงนี้ ใครก็ยิง URL เปล่า ๆ แล้วได้อันดับ
+    # ทั้งโรงเรียนในคิวรีเดียวได้ทันที
+    if not course_id and not mission_id:
+        return jsonify({'error': 'ต้องระบุ course_id หรือ mission_id'}), 400
+
     if mission_id and not course_id:
         mission = Mission.query.get(mission_id)
-        if mission:
-            course_id = mission.course_id
-            
-    if course_id:
-        from models import CourseEnrollment
-        missions = Mission.query.filter_by(course_id=course_id).all()
-        course_mission_ids = [m.mission_id for m in missions]
-        if not course_mission_ids:
-            course_mission_ids = [-1] # avoid empty IN clause
+        if not mission:
+            return jsonify({'error': 'Mission not found'}), 404
+        course_id = mission.course_id
 
-        # ถามมาเจาะจงด่านไหน ก็คิดคะแนนและเวลาเฉพาะด่านนั้น ไม่ใช่ทั้งคอร์ส
-        scoped_mission_ids = [mission_id] if mission_id else course_mission_ids
-            
-        leaderboard_query = db.session.query(
-            User.user_id,
-            User.first_name,
-            User.last_name,
-            User.username,
-            User.avatar_url,
-            db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
-            db.func.coalesce(
-                db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
-                    UserMission.user_id == User.user_id,
-                    UserMission.status == 'completed',
-                    UserMission.mission_id.in_(scoped_mission_ids)
-                ).correlate(User).scalar_subquery(), 0
-            ).label('total_time')
-        ).join(
-            CourseEnrollment, User.user_id == CourseEnrollment.user_id
-        ).outerjoin(
-            PointHistory, 
-            db.and_(
-                User.user_id == PointHistory.user_id,
-                PointHistory.source.in_(XP_SOURCES),
-                PointHistory.source_id.in_(scoped_mission_ids)
-            )
-        ).filter(
-            CourseEnrollment.course_id == course_id,
-            CourseEnrollment.role_in_course == 'student'
+    missions = Mission.query.filter_by(course_id=course_id).all()
+    course_mission_ids = [m.mission_id for m in missions] or [-1]
+
+    # ถามมาเจาะจงด่านไหน ก็คิดคะแนนและเวลาเฉพาะด่านนั้น ไม่ใช่ทั้งคอร์ส
+    scoped_mission_ids = [mission_id] if mission_id else course_mission_ids
+
+    leaderboard_query = db.session.query(
+        User.user_id,
+        db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
+        db.func.coalesce(
+            db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
+                UserMission.user_id == User.user_id,
+                UserMission.status == 'completed',
+                UserMission.mission_id.in_(scoped_mission_ids)
+            ).correlate(User).scalar_subquery(), 0
+        ).label('total_time')
+    ).join(
+        CourseEnrollment, User.user_id == CourseEnrollment.user_id
+    ).outerjoin(
+        PointHistory,
+        db.and_(
+            User.user_id == PointHistory.user_id,
+            PointHistory.source.in_(XP_SOURCES),
+            PointHistory.source_id.in_(scoped_mission_ids)
         )
+    ).filter(
+        CourseEnrollment.course_id == course_id,
+        CourseEnrollment.role_in_course == 'student'
+    )
 
-        if mission_id:
-            # ตารางอันดับของด่านหนึ่ง ควรมีเฉพาะคนที่ลงมือทำด่านนั้นจริง ไม่ใช่ทุกคน
-            # ที่ลงทะเบียนในคอร์ส คอร์สหนึ่งมีนักเรียนหลายร้อยคน แต่คนที่ทำด่านเดียวกัน
-            # พร้อมกันมีแค่ห้องเดียว การส่งทั้งคอร์สจึงเป็นข้อมูลเกินจำเป็นหลายสิบเท่า
-            # ใช้ subquery แทน join เพราะ join จะทำให้แถวซ้ำแล้ว sum(points) บวมตาม
-            participants = db.session.query(UserMission.user_id).filter(
-                UserMission.mission_id == mission_id
-            ).distinct()
-            leaderboard_query = leaderboard_query.filter(User.user_id.in_(participants))
-    else:
-        leaderboard_query = db.session.query(
-            User.user_id,
-            User.first_name,
-            User.last_name,
-            User.username,
-            User.avatar_url,
-            db.func.coalesce(db.func.sum(PointHistory.points), 0).label('total_points'),
-            db.func.coalesce(
-                db.session.query(db.func.sum(UserMission.time_spent_seconds)).filter(
-                    UserMission.user_id == User.user_id,
-                    UserMission.status == 'completed'
-                ).correlate(User).scalar_subquery(), 0
-            ).label('total_time')
-        ).outerjoin(
-            PointHistory, User.user_id == PointHistory.user_id
-        ).filter(
-            User.role_id == student_role.role_id if student_role else False
-        )
-        
-    leaderboard_query = leaderboard_query.group_by(
-        User.user_id, User.first_name, User.last_name, User.username, User.avatar_url
-    ).order_by(db.desc('total_points'), db.asc('total_time'))
-    
-    results = leaderboard_query.all()
-    
-    # รูปตัวละครถูกเก็บเป็น base64 ฝังมากับ JSON จึงแคชไม่ได้และกินพื้นที่ราว 2 ใน 3
-    # ของทั้งก้อน หน้าที่ไม่ได้แสดงรูป (เช่น ตารางอันดับในหน้าทำข้อสอบ) จึงไม่ควรได้รับมา
-    # ส่งให้เฉพาะหน้าที่ขอมาเท่านั้น
-    with_avatars = request.args.get('with_avatars') in ('1', 'true', 'True')
+    if mission_id:
+        # ตารางข้างจอตอนทำด่านเป็นภาพของการแข่งที่กำลังเกิดขึ้น จึงมีเฉพาะคนที่ลงมือ
+        # ทำด่านนั้นจริง ไม่ใช่ทุกคนที่ลงทะเบียนในคอร์ส (ต่างจาก /leaderboard-3d
+        # ซึ่งเป็นภาพรวมของรายวิชาโดยตั้งใจ) ใช้ subquery แทน join เพราะ join จะทำให้
+        # แถวซ้ำแล้ว sum(points) บวมตาม
+        participants = db.session.query(UserMission.user_id).filter(
+            UserMission.mission_id == mission_id
+        ).distinct()
+        leaderboard_query = leaderboard_query.filter(User.user_id.in_(participants))
 
-    leaderboard = []
-    for idx, r in enumerate(results):
-        row = {
-            'user_id': r.user_id,
-            'name': f"{r.first_name or ''} {r.last_name or ''}".strip() or r.username,
-            'points': int(r.total_points),
-            'total_time': int(r.total_time),
-            'rank': idx + 1
-        }
-        if with_avatars:
-            row['avatar_url'] = r.avatar_url
-        leaderboard.append(row)
-        
-    return jsonify(leaderboard), 200
+    ranking = leaderboard_query.group_by(User.user_id).order_by(
+        db.desc('total_points'), db.asc('total_time')).all()
+
+    # ตารางนี้แสดงแถวนอกโพเดียมเป็นเลขอันดับ ไม่ใช่รูป จึงไม่ขอรูปมาให้แถวเหล่านั้น
+    return jsonify(_paginate_ranking(
+        ranking,
+        request.args.get('page', default=1, type=int),
+        get_current_user_id(),
+        row_avatars=False,
+    )), 200
 
 @game_bp.route('/profile', methods=['GET'])
 def get_profile():
@@ -436,68 +469,17 @@ def get_leaderboard_3d():
     ranking = leaderboard_query.group_by(User.user_id).order_by(
         db.desc('total_points'), db.asc('total_time')).all()
 
-    total = len(ranking)
-    rest_count = max(0, total - PODIUM_SIZE)
-    total_pages = max(1, -(-rest_count // LEADERBOARD_PAGE_SIZE))
+    # หน้านี้แสดงรูปตัวละครในทุกแถว ไม่ใช่แค่โพเดียม จึงต้องขอรูปมาให้แถวนอกโพเดียมด้วย
+    payload = _paginate_ranking(
+        ranking,
+        request.args.get('page', default=1, type=int),
+        get_current_user_id(),
+        row_avatars=True,
+    )
 
-    # หน้าที่ขอเกินช่วงให้บีบกลับ ดีกว่าตอบ error หรือรายชื่อว่างซึ่งผู้ใช้ตีความไม่ออก
-    page = request.args.get('page', default=1, type=int) or 1
-    page = max(1, min(page, total_pages))
+    # ตัวละคร 3D ประกอบร่างจาก config กับของที่ใส่อยู่ หนักกว่ารูปนิ่งมาก จึงส่งเฉพาะ
+    # สามคนบนโพเดียมซึ่งเป็นที่เดียวที่เรนเดอร์เป็นโมเดลจริง
+    for item in payload['top3']:
+        item['config'], item['equipped'] = _character_payload(item['user_id'])
 
-    viewer_id = get_current_user_id()
-    my_rank, my_page = None, None
-    if viewer_id:
-        for idx, row in enumerate(ranking):
-            if row.user_id == viewer_id:
-                my_rank = idx + 1
-                # คนบนโพเดียมเห็นตัวเองได้จากหน้าแรกอยู่แล้ว จึงชี้ไปหน้า 1
-                # หน้าเว็บจะได้ไม่ต้องมีกรณีพิเศษ
-                my_page = 1 if my_rank <= PODIUM_SIZE else \
-                    (my_rank - PODIUM_SIZE - 1) // LEADERBOARD_PAGE_SIZE + 1
-                break
-
-    podium_rows = ranking[:PODIUM_SIZE]
-    start = PODIUM_SIZE + (page - 1) * LEADERBOARD_PAGE_SIZE
-    page_rows = ranking[start:start + LEADERBOARD_PAGE_SIZE]
-
-    # คิวรีที่สอง ดึงข้อมูลเต็มเฉพาะแถวที่จะส่งออกจริง
-    wanted_ids = [r.user_id for r in podium_rows] + [r.user_id for r in page_rows]
-    users = {u.user_id: u for u in User.query.filter(User.user_id.in_(wanted_ids)).all()} \
-        if wanted_ids else {}
-
-    def entry(row, rank):
-        u = users.get(row.user_id)
-        name = ''
-        if u:
-            name = f"{u.first_name or ''} {u.last_name or ''}".strip() or u.username
-        return {
-            'user_id': row.user_id,
-            'name': name,
-            'avatar_url': u.avatar_url if u else None,
-            'points': int(row.total_points),
-            'total_time': int(row.total_time),
-            'rank': rank,
-        }
-
-    top3 = []
-    for i, row in enumerate(podium_rows):
-        item = entry(row, i + 1)
-        item['config'], item['equipped'] = _character_payload(row.user_id)
-        top3.append(item)
-
-    rows = [entry(row, start + i + 1) for i, row in enumerate(page_rows)]
-
-    return jsonify({
-        'top3': top3,
-        'rows': rows,
-        'page': page,
-        'page_size': LEADERBOARD_PAGE_SIZE,
-        'total': total,
-        'total_pages': total_pages,
-        'my_rank': my_rank,
-        'my_page': my_page,
-        # ไว้ให้หน้าเว็บเทียบ "แถวนี้คือฉันไหม" ด้วย id ไม่ใช่อันดับ เพราะอันดับซ้ำกันได้
-        # ในทางทฤษฎี (เช่นถ้าวันหน้าเปลี่ยนกติกาเรื่องอันดับเสมอกัน) เป็น null ในเงื่อนไข
-        # เดียวกับ my_rank คือไม่มีผู้เรียก หรือผู้เรียกไม่ติดอันดับ
-        'my_user_id': viewer_id if my_rank is not None else None,
-    }), 200
+    return jsonify(payload), 200

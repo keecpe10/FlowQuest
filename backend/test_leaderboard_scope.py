@@ -1,4 +1,4 @@
-"""ทดสอบว่าตารางอันดับส่งเฉพาะข้อมูลที่จำเป็น
+"""ทดสอบขอบเขตและรูปทรงของตารางอันดับตอนทำด่าน
 
 ตอนนักเรียนทำข้อสอบ หน้าเว็บเปิดตารางอันดับค้างไว้ทุกเครื่อง แล้วโหลดใหม่ทุก 30 วินาที
 และทุกครั้งที่มีใครได้แต้ม ถ้าก้อนข้อมูลใหญ่เกินจำเป็น มันจะคูณด้วยจำนวนเครื่องทั้งห้อง
@@ -7,7 +7,6 @@
 รัน: docker compose exec -T backend python test_leaderboard_scope.py
 สคริปต์นี้สร้างข้อมูลทดสอบชั่วคราวใน DB จริง แล้วลบทิ้งเสมอเมื่อจบ
 """
-import json
 import uuid
 from werkzeug.security import generate_password_hash
 from app import create_app, db
@@ -56,36 +55,36 @@ with app.app_context():
         def get(**params):
             qs = '&'.join(f'{k}={v}' for k, v in params.items())
             r = c.get(f'/api/v1/game/leaderboard?{qs}')
-            return r.status_code, (r.get_json() or [])
+            return r.status_code, (r.get_json() or {})
+
+        def everyone(body):
+            """รวมคนจากโพเดียมกับแถวในหน้าที่ได้มา"""
+            return body.get('top3', []) + body.get('rows', [])
 
         print('\n[1] ระบุด่าน = ส่งเฉพาะคนที่ลงมือทำด่านนั้น')
-        st, rows = get(mission_id=mission.mission_id)
+        st, body = get(mission_id=mission.mission_id)
+        rows = everyone(body)
         names = {r['user_id'] for r in rows}
         check('เรียกได้', st == 200, st)
         check('มีคนที่ทำด่านอยู่ในตาราง', played.user_id in names, sorted(names))
         check('ไม่มีคนที่ยังไม่ได้แตะด่าน', idle_a.user_id not in names and idle_b.user_id not in names,
               f'เจอ {sorted(names)}')
-        check('จำนวนแถวเท่ากับคนที่ทำจริง', len(rows) == 1, len(rows))
+        check('total เท่ากับคนที่ทำจริง', body.get('total') == 1, body.get('total'))
 
-        print('\n[2] ไม่ส่งรูปตัวละครมาถ้าไม่ได้ขอ')
-        st, rows = get(mission_id=mission.mission_id)
-        has_avatar = any(r.get('avatar_url') for r in rows)
-        check('ไม่มี avatar_url ติดมาโดยไม่ได้ขอ', not has_avatar,
-              'ยังส่ง base64 มาด้วย')
-        size_without = len(json.dumps(rows))
+        print('\n[2] รูปตัวละครมาเฉพาะโพเดียม')
+        st, body = get(mission_id=mission.mission_id)
+        check('แถวนอกโพเดียมไม่มีรูปเลย',
+              all(r.get('avatar_url') is None for r in body.get('rows', [])),
+              [r.get('user_id') for r in body.get('rows', []) if r.get('avatar_url')])
 
-        print('\n[3] ขอรูปได้เมื่อหน้าจอนั้นต้องใช้จริง')
-        st, rows_av = get(mission_id=mission.mission_id, with_avatars=1)
-        check('ขอแล้วได้ avatar_url กลับมา', any(r.get('avatar_url') for r in rows_av),
-              rows_av[:1])
-        size_with = len(json.dumps(rows_av))
-        check('ก้อนที่ไม่มีรูปเล็กกว่าอย่างมีนัยสำคัญ', size_without * 3 < size_with,
-              f'{size_without} vs {size_with} bytes')
+        print('\n[3] เรียกโดยไม่ระบุขอบเขตต้องถูกปฏิเสธ')
+        r = c.get('/api/v1/game/leaderboard')
+        check('ไม่ส่งขอบเขตมาเลยได้ 400', r.status_code == 400, r.status_code)
 
         print('\n[4] ระบุแค่คอร์ส = ยังเห็นทั้งคอร์สเหมือนเดิม')
-        st, rows = get(course_id=course.course_id)
+        st, body = get(course_id=course.course_id)
         check('เรียกได้', st == 200, st)
-        check('เห็นครบทุกคนในคอร์ส', len(rows) == 3, len(rows))
+        check('เห็นครบทุกคนในคอร์ส', body.get('total') == 3, body.get('total'))
 
         print('\n[5] หอเกียรติยศรายด่านนับแต้มพิเศษที่ครูให้ด้วย')
         # ครูให้แต้มพิเศษกับด่านนี้ ถ้าไม่นับ นักเรียนจะเห็นอันดับที่ไม่ตรงกับ XP จริง
