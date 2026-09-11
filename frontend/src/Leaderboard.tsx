@@ -26,7 +26,7 @@ const Leaderboard: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const {
     top3, rows, page, totalPages, total, myRank, myPage, myUserId,
-    hasMission, loading, switching, goToPage, goToMyRank,
+    hasMission, loading, switching, loadFailed, goToPage, goToMyRank,
   } = useMissionLeaderboard(id);
 
   const rangeLabel = rankRangeLabel({ page, total });
@@ -92,7 +92,13 @@ const Leaderboard: React.FC = () => {
           <p className="text-slate-500 text-center mt-4">เปิดจากหน้าด่านเพื่อดูอันดับของด่านนั้น</p>
         )}
 
-        {!loading && hasMission && total === 0 && (
+        {/* โหลดไม่สำเร็จต้องบอกตรง ๆ ไม่ใช่ทำเนียนว่ายังไม่มีใครได้คะแนน เพราะตัวจับเวลา
+            สำรองของ hook จะลองดึงใหม่เองทุก 30 วินาทีอยู่แล้ว ผู้ใช้ไม่ต้องทำอะไรเพิ่ม */}
+        {!loading && hasMission && loadFailed && (
+          <p className="text-slate-500 text-center mt-4">โหลดอันดับไม่สำเร็จ กำลังลองใหม่อัตโนมัติ</p>
+        )}
+
+        {!loading && hasMission && !loadFailed && total === 0 && (
           <p className="text-slate-500 text-center mt-4">ยังไม่มีใครได้คะแนน ทำให้เสร็จแล้วขึ้นเป็นคนแรกเลย!</p>
         )}
 

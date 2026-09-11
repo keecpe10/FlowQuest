@@ -219,7 +219,12 @@ const Leaderboard3D = () => {
             console.error('Failed to fetch leaderboard', error);
         } finally {
             setLoading(false);
-            if (myReq === reqIdRef.current && !silent) setSwitching(false);
+            // เคลียร์ switching ทุกครั้งที่คำขอนี้ยังเป็นคำขอล่าสุด ไม่ว่าจะเงียบหรือไม่ เดิม
+            // เช็กเพิ่ม !silent ด้วย ทำให้เคสกดปุ่ม "← ก่อนหน้า" กลับมาหน้า 1 แล้ว socket
+            // ยิง points_awarded แทรกเข้ามาขอหน้า 1 แบบเงียบก่อนคำตอบของปุ่มจะกลับมา
+            // คำตอบของปุ่มถูกทิ้งเพราะไม่ใช่คำขอล่าสุด และคำตอบเงียบก็ไม่เคลียร์ switching ให้
+            // ปุ่มเลยค้าง disabled ตลอดจนกว่าจะรีโหลดหน้าเว็บ
+            if (myReq === reqIdRef.current) setSwitching(false);
         }
     }, [missionId, courseId]);
 

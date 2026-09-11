@@ -1,7 +1,7 @@
 import jwt
 import os
 from flask import Blueprint, request, jsonify
-from app import db
+from app import db, socketio
 from models import User, PointHistory, LeaderboardSnapshot, Mission, UserMission
 from auth_utils import has_course_access, can_play_mission, get_current_user_id
 from engine import XP_SOURCES
@@ -171,10 +171,17 @@ def submit_flowchart():
         )
         db.session.add(history)
         db.session.commit()
-        
+
+        # แจ้งตารางอันดับข้างจอทันทีที่ทำด่านเสร็จ (เฉพาะการทำเสร็จรอบใหม่จริง ๆ ไม่ใช่
+        # ส่งซ้ำด่านที่เคยผ่านแล้ว) เหมือนเส้นทาง MCQ ที่ mcq_routes.py ทำอยู่แล้ว ไม่งั้น
+        # ตารางข้างจอของด่านผังงานจะไม่ขยับจนกว่าจะถึงรอบดึงซ้ำสำรอง 30 วินาที
+        socketio.emit('points_awarded', {
+            'user_id': user_id, 'mission_id': mission_id, 'points': awarded_points,
+        })
+
         return jsonify({
-            'status': status, 
-            'message': message, 
+            'status': status,
+            'message': message,
             'points': awarded_points,
             'time_spent_seconds': time_spent_seconds
         }), 200
@@ -268,8 +275,9 @@ def get_leaderboard():
     if mission_id and not course_id:
         # ดึงแค่คอลัมน์เดียวที่ต้องใช้ ไม่ใช่ทั้งแถว เพราะแถวของด่านมี description กับ
         # ผังงานเฉลยเป็น JSON ก้อนใหญ่ติดมาด้วย และเส้นทางนี้คือเส้นที่ทุกเครื่องยิงซ้ำ
-        # เป็นระยะถี่ตลอดคาบ (หน้าอันดับข้างจอ Leaderboard.tsx โพลทุก 10 วินาที
-        # ส่วนหน้าอันดับ MCQLeaderboard.tsx โพลทุก 30 วินาที)
+        # เป็นระยะถี่ตลอดคาบ (ตารางข้างจอทั้งของด่านผังงานและ MCQ ใช้ hook เดียวกัน
+        # คือ useMissionLeaderboard ซึ่งอัปเดตผ่าน socket เป็นหลักและมีดึงซ้ำสำรอง
+        # ทุก 30 วินาทีเผื่อ socket ต่อไม่ติด)
         row = db.session.query(Mission.course_id).filter_by(mission_id=mission_id).first()
         if not row:
             return jsonify({'error': 'Mission not found'}), 404

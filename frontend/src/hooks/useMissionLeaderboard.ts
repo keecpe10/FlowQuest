@@ -6,6 +6,8 @@ import { getToken } from '../utils/sessionToken';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 /** สำรองเผื่อ socket ต่อไม่ติด ไม่ใช่ช่องทางหลัก */
 const FALLBACK_POLL_MS = 30000;
+/** ระยะเวลาที่ไฟ "เพิ่งอัปเดต" ติดค้างอยู่หลังมีคนทำด่านเสร็จ */
+const PULSE_MS = 1500;
 
 export interface LeaderboardEntry {
     user_id: number;
@@ -46,11 +48,28 @@ export function useMissionLeaderboard(missionId?: string) {
     const [loading, setLoading] = useState(true);
     const [switching, setSwitching] = useState(false);
     const [justUpdated, setJustUpdated] = useState(false);
+    // true เมื่อคำขอล่าสุดพังและยังไม่เคยมีคำตอบไหนถูกนำไปใช้เลยสักครั้ง (โหลดครั้งแรกพัง)
+    // แยกไว้จากตารางว่างจริง ๆ เพื่อไม่ให้หน้าเว็บพูดว่า "ยังไม่มีใครได้คะแนน" ทั้งที่จริง
+    // แค่ดึงข้อมูลไม่สำเร็จ
+    const [loadFailed, setLoadFailed] = useState(false);
 
     // เลขคำขอเพิ่มขึ้นทุกครั้งที่เรียก ใช้กันการชนกันของคำตอบ: ถ้าผู้ใช้กด "ถัดไป"
     // แล้ว socket ยิง points_awarded แทรกเข้ามาขอหน้าเดิมพร้อมกัน คำตอบที่เก่ากว่า
     // ต้องไม่ทับคำตอบของหน้าที่ผู้ใช้ตั้งใจดู ไม่งั้นจอจะตีกลับเองโดยไม่ได้กดอะไร
     const reqIdRef = useRef(0);
+    // true ตั้งแต่มีคำตอบแรกที่ถูกนำไปใช้จริง (ไม่ว่าจะเงียบหรือไม่) ใช้ตัดสิน loadFailed
+    const loadedOnceRef = useRef(false);
+    // เก็บ id ของตัวจับเวลาที่จะดับไฟ "เพิ่งอัปเดต" ไว้ เพื่อยกเลิกของเก่าก่อนตั้งใหม่เสมอ
+    // (ดูเหตุผลเต็มในจุดที่ใช้งานด้านล่าง)
+    const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // เก็บค่าสดไว้ใน ref ให้ทั้ง fetchPage (ตอนกู้เลขหน้าหลังคำขอพัง) และ handler ของ
+    // socket อ่านได้ โดยไม่ต้องเอาไปใส่ dependency ของ effect ที่สร้าง socket ถ้าใส่
+    // socket จะถูกทำลายแล้วสร้างใหม่ทุกครั้งที่เปลี่ยนหน้า
+    const pageRef = useRef(page);
+    useEffect(() => { pageRef.current = page; }, [page]);
+    const boardRef = useRef(board);
+    useEffect(() => { boardRef.current = board; }, [board]);
 
     const fetchPage = useCallback(async (wantPage: number, silent = false) => {
         if (!missionId) { setLoading(false); return; }
@@ -71,25 +90,42 @@ export function useMissionLeaderboard(missionId?: string) {
             });
             if (myReq !== reqIdRef.current) return; // มีคำขอใหม่กว่าแทรกเข้ามาแล้ว ทิ้งคำตอบนี้
             setBoard(res.data);
-            // เซิร์ฟเวอร์บีบหน้าที่เกินช่วงกลับมาให้ จึงยึดค่าที่มันตอบเป็นหลัก
-            setPage(res.data.page);
+            // เซิร์ฟเวอร์บีบหน้าที่เกินช่วงกลับมาให้ จึงยึดค่าที่มันตอบเป็นหลัก — แต่ทำเฉพาะ
+            // ตอนไม่เงียบเท่านั้น ถ้าให้การรีเฟรชเงียบ (socket/ตัวจับเวลาสำรอง) เปลี่ยน page
+            // ไปด้วย จะไปสะกิด effect ที่ผูกกับ page ให้ fetch ซ้ำอีกรอบแบบไม่เงียบทันที
+            // (เช่นตอนอันดับหดแล้วเซิร์ฟเวอร์บีบหน้าที่ตอบกลับ) กลายเป็นคำขอโผล่เพิ่มเอง
+            // และปุ่มกะพริบเป็น disabled ทั้งที่ผู้ใช้ไม่ได้กดอะไรเลย
+            if (!silent) setPage(res.data.page);
+            // มีคำตอบมาใช้ได้แล้วอย่างน้อยหนึ่งครั้ง (ไม่ว่าจะเงียบหรือไม่) ล้างสถานะ
+            // "โหลดไม่สำเร็จ" ทิ้ง
+            loadedOnceRef.current = true;
+            setLoadFailed(false);
         } catch (error) {
             // คงตารางเดิมที่แสดงอยู่ไว้ ไม่ล้างเป็นตารางว่าง รอบถัดไปจะกู้เอง
             console.error('Failed to fetch leaderboard', error);
+            if (myReq === reqIdRef.current) {
+                // คำขอเปลี่ยนหน้าที่ผู้ใช้กด (ไม่เงียบ) ถ้าพัง ต้องดึงเลขหน้าที่ "ขอ" กลับมา
+                // เท่ากับหน้าที่ตารางกำลังแสดงจริง ไม่งั้น page จะค้างบอกว่าหน้าที่ขอไปแล้ว
+                // พัง ทั้งที่แถวที่เห็นยังเป็นของหน้าเดิม ทำให้ป้ายช่วงอันดับโกหกและปุ่ม
+                // "ไปที่อันดับของฉัน" ซ่อนผิด และการรีเฟรชเงียบครั้งถัดไปก็จะขอหน้าที่พัง
+                // ซ้ำอีกแทนที่จะขอหน้าที่กำลังแสดงอยู่จริง
+                if (!silent) setPage(boardRef.current.page);
+                // ถ้ายังไม่เคยมีคำตอบไหนถูกนำไปใช้เลยสักครั้ง (โหลดครั้งแรกพัง) ต้องบอก
+                // ผู้ใช้ตรง ๆ ว่าโหลดไม่สำเร็จ ไม่ใช่ทำเนียนว่า "ยังไม่มีใครได้คะแนน"
+                if (!loadedOnceRef.current) setLoadFailed(true);
+            }
         } finally {
             setLoading(false);
-            if (myReq === reqIdRef.current && !silent) setSwitching(false);
+            // เคลียร์ switching ทุกครั้งที่คำขอนี้ยังเป็นคำขอล่าสุด ไม่ว่าจะเงียบหรือไม่ เดิม
+            // เช็กเพิ่ม !silent ด้วย ทำให้เคสกดปุ่มเปลี่ยนหน้าแล้วมี socket หรือตัวจับเวลา
+            // สำรองแทรกคำขอเงียบเข้ามาก่อนคำตอบของปุ่มจะกลับมา คำตอบของปุ่มถูกทิ้งเพราะไม่ใช่
+            // คำขอล่าสุด และคำขอเงียบก็ไม่เคลียร์ switching ให้ ปุ่มเลยค้าง disabled ตลอด
+            // จนกว่าจะรีโหลดหน้าเว็บ
+            if (myReq === reqIdRef.current) setSwitching(false);
         }
     }, [missionId]);
 
     useEffect(() => { fetchPage(page); }, [page, fetchPage]);
-
-    // เก็บค่าสดไว้ใน ref ให้ handler ของ socket อ่านได้ โดยไม่ต้องเอาไปใส่ dependency
-    // ของ effect ที่สร้าง socket ถ้าใส่ socket จะถูกทำลายแล้วสร้างใหม่ทุกครั้งที่เปลี่ยนหน้า
-    const pageRef = useRef(page);
-    useEffect(() => { pageRef.current = page; }, [page]);
-    const boardRef = useRef(board);
-    useEffect(() => { boardRef.current = board; }, [board]);
 
     useEffect(() => {
         if (!missionId) return;
@@ -99,13 +135,30 @@ export function useMissionLeaderboard(missionId?: string) {
             fetchPage(pageRef.current, true);
             if (pulse) {
                 setJustUpdated(true);
-                setTimeout(() => setJustUpdated(false), 1500);
+                // ยกเลิกตัวจับเวลาเดิมก่อนตั้งใหม่เสมอ ไม่งั้นถ้ามีคนทำด่านเสร็จสองครั้ง
+                // ห่างกันไม่ถึง 1.5 วิ ตัวจับเวลาของรอบแรกจะมาเคลียร์ justUpdated กลางคัน
+                // ทั้งที่รอบสองเพิ่งเริ่มจุดไฟใหม่ ทำให้ไฟกะพริบดับเร็วกว่าที่ควร
+                if (pulseTimeoutRef.current != null) clearTimeout(pulseTimeoutRef.current);
+                pulseTimeoutRef.current = setTimeout(() => {
+                    setJustUpdated(false);
+                    pulseTimeoutRef.current = null;
+                }, PULSE_MS);
             }
         };
         socket.on('points_awarded', () => refresh(true));
-        socket.on('missions_updated', () => refresh(false));
+        // จงใจไม่ฟัง 'missions_updated': event นี้ถูกยิงกระจายให้ทุกคนที่ต่อ socket อยู่
+        // ทุกครั้งที่ใครก็ได้เพิ่ม/ลบการ์ดในกระดานระดมสมอง (ดู backend/brainstorm_routes.py
+        // บรรทัด 399, 471) ซึ่งไม่เกี่ยวกับคะแนนเลย ถ้ายังฟังอยู่ ตารางอันดับข้างจอจะดึงซ้ำ
+        // แบบไม่มีประโยชน์ทุกครั้งที่มีคนแก้การ์ด คะแนนจริงมาทาง 'points_awarded' อยู่แล้ว
+        // ส่วนกรณีอื่นที่ไม่ผ่าน socket ก็มีตัวจับเวลาสำรองทุก 30 วินาทีคอยกู้อยู่
         const timer = setInterval(() => refresh(false), FALLBACK_POLL_MS);
-        return () => { socket.disconnect(); clearInterval(timer); };
+        return () => {
+            socket.disconnect();
+            clearInterval(timer);
+            // เคลียร์ตัวจับเวลาพัลส์ตอน unmount ด้วย ไม่งั้น setState จะยิงใส่ component
+            // ที่ถูกถอดไปแล้วถ้าตัวจับเวลายังค้างอยู่ตอนออกจากหน้าด่านนี้
+            if (pulseTimeoutRef.current != null) clearTimeout(pulseTimeoutRef.current);
+        };
     }, [missionId, fetchPage]);
 
     const goToPage = useCallback((next: number) => setPage(Math.max(1, next)), []);
@@ -117,7 +170,9 @@ export function useMissionLeaderboard(missionId?: string) {
     return {
         top3: board.top3,
         rows: board.rows,
-        page,
+        // เลขหน้าที่ "แสดง" จริง (มาจากคำตอบล่าสุดที่ถูกนำไปใช้) ไม่ใช่เลขหน้าที่ "ขอ" ไว้
+        // ล่าสุด สองค่านี้ต่างกันชั่วขณะตอนคำขอเปลี่ยนหน้ายังไม่ตอบกลับ หรือพังไปแล้ว
+        page: board.page,
         totalPages: board.total_pages,
         total: board.total,
         myRank: board.my_rank,
@@ -127,6 +182,7 @@ export function useMissionLeaderboard(missionId?: string) {
         loading,
         switching,
         justUpdated,
+        loadFailed,
         goToPage,
         goToMyRank,
     };
