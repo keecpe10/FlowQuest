@@ -148,7 +148,7 @@ const StudentMCQView = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-white">{isTeacher ? `ผลทดสอบ: ${studentName}` : 'ผลทดสอบของฉัน'}</h1>
+            <h1 className="text-base font-bold text-white">{isTeacher ? `สรุปผลคะแนน: ${studentName}` : 'สรุปผลคะแนนของฉัน'}</h1>
             <p className="text-xs text-slate-400">
                 {isCompleted ? 'ส่งคำตอบแล้ว (ผ่าน)' : isFailed ? 'ส่งคำตอบแล้ว (ไม่ผ่าน)' : 'กำลังทำแบบทดสอบ'}
                 {isFinished && ` • เกณฑ์ผ่าน ${passingPercentage}%`}
@@ -240,13 +240,39 @@ const StudentMCQView = () => {
                               }
                               
                               return (
-                                <div key={c.choice_id} className={`p-3 rounded-xl border ${bg} text-sm`}>
+                                <div key={c.choice_id} className={`relative p-3 rounded-xl border ${bg} text-sm flex flex-col`}>
                                   <ContentBlockView
                                     size="choice"
                                     content={c.content_blocks}
                                     text={c.choice_text}
                                     imageUrl={c.image_url}
                                   />
+                                  {showCorrectness && (
+                                    <div className="mt-2 flex items-center justify-end gap-2">
+                                      {isCorrectChoice && !isSelected && (
+                                        <span className="flex items-center gap-1 text-emerald-400 text-xs font-black bg-emerald-900/50 px-2 py-1 rounded-md">
+                                          <CheckCircle size={14} /> ข้อที่ถูก
+                                        </span>
+                                      )}
+                                      {isSelected && !isCorrectChoice && (
+                                        <span className="flex items-center gap-1 text-rose-400 text-xs font-black bg-rose-900/50 px-2 py-1 rounded-md">
+                                          <XCircle size={14} /> ข้อที่เลือก (ผิด)
+                                        </span>
+                                      )}
+                                      {isSelected && isCorrectChoice && (
+                                        <span className="flex items-center gap-1 text-emerald-400 text-xs font-black bg-emerald-900/50 px-2 py-1 rounded-md">
+                                          <CheckCircle size={14} /> ข้อที่เลือก (ถูก)
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {!showCorrectness && isSelected && (
+                                      <div className="mt-2 flex items-center justify-end gap-2">
+                                        <span className="flex items-center gap-1 text-blue-300 text-xs font-black bg-blue-900/50 px-2 py-1 rounded-md">
+                                          <Target size={14} /> ข้อที่เลือก
+                                        </span>
+                                      </div>
+                                  )}
                                 </div>
                               );
                             })}
