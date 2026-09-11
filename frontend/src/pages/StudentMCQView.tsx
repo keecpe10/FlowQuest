@@ -41,10 +41,14 @@ interface Answer {
 }
 
 const StudentMCQView = () => {
-  const { id: missionId, studentId } = useParams<{ id: string, studentId: string }>();
+  const { id: missionId, studentId: paramStudentId } = useParams<{ id: string, studentId: string }>();
   const navigate = useNavigate();
   const token = useAuthStore(state => state.token);
   const user = useAuthStore(state => state.user);
+  
+  const studentId = paramStudentId || String(user?.user_id);
+  const isTeacher = user?.role === 'teacher';
+  
   const { width, height } = useWindowSize();
   
   const [loading, setLoading] = useState(true);
@@ -144,7 +148,7 @@ const StudentMCQView = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-white">ผลทดสอบ: {studentName}</h1>
+            <h1 className="text-base font-bold text-white">{isTeacher ? `ผลทดสอบ: ${studentName}` : 'ผลทดสอบของฉัน'}</h1>
             <p className="text-xs text-slate-400">
                 {isCompleted ? 'ส่งคำตอบแล้ว (ผ่าน)' : isFailed ? 'ส่งคำตอบแล้ว (ไม่ผ่าน)' : 'กำลังทำแบบทดสอบ'}
                 {isFinished && ` • เกณฑ์ผ่าน ${passingPercentage}%`}

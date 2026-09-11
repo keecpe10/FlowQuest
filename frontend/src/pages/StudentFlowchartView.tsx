@@ -13,8 +13,12 @@ const initialEdgeTypes = {
 };
 
 const StudentFlowchartView = () => {
-  const { id: missionId, studentId } = useParams();
+  const { id: missionId, studentId: paramStudentId } = useParams();
   const token = useAuthStore(state => state.token);
+  const user = useAuthStore(state => state.user);
+  
+  const studentId = paramStudentId || user?.user_id;
+  
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [studentName, setStudentName] = useState('');
@@ -47,17 +51,20 @@ const StudentFlowchartView = () => {
   // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
   }, [missionId, studentId]);
 
+  const isTeacher = user?.role === 'teacher';
+
   return (
     <div className="min-h-screen flex flex-col font-sans w-full bg-slate-50">
       <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <Link to={`/teacher/mission/${missionId}/progress`}>
-            <button className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
-              <ArrowLeft size={20} />
-            </button>
-          </Link>
+          <button 
+            onClick={() => isTeacher ? window.history.back() : window.history.back()}
+            className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors"
+          >
+            <ArrowLeft size={20} />
+          </button>
           <div>
-            <h1 className="text-lg font-bold text-slate-800">ผลงานของ: {studentName || 'กำลังโหลด...'}</h1>
+            <h1 className="text-lg font-bold text-slate-800">{isTeacher ? `ผลงานของ: ${studentName || 'กำลังโหลด...'}` : 'ผลงานผังงานของฉัน'}</h1>
             <p className="text-xs text-slate-500 mt-0.5">
               สถานะ: <span className="font-semibold text-slate-600">{status === 'completed' ? 'ผ่านแล้ว' : status === 'not_started' ? 'ยังไม่เริ่ม' : 'กำลังทำ'}</span>
             </p>

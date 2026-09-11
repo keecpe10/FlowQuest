@@ -315,10 +315,18 @@ const MissionSelect = () => {
                                 {mission.status === 'failed' ? 'ลองอีกครั้ง →' : (mission.mission_type === 'brainstorm' && mission.is_completed ? 'ดูภารกิจที่ทำ →' : 'เข้าทำภารกิจ →')}
                               </span>
                             ) : (
-                                mission.is_completed && mission.mission_type !== 'brainstorm' && !isTeacher && (
-                                    <span className="text-sm font-bold text-emerald-400">
-                                        สำเร็จแล้ว
-                                    </span>
+                                mission.status && mission.status !== 'not_started' && mission.mission_type !== 'brainstorm' && !isTeacher && (
+                                    <button 
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        navigate(`/student/mission/${mission.mission_id}/${mission.mission_type}-result`); 
+                                      }}
+                                      className={`text-sm font-bold flex items-center gap-1 transition-transform group-hover:translate-x-1 ${
+                                        mission.status === 'failed' ? 'text-rose-400 hover:text-rose-300' : 'text-emerald-400 hover:text-emerald-300'
+                                      }`}
+                                    >
+                                        ดูผลงานของฉัน →
+                                    </button>
                                 )
                             )}
                           </div>

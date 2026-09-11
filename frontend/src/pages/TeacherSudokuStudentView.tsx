@@ -25,9 +25,14 @@ interface StudentSudokuData {
 }
 
 const TeacherSudokuStudentView: React.FC = () => {
-  const { id: missionId, studentId } = useParams();
+  const { id: missionId, studentId: paramStudentId } = useParams();
   const navigate = useNavigate();
   const token = useAuthStore(state => state.token);
+  const user = useAuthStore(state => state.user);
+  
+  const studentId = paramStudentId || String(user?.user_id);
+  const isTeacher = user?.role === 'teacher';
+  
   const [data, setData] = useState<StudentSudokuData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -97,7 +102,7 @@ const TeacherSudokuStudentView: React.FC = () => {
           </button>
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white">
-              {data.student_name}
+              {isTeacher ? data.student_name : 'ผลงานของฉัน'}
             </h1>
             <p className="text-slate-400 mt-1">
               ด่าน: <span className="font-semibold text-slate-300">{data.title}</span>

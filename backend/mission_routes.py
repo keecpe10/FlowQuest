@@ -441,6 +441,10 @@ def get_student_flowchart(mission_id, student_id):
     if not user_id:
         return jsonify({'message': 'Unauthorized'}), 401
         
+    mission = Mission.query.get(mission_id)
+    if not mission or (not is_course_teacher(user_id, mission.course_id) and user_id != student_id):
+        return jsonify({'message': 'Forbidden'}), 403
+        
     um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     
     student = User.query.get(student_id)

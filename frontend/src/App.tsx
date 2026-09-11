@@ -486,6 +486,10 @@ function App() {
           <Route path="/teacher/mission/:id/student/:studentId" element={<PageWithTitle title="ผลงานนักเรียน"><StudentFlowchartView /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/mcq-student/:studentId" element={<PageWithTitle title="ผลทดสอบนักเรียน"><StudentMCQView /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/sudoku-student/:studentId" element={<PageWithTitle title="ผลงานซูโดกุนักเรียน"><TeacherSudokuStudentView /></PageWithTitle>} />
+          
+          <Route path="/student/mission/:id/flowchart-result" element={<PageWithTitle title="ผลงานของฉัน"><StudentFlowchartView /></PageWithTitle>} />
+          <Route path="/student/mission/:id/mcq-result" element={<PageWithTitle title="ผลทดสอบของฉัน"><StudentMCQView /></PageWithTitle>} />
+          <Route path="/student/mission/:id/sudoku-result" element={<PageWithTitle title="ผลงานซูโดกุของฉัน"><TeacherSudokuStudentView /></PageWithTitle>} />
         </Route>
       </Routes>
       </Suspense>
