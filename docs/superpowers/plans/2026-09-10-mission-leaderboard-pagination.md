@@ -1004,7 +1004,7 @@ const RANK_TONE = [
 export default function MCQLeaderboard({ missionId }: Props) {
   const {
     top3, rows, page, totalPages, total, myRank, myPage, myUserId,
-    loading, switching, justUpdated, goToPage, goToMyRank,
+    loading, switching, justUpdated, loadFailed, goToPage, goToMyRank,
   } = useMissionLeaderboard(missionId);
 
   const rangeLabel = rankRangeLabel({ page, total });
@@ -1058,7 +1058,13 @@ export default function MCQLeaderboard({ missionId }: Props) {
           </div>
         )}
 
-        {!loading && total === 0 && (
+        {!loading && loadFailed && (
+          <p className="text-center text-xs text-slate-500 py-6">
+            โหลดอันดับไม่สำเร็จ<br />กำลังลองใหม่อัตโนมัติ
+          </p>
+        )}
+
+        {!loading && !loadFailed && total === 0 && (
           <p className="text-center text-xs text-slate-500 py-6">
             ยังไม่มีใครได้คะแนน<br />ทำให้เสร็จแล้วขึ้นเป็นคนแรกเลย!
           </p>
