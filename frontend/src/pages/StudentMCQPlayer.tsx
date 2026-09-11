@@ -620,7 +620,7 @@ const StudentMCQPlayer = () => {
                               ) : (
                                   <FlowchartAnswer
                                       metadata={q.question_metadata}
-                                      value={res?.correct_answer_data?.edges}
+                                      value={{ nodes: q.question_metadata?.nodes, edges: res?.correct_answer_data?.edges }}
                                       onChange={() => {}}
                                       disabled
                                   />

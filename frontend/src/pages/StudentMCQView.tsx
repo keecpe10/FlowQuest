@@ -377,27 +377,52 @@ const StudentMCQView = () => {
                       )}
 
                       {['sudoku', 'flowchart'].includes(q.question_type) && (
-                          <div className="space-y-2">
+                          <div className="space-y-4">
                               {showCorrectness && (
                                   <p className="text-slate-300 text-sm">
                                     ได้ <span className="text-white font-bold">{ansRecord?.xp_awarded ?? 0}</span> จาก{' '}
                                     <span className="text-white font-bold">{q.xp_points}</span> คะแนน
                                   </p>
                               )}
-                              {q.question_type === 'sudoku' ? (
-                                  <SudokuAnswer
-                                      metadata={q.question_metadata}
-                                      value={ansRecord?.answer_data}
-                                      onChange={() => {}}
-                                      disabled
-                                  />
-                              ) : (
-                                  <FlowchartAnswer
-                                      metadata={q.question_metadata}
-                                      value={ansRecord?.answer_data}
-                                      onChange={() => {}}
-                                      disabled
-                                  />
+                              
+                              <div>
+                                  <p className="text-slate-400 text-sm mb-2">คำตอบที่นักเรียนส่ง:</p>
+                                  {q.question_type === 'sudoku' ? (
+                                      <SudokuAnswer
+                                          metadata={q.question_metadata}
+                                          value={ansRecord?.answer_data}
+                                          onChange={() => {}}
+                                          disabled
+                                      />
+                                  ) : (
+                                      <FlowchartAnswer
+                                          metadata={q.question_metadata}
+                                          value={ansRecord?.answer_data}
+                                          onChange={() => {}}
+                                          disabled
+                                      />
+                                  )}
+                              </div>
+
+                              {showCorrectness && (
+                                  <div className="mt-4 pt-4 border-t border-white/10">
+                                      <p className="text-emerald-400 text-sm mb-2">นี่คือเฉลย:</p>
+                                      {q.question_type === 'sudoku' ? (
+                                          <SudokuAnswer
+                                              metadata={{ ...q.question_metadata, given_grid: q.question_metadata?.given_grid }}
+                                              value={q.question_metadata?.solution_grid}
+                                              onChange={() => {}}
+                                              disabled
+                                          />
+                                      ) : (
+                                          <FlowchartAnswer
+                                              metadata={q.question_metadata}
+                                              value={{ nodes: q.question_metadata?.nodes, edges: q.question_metadata?.edges }}
+                                              onChange={() => {}}
+                                              disabled
+                                          />
+                                      )}
+                                  </div>
                               )}
                           </div>
                       )}
