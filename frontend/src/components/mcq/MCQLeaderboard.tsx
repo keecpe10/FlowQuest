@@ -1,19 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
-import { io } from 'socket.io-client';
 import { Trophy, Crown, Loader2 } from 'lucide-react';
-
-interface LeaderboardEntry {
-  user_id: number;
-  name: string;
-  points: number;
-  rank: number;
-}
+import { useMissionLeaderboard, type LeaderboardEntry } from '../../hooks/useMissionLeaderboard';
+import { rankRangeLabel } from '../../utils/leaderboardRange';
 
 interface Props {
   missionId: string;
-  /** ไฮไลต์แถวของคนที่กำลังทำข้อสอบอยู่ */
-  currentUserId?: number;
 }
 
 const RANK_TONE = [
@@ -23,52 +13,48 @@ const RANK_TONE = [
 ];
 
 /**
- * อันดับผู้นำของรายวิชานี้ แสดงข้าง ๆ ตอนนักเรียนทำข้อสอบ
+ * อันดับผู้นำของด่านนี้ แสดงข้าง ๆ ตอนนักเรียนทำข้อสอบ
  *
- * XP ของด่าน MCQ ถูกบันทึกตอนกด "จบแบบทดสอบ" ซึ่ง backend จะ emit points_awarded
- * ออกมา แถบนี้จึงอัปเดตทันทีที่เพื่อนคนไหนทำเสร็จ ส่วนการดึงซ้ำทุก 30 วินาทีเป็น
- * ตัวสำรองเผื่อ socket ต่อไม่ติด
+ * ตรรกะการดึงข้อมูล การแบ่งหน้า และ socket อยู่ใน useMissionLeaderboard ซึ่งใช้ร่วมกับ
+ * ตารางอันดับในหน้าเล่นด่านผังงาน ไฟล์นี้เหลือหน้าที่แสดงผลอย่างเดียว
  */
-export default function MCQLeaderboard({ missionId, currentUserId }: Props) {
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [justUpdated, setJustUpdated] = useState(false);
+export default function MCQLeaderboard({ missionId }: Props) {
+  const {
+    top3, rows, page, totalPages, total, myRank, myPage, myUserId,
+    loading, switching, justUpdated, loadFailed, goToPage, goToMyRank,
+  } = useMissionLeaderboard(missionId);
 
-  const fetchLeaderboard = useCallback(
-    async (highlight = false) => {
-      try {
-        const url = new URL(
-          `${import.meta.env.VITE_API_BASE_URL || window.location.origin}/api/v1/game/leaderboard`,
-        );
-        url.searchParams.append('mission_id', missionId);
-        const res = await axios.get(url.toString());
-        setEntries(res.data || []);
-        if (highlight) {
-          setJustUpdated(true);
-          setTimeout(() => setJustUpdated(false), 1500);
-        }
-      } catch (error) {
-        console.error('Failed to fetch leaderboard', error);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [missionId],
-  );
+  const rangeLabel = rankRangeLabel({ page, total });
 
-  useEffect(() => {
-    fetchLeaderboard();
-
-    const socket = io(import.meta.env.VITE_API_BASE_URL || '');
-    socket.on('points_awarded', () => fetchLeaderboard(true));
-    socket.on('missions_updated', () => fetchLeaderboard());
-
-    const interval = setInterval(() => fetchLeaderboard(), 30000);
-    return () => {
-      socket.disconnect();
-      clearInterval(interval);
-    };
-  }, [fetchLeaderboard]);
+  const renderEntry = (entry: LeaderboardEntry, podiumIndex: number | null) => {
+    const isMe = myUserId != null && entry.user_id === myUserId;
+    const tone = podiumIndex != null
+      ? RANK_TONE[podiumIndex]
+      : 'bg-white/5 border-white/10 text-slate-400';
+    return (
+      <div
+        key={entry.user_id}
+        className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors ${
+          isMe ? 'bg-violet-500/20 border-violet-400/50' : 'bg-white/[0.03] border-white/5'
+        }`}
+      >
+        <span
+          className={`w-7 h-7 shrink-0 rounded-lg border flex items-center justify-center text-xs font-bold ${tone}`}
+        >
+          {podiumIndex === 0 ? <Crown size={13} /> : entry.rank}
+        </span>
+        <span
+          className={`flex-1 min-w-0 truncate text-xs font-semibold ${
+            isMe ? 'text-violet-100' : 'text-slate-300'
+          }`}
+        >
+          {entry.name}
+          {isMe && <span className="text-violet-300 font-normal"> (คุณ)</span>}
+        </span>
+        <span className="text-xs font-bold text-amber-300 shrink-0">{entry.points}</span>
+      </div>
+    );
+  };
 
   return (
     <aside className="flex flex-col h-full bg-slate-800/60 border border-white/5 rounded-2xl overflow-hidden">
@@ -89,43 +75,57 @@ export default function MCQLeaderboard({ missionId, currentUserId }: Props) {
           </div>
         )}
 
-        {!loading && entries.length === 0 && (
+        {!loading && loadFailed && (
+          <p className="text-center text-xs text-slate-500 py-6">
+            โหลดอันดับไม่สำเร็จ<br />กำลังลองใหม่อัตโนมัติ
+          </p>
+        )}
+
+        {!loading && !loadFailed && total === 0 && (
           <p className="text-center text-xs text-slate-500 py-6">
             ยังไม่มีใครได้คะแนน<br />ทำให้เสร็จแล้วขึ้นเป็นคนแรกเลย!
           </p>
         )}
 
-        {entries.map((entry, i) => {
-          const isMe = entry.user_id === currentUserId;
-          const tone = RANK_TONE[i] || 'bg-white/5 border-white/10 text-slate-400';
-          return (
-            <div
-              key={entry.user_id}
-              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors ${
-                isMe ? 'bg-violet-500/20 border-violet-400/50' : 'bg-white/[0.03] border-white/5'
-              }`}
-            >
-              <span
-                className={`w-7 h-7 shrink-0 rounded-lg border flex items-center justify-center text-xs font-bold ${tone}`}
-              >
-                {i === 0 ? <Crown size={13} /> : entry.rank}
-              </span>
-              <span
-                className={`flex-1 min-w-0 truncate text-xs font-semibold ${
-                  isMe ? 'text-violet-100' : 'text-slate-300'
-                }`}
-              >
-                {entry.name}
-                {isMe && <span className="text-violet-300 font-normal"> (คุณ)</span>}
-              </span>
-              <span className="text-xs font-bold text-amber-300 shrink-0">{entry.points}</span>
-            </div>
-          );
-        })}
+        {top3.map((entry, i) => renderEntry(entry, i))}
+        {rows.map((entry) => renderEntry(entry, null))}
       </div>
 
+      {total > 0 && rangeLabel !== '' && (
+        <div className="px-3 pb-3 pt-2 border-t border-white/5 flex flex-col gap-2 flex-shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1 || switching}
+              className="px-2.5 py-1.5 rounded-lg bg-white/10 text-white text-[11px] font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/20 transition-colors"
+            >
+              ← ก่อนหน้า
+            </button>
+            <span className="text-slate-400 text-[10px] font-medium text-center">{rangeLabel}</span>
+            <button
+              type="button"
+              onClick={() => goToPage(page + 1)}
+              disabled={page >= totalPages || switching}
+              className="px-2.5 py-1.5 rounded-lg bg-white/10 text-white text-[11px] font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/20 transition-colors"
+            >
+              ถัดไป →
+            </button>
+          </div>
+          {myPage != null && myPage !== page && (
+            <button
+              type="button"
+              onClick={goToMyRank}
+              className="w-full py-1.5 rounded-lg bg-violet-600/80 hover:bg-violet-600 text-white text-[11px] font-bold transition-colors"
+            >
+              ไปที่อันดับของฉัน (#{myRank})
+            </button>
+          )}
+        </div>
+      )}
+
       <p className="px-4 py-2 border-t border-white/5 text-[10px] text-slate-500 flex-shrink-0">
-        คะแนนรวมทุกด่านในรายวิชานี้ อัปเดตอัตโนมัติเมื่อมีคนทำเสร็จ
+        คะแนนของด่านนี้ อัปเดตอัตโนมัติเมื่อมีคนทำเสร็จ
       </p>
     </aside>
   );

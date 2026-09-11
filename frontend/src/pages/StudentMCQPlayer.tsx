@@ -55,7 +55,6 @@ const StudentMCQPlayer = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const token = useAuthStore(state => state.token);
-  const user = useAuthStore(state => state.user);
   const { width, height } = useWindowSize();
   
   const [loading, setLoading] = useState(true);
@@ -1012,7 +1011,9 @@ const StudentMCQPlayer = () => {
 
       {/* แถบอันดับผู้นำ ซ่อนบนจอเล็กเพื่อไม่ให้เบียดพื้นที่ทำข้อสอบ */}
       <div className="hidden lg:block w-72 flex-shrink-0 p-4 pl-0">
-        <MCQLeaderboard missionId={id!} currentUserId={user?.user_id} />
+        {/* ใส่ key={id} บังคับให้สร้าง instance ของ hook ใหม่ทุกครั้งที่เปลี่ยนด่าน เพราะ
+            useMissionLeaderboard ไม่รีเซ็ตสถานะภายในเองเมื่อ missionId เปลี่ยนบน instance เดิม */}
+        <MCQLeaderboard key={id} missionId={id!} />
       </div>
       </div>
     </div>
