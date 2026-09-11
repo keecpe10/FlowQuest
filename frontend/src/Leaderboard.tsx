@@ -27,7 +27,7 @@ const Leaderboard: React.FC = () => {
   const {
     top3, rows, page, totalPages, total, myRank, myPage, myUserId,
     hasMission, loading, switching, loadFailed, goToPage, goToMyRank,
-  } = useMissionLeaderboard(id);
+  } = useMissionLeaderboard(id, { podiumAvatars: true });
 
   const rangeLabel = rankRangeLabel({ page, total });
 

@@ -192,7 +192,7 @@ def submit_flowchart():
             'points': 0
         }), 400
 
-def _paginate_ranking(ranking, page, viewer_id, row_avatars):
+def _paginate_ranking(ranking, page, viewer_id, row_avatars, podium_avatars=True):
     """แบ่งหน้าผลจัดอันดับให้เป็นรูปทรงเดียวกันทุกกระดาน
 
     ranking คือผลคิวรีที่เรียงมาแล้ว แต่ละแถวมี .user_id .total_points .total_time
@@ -201,6 +201,10 @@ def _paginate_ranking(ranking, page, viewer_id, row_avatars):
 
     row_avatars บอกว่าจะส่งรูปให้แถวนอกโพเดียมด้วยไหม หอเกียรติยศ 3D แสดงรูปทุกแถว
     จึงต้องได้ แต่ตารางข้างจอตอนทำด่านแสดงเป็นเลขอันดับ จึงไม่ต้องได้
+
+    podium_avatars บอกว่าจะส่งรูปให้โพเดียมไหม หน้าผังงานแสดงรูปจริง จึงต้องได้
+    แต่แถบ MCQ แสดงแค่มงกุฎกับเลขอันดับ จึงไม่ต้อง — ลดแบนด์วิดท์จาก ~850 MB
+    เหลือ ~20 MB ต่อคาบ (ห้อง 40 คน ข้อสอบ 20 ข้อ)
     """
     total = len(ranking)
     rest_count = max(0, total - PODIUM_SIZE)
@@ -244,7 +248,7 @@ def _paginate_ranking(ranking, page, viewer_id, row_avatars):
         }
 
     return {
-        'top3': [entry(row, i + 1, True) for i, row in enumerate(podium_rows)],
+        'top3': [entry(row, i + 1, podium_avatars) for i, row in enumerate(podium_rows)],
         'rows': [entry(row, start + i + 1, row_avatars)
                  for i, row in enumerate(page_rows)],
         'page': page,
@@ -337,12 +341,17 @@ def get_leaderboard():
     ranking = leaderboard_query.group_by(User.user_id).order_by(
         db.desc('total_points'), db.asc('total_time'), db.asc(User.user_id)).all()
 
+    # แต่ละหน้าเลือกเองว่าจะรับรูปโพเดียมไหม (การตัดสินใจข้อ 7) หน้าผังงานแสดงรูป
+    # จริงจึงขอ 1 แต่แถบ MCQ แสดงแค่มงกุฎจึงขอ 0 default เป็น 1 เพื่อ backward-compat
+    podium_avatars = request.args.get('podium_avatars', default='1', type=str) != '0'
+
     # ตารางนี้แสดงแถวนอกโพเดียมเป็นเลขอันดับ ไม่ใช่รูป จึงไม่ขอรูปมาให้แถวเหล่านั้น
     return jsonify(_paginate_ranking(
         ranking,
         request.args.get('page', default=1, type=int),
         get_current_user_id(),
         row_avatars=False,
+        podium_avatars=podium_avatars,
     )), 200
 
 @game_bp.route('/profile', methods=['GET'])

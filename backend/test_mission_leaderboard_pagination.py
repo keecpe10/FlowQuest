@@ -306,6 +306,43 @@ with app.app_context():
               bool(captured_sql_3d) and _order_by_tiebreaks_on_user_id_last(captured_sql_3d[0]),
               captured_sql_3d[0] if captured_sql_3d else None)
 
+        print('\n[13] podium_avatars=0 ต้องไม่ส่งรูปให้โพเดียม')
+        def get_pa(mid, podium_avatars=None, page=1):
+            """เรียก /leaderboard ด้วย podium_avatars ที่ระบุ"""
+            qs = [f'mission_id={mid}', f'page={page}']
+            if podium_avatars is not None:
+                qs.append(f'podium_avatars={podium_avatars}')
+            r = c.get('/api/v1/game/leaderboard?' + '&'.join(qs))
+            return r.status_code, (r.get_json() or {})
+        st, no_av = get_pa(mid, podium_avatars='0')
+        check('เรียกด้วย podium_avatars=0 ได้ 200', st == 200, st)
+        no_av_top3 = no_av.get('top3') or []
+        check('โพเดียมไม่มีรูปเลยเมื่อ podium_avatars=0',
+              len(no_av_top3) == PODIUM_SIZE and
+              all(u.get('avatar_url') is None for u in no_av_top3),
+              [(u.get('user_id'), u.get('avatar_url')) for u in no_av_top3])
+        no_av_rows = no_av.get('rows') or []
+        check('แถวนอกโพเดียมก็ไม่มีรูปเช่นเดิม',
+              all(r.get('avatar_url') is None for r in no_av_rows))
+
+        print('\n[14] podium_avatars=1 ยังส่งรูปเหมือนเดิม')
+        st, with_av = get_pa(mid, podium_avatars='1')
+        check('เรียกด้วย podium_avatars=1 ได้ 200', st == 200, st)
+        with_av_top3 = with_av.get('top3') or []
+        check('โพเดียมมีรูปเมื่อ podium_avatars=1',
+              len(with_av_top3) == PODIUM_SIZE and
+              all(u.get('avatar_url') for u in with_av_top3),
+              [(u.get('user_id'), bool(u.get('avatar_url'))) for u in with_av_top3])
+
+        print('\n[15] default (ไม่ส่ง podium_avatars) ยังส่งรูปเหมือนเดิม (backward-compatible)')
+        st, default_av = get_pa(mid)
+        check('เรียกโดยไม่ส่ง podium_avatars ได้ 200', st == 200, st)
+        default_top3 = default_av.get('top3') or []
+        check('default ยังมีรูปโพเดียม',
+              len(default_top3) == PODIUM_SIZE and
+              all(u.get('avatar_url') for u in default_top3),
+              [(u.get('user_id'), bool(u.get('avatar_url'))) for u in default_top3])
+
     finally:
         ids = [u.user_id for u in made]
         PointHistory.query.filter(PointHistory.user_id.in_(ids)).delete(synchronize_session=False)

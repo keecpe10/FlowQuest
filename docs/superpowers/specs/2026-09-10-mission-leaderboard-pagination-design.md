@@ -82,13 +82,16 @@
   `last_name`, `username` มาทั้งตารางอีก แล้วค่อยใช้คิวรีที่สองดึงข้อมูลเต็มเฉพาะ
   แถวที่จะส่งออกจริง ซึ่งมีไม่เกิน `PODIUM_SIZE + LEADERBOARD_PAGE_SIZE` = 13 แถว
 - **รูปตัวละครส่งเฉพาะสามอันดับแรก** แถวใน `rows` คืน `avatar_url` เป็น `null` เสมอ
-- **ลบพารามิเตอร์ `with_avatars`** ทิ้ง เพราะไม่มีความหมายอีกต่อไป
+- **ลบพารามิเตอร์ `with_avatars`** ทิ้ง เพราะไม่มีความหมายอีกต่อไป (ถูกแทนที่ด้วยข้อ 7 ด้านล่าง)
 - **หน้าที่ขอเกินช่วงให้บีบกลับ** `page` ถูกบีบเข้าช่วง 1 ถึง `total_pages` ไม่ตอบ error
   และไม่คืนรายชื่อว่าง
 - **`my_rank` / `my_page`** คำนวณจาก token ของผู้เรียก ถ้าไม่มีผู้เรียกหรือผู้เรียก
   ไม่ติดอันดับให้เป็น `null` ทั้งคู่ พร้อมกับ `my_user_id` คนที่อยู่บนโพเดียมให้
   `my_page` เป็น 1 เพราะเห็นตัวเองได้จากหน้าแรกอยู่แล้ว
 - **`my_user_id`** ไว้ให้หน้าเว็บเทียบว่าแถวไหนคือตัวเอง ด้วย id ไม่ใช่อันดับ
+- **`podium_avatars`** (เพิ่มใหม่) แต่ละหน้าเลือกเองว่าจะรับรูปโพเดียมไหม หน้าผังงานส่ง `1` 
+  เพราะแสดงรูปจริง แต่ตารางข้างด่าน MCQ ส่ง `0` เพราะแสดงแค่มงกุฎ (ประหยัดแบนด์วิดท์ไป
+  ~830 MB ต่อ 40 คน × 20 ข้อ)
 
 `submit_flowchart` แจ้ง `points_awarded` หลัง commit การทำด่านสำเร็จครั้งใหม่ ด้วยคีย์
 `user_id`, `mission_id`, `points` แบบเดียวกับด่าน MCQ ไม่แจ้งเมื่อด่านนั้นเคยทำสำเร็จไปแล้ว
@@ -109,19 +112,19 @@ const {
   myRank, myPage, myUserId,
   hasMission, loading, switching, justUpdated, loadFailed,
   goToPage, goToMyRank,
-} = useMissionLeaderboard(missionId);
+} = useMissionLeaderboard(missionId, { podiumAvatars: false });
 ```
 
 หน้าที่ของ hook
 
-- ยิง `GET /api/v1/game/leaderboard?mission_id=<id>&page=<n>` พร้อม token สดที่
-  อ่านด้วย `getToken()` ตอนเรียก ไม่ใช่ค่าที่ปิดทับไว้ตอนสร้าง callback
+- ยิง `GET /api/v1/game/leaderboard?mission_id=<id>&page=<n>&podium_avatars=<0|1>` 
+  พร้อม token สดที่อ่านด้วย `getToken()` ตอนเรียก ไม่ใช่ค่าที่ปิดทับไว้ตอนสร้าง callback
 - **request-id guard** เก็บเลขลำดับที่เพิ่มขึ้นเรื่อย ๆ ให้เฉพาะคำตอบของ request
   ล่าสุดเท่านั้นที่เขียน state กันกรณีคำตอบวิ่งชนกันแล้วเด้งผู้ใช้กลับหน้า 1
-- **`pageRef`** ให้ callback ของ socket อ่านหน้าปัจจุบันได้โดยไม่ต้องผูกเป็น
-  dependency ของ effect ซึ่งจะทำให้ต่อ socket ใหม่ทุกครั้งที่เปลี่ยนหน้า
-- ต่อ socket ฟังเฉพาะ `points_awarded` พร้อมตั้ง interval สำรองทุก 30 วินาที
-  ไม่ฟัง `missions_updated` (ดูการตัดสินใจข้อ 5)
+- **`pageRef` / `podiumAvatarsRef`** ให้ callback ของ socket / effect อ่านค่าได้
+  โดยไม่ต้องผูกเป็น dependency ที่พัง lifecycle
+- ต่อ socket ฟังเฉพาะ `points_awarded` ที่ `mission_id` ตรงกัน (พร้อม throttle 2 วิ)
+  พร้อมตั้ง interval สำรองทุก 30 วินาที ไม่ฟัง `missions_updated` (ดูการตัดสินใจข้อ 5)
 - **หน้าที่ขอกับหน้าที่แสดงแยกกัน** state `page` คือหน้าที่ขอไว้ล่าสุด ใช้สั่งดึงข้อมูล
   ส่วนค่า `page` ที่ hook คืนออกไปคือหน้าของแถวที่แสดงอยู่จริง เฉพาะคำตอบที่ไม่ใช่
   การรีเฟรชเงียบเท่านั้นที่ปรับหน้าที่ขอตามเลขหน้าที่เซิร์ฟเวอร์บีบกลับมา และถ้าการเปลี่ยน
@@ -149,7 +152,7 @@ rankRangeLabel({ page, pageSize, podiumSize, total }): string
 
 `frontend/src/Leaderboard.tsx` (การ์ดขาวในหน้าเล่นด่านผังงาน)
 
-- ใช้ hook แทนการ fetch เอง
+- ใช้ hook แทนการ fetch เอง พร้อมส่ง `{ podiumAvatars: true }`
 - แสดงโพเดียม 1-3 พร้อมรูป แถวที่เหลือแสดง `#อันดับ`
 - **เพิ่มการไฮไลต์แถวของตัวเอง** ซึ่งเดิมไม่มีเลย เทียบด้วย `my_user_id`
 - ถ้าเปิดหน้านี้โดยไม่มี mission id ให้ขึ้นข้อความบอกทาง ไม่ใช่สปินเนอร์ค้าง
