@@ -662,25 +662,42 @@ def reset_mission_progress(mission_id):
     if not is_course_teacher(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
+    data = request.get_json() or {}
+    student_ids = data.get('student_ids')
+        
     if mission.mission_type == 'brainstorm':
         from models import BrainstormBoard, BrainstormCard
         board = BrainstormBoard.query.filter_by(mission_id=mission_id).first()
         if board:
-            BrainstormCard.query.filter_by(board_id=board.board_id).delete()
-            PointHistory.query.filter_by(source='brainstorm_post', source_id=board.board_id).delete()
+            if student_ids is not None:
+                if len(student_ids) > 0:
+                    BrainstormCard.query.filter(BrainstormCard.board_id == board.board_id, BrainstormCard.author_id.in_(student_ids)).delete(synchronize_session=False)
+                    PointHistory.query.filter(PointHistory.source == 'brainstorm_post', PointHistory.source_id == board.board_id, PointHistory.user_id.in_(student_ids)).delete(synchronize_session=False)
+            else:
+                BrainstormCard.query.filter_by(board_id=board.board_id).delete()
+                PointHistory.query.filter_by(source='brainstorm_post', source_id=board.board_id).delete()
             
-    # Reset progress for all students by deleting UserMission
-    UserMission.query.filter_by(mission_id=mission_id).delete()
-    
-    # Delete XP for all students in this mission
-    PointHistory.query.filter(
+    um_query = UserMission.query.filter_by(mission_id=mission_id)
+    ph_query = PointHistory.query.filter(
         PointHistory.source_id == mission_id,
         PointHistory.source.in_(['mission', 'teacher_bonus', 'mcq_mission', 'sudoku_mission'])
-    ).delete()
+    )
+    
+    if student_ids is not None:
+        if len(student_ids) > 0:
+            um_query = um_query.filter(UserMission.user_id.in_(student_ids))
+            ph_query = ph_query.filter(PointHistory.user_id.in_(student_ids))
+            um_query.delete(synchronize_session=False)
+            ph_query.delete(synchronize_session=False)
+    else:
+        um_query.delete()
+        ph_query.delete()
     
     db.session.commit()
     socketio.emit('missions_updated')
-    return jsonify({'message': 'All student progress has been reset successfully'}), 200
+    
+    msg = 'Selected students progress has been reset successfully' if student_ids is not None else 'All student progress has been reset successfully'
+    return jsonify({'message': msg}), 200
 
 @mission_bp.route('/<int:mission_id>/give-xp-all', methods=['POST'])
 def give_xp_all(mission_id):

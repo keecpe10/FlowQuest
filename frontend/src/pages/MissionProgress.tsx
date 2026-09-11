@@ -217,9 +217,16 @@ const MissionProgress = () => {
   };
 
   const handleResetAll = async () => {
+    const currentFilteredStudents = students
+      .filter(student => student.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(s => filterGrade ? String(s.grade_level) === filterGrade : true)
+      .filter(s => filterClass ? String(s.class_id) === filterClass : true);
+
+    if (currentFilteredStudents.length === 0) return;
+
     const result = await Swal.fire({
       title: 'ยืนยันการรีเซ็ต?',
-      text: 'คุณแน่ใจหรือไม่ว่าต้องการรีเซ็ตผลงานของนักเรียนทุกคนในด่านนี้? (การกระทำนี้ไม่สามารถย้อนกลับได้)',
+      text: `คุณแน่ใจหรือไม่ว่าต้องการรีเซ็ตผลงานของนักเรียนทั้ง ${currentFilteredStudents.length} คนที่แสดงอยู่ในตารางขณะนี้? (การกระทำนี้ไม่สามารถย้อนกลับได้)`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
@@ -232,11 +239,13 @@ const MissionProgress = () => {
     
     setIsResetting(true);
     try {
-      await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}/reset-progress`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const studentIds = currentFilteredStudents.map(s => s.user_id);
+      await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}/reset-progress`, 
+        { student_ids: studentIds }, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       await fetchProgress();
-      Swal.fire('สำเร็จ', 'รีเซ็ตผลงานทุกคนแล้ว', 'success');
+      Swal.fire('สำเร็จ', `รีเซ็ตผลงานนักเรียน ${currentFilteredStudents.length} คนเรียบร้อยแล้ว`, 'success');
     } catch (error) {
       console.error('Failed to reset progress:', error);
       Swal.fire('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการรีเซ็ตผลงาน', 'error');
