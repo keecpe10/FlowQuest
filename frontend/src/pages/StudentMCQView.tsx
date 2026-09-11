@@ -148,32 +148,48 @@ const StudentMCQView = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-white">{isTeacher ? `สรุปผลคะแนน: ${studentName}` : 'สรุปผลคะแนนของฉัน'}</h1>
+            <h1 className="text-base font-bold text-white">{isTeacher ? `ผลทดสอบ: ${studentName}` : 'ผลทดสอบของฉัน'}</h1>
             <p className="text-xs text-slate-400">
                 {isCompleted ? 'ส่งคำตอบแล้ว (ผ่าน)' : isFailed ? 'ส่งคำตอบแล้ว (ไม่ผ่าน)' : 'กำลังทำแบบทดสอบ'}
                 {isFinished && ` • เกณฑ์ผ่าน ${passingPercentage}%`}
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-            {isFinished && scoreText && (
-                <div className={`flex items-center gap-2 px-4 py-1.5 border rounded-full ${isCompleted ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-rose-500/20 border-rose-500/30'}`}>
-                  <span className={`text-sm font-black ${isCompleted ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      คะแนน: {scoreText}
-                  </span>
-                </div>
-            )}
-            {isFinished && (
-                <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-500/20 border border-amber-500/30 rounded-full">
-                  <Zap size={16} className="text-amber-400" />
-                  <span className="text-sm font-black text-amber-400">{totalXp} XP</span>
-                </div>
-            )}
-        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+        {isFinished && totalXp > 0 && <Confetti width={width} height={height} recycle={false} numberOfPieces={500} />}
+        
         <div className="max-w-4xl mx-auto space-y-6 pb-12">
+            
+            {isFinished && (
+                <div className="text-center mb-8 mt-4">
+                    <h1 className="text-3xl font-black text-white mb-2">สรุปผลคะแนน</h1>
+                    <p className="text-slate-400 mb-4">{isTeacher ? `ผลงานของ: ${studentName}` : 'ผลทดสอบของฉัน'}</p>
+                    <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
+                        <div className={`inline-flex items-center gap-2 px-6 py-3 border rounded-2xl ${isCompleted ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-rose-500/20 border-rose-500/30'}`}>
+                          <Target size={24} className={isCompleted ? 'text-emerald-400' : 'text-rose-400'} />
+                          <span className={`text-2xl font-black ${isCompleted ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {isCompleted ? 'ผ่าน' : 'ไม่ผ่าน'} ({scoreText})
+                          </span>
+                        </div>
+                        {isCompleted ? (
+                            <div className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500/20 border border-amber-500/30 rounded-2xl">
+                              <Zap size={24} className="text-amber-400" />
+                              <span className="text-2xl font-black text-amber-400">
+                                {totalXp} XP
+                              </span>
+                            </div>
+                        ) : (
+                            <div className="inline-flex items-center gap-2 px-6 py-3 bg-slate-800 border border-slate-700 rounded-2xl opacity-70">
+                              <Zap size={24} className="text-slate-500" />
+                              <span className="text-2xl font-black text-slate-500">0 XP</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {questions.length === 0 && (
                 <div className="text-center mt-20 text-slate-400">
                     <Target size={48} className="mx-auto mb-4 opacity-50" />
