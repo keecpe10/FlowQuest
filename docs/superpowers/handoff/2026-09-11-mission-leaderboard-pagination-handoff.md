@@ -29,7 +29,7 @@ React 19 + TypeScript + Vite, Docker Compose หลัง nginx, ขึ้นเ
 | 3 hook ร่วม + หน้าด่านผังงาน + emit ตอนส่งผังงาน | เสร็จ ผ่านรีวิว | ef548e0..ca4fc3b |
 | docs ปรับสเปก/แผนตามการตัดสินใจกลางทาง | เสร็จ | a049536 |
 | 4 แถบข้างตอนทำข้อสอบ | เสร็จ ผ่านรีวิว | 588cffe |
-| รีวิวทั้งสาขา `6952c72..588cffe` | **ยังไม่ได้ทำ ดูหัวข้อ 8** | — |
+| รีวิวทั้งสาขา `6952c72..588cffe` | **เสร็จ: merge ได้หลังแก้ ดูหัวข้อ 8** | — |
 | merge / PR / ขึ้นเซิร์ฟเวอร์ | ยังไม่ทำ | — |
 
 การตัดสินใจของผู้ใช้ระหว่างทาง (มีผลเหนือแผนเดิม)
@@ -123,28 +123,79 @@ Hook (`useMissionLeaderboard.ts`)
 
 ## 7. ขั้นตอนต่อไป
 
-1. รีวิวทั้งสาขาเอง (ยังไม่เคยทำสำเร็จ ดูหัวข้อ 8): ช่วง `6952c72..7815a36` ส่วนโค้ดอยู่ใน `6952c72..588cffe`
-   (ไฟล์ diff รวม: `.superpowers/sdd/review-6952c72..588cffe.diff`) เทียบกับสเปกฉบับล่าสุด และตัดสิน Minor ในหัวข้อ 6 ว่าข้อไหนต้องแก้ก่อน merge
-2. แก้ Critical/Important ที่รีวิวเจอ แล้วรันเทสต์ในหัวข้อ 5 ให้ผ่านหมด
-3. ถ้าทำได้ ตรวจ socket สดด้วยสองบัญชีตามหัวข้อ 6 (ทำตามกติกาข้อ 1 อย่างเคร่งครัด)
+1. อ่านหัวข้อ 8 ให้จบ แล้วแก้ **Important 1, 2, 3** ก่อน merge (ข้อ 4 แนะนำให้ทำในสาขานี้หรือทันทีหลัง merge)
+   ทำเป็น TDD: เขียนเทสต์ที่ตกก่อน แก้ แล้วรันเทสต์ในหัวข้อ 5 ให้ผ่านหมด ถ้าแก้ hook ให้เพิ่มสถานการณ์ใน harness ด้วย
+2. บันทึกการตัดสินใจใหม่ลงสเปก (เช่น "ข้อ 7: แต่ละหน้าเลือกเองว่าจะรับรูปโพเดียมไหม") และแก้หัวข้อ "ผลข้างเคียงที่ต้องรู้"
+   ในสเปกให้ตรงความจริง: deploy ไม่พร้อมกันแล้ว **ทั้งหน้าจอขาว** ไม่ใช่แค่ตารางว่าง
+3. ตรวจ socket สดด้วยสองบัญชี (หัวข้อ 6) ทำตามกติกาข้อ 1 อย่างเคร่งครัด
 4. **ถามผู้ใช้ก่อน** ว่าจะ merge แบบไหน ครั้งก่อน (หอเกียรติยศ 3D) ผู้ใช้เลือก push แล้วเปิด PR และ merge ผ่าน GitHub
    (`https://github.com/keecpe10/FlowQuest/pull/2`) ห้าม push หรือ merge เองโดยไม่ได้รับคำยืนยัน
    ถ้ามี superpowers ใช้ `superpowers:finishing-a-development-branch`
-5. หลัง merge เข้า `main` GitHub Actions (`.github/workflows/docker.yml`) จะ build และ push image `:main` ขึ้น GHCR
+5. **merge นอกเวลาเรียน** เพราะ push เข้า `main` = build image ใหม่ทันที (หัวข้อ 8 Important 3)
+6. หลัง merge GitHub Actions (`.github/workflows/docker.yml`) build และ push image `:main` ขึ้น GHCR
    job `deploy` จะล้มเสมอจนกว่าผู้ใช้ตั้ง secret `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`, `SERVER_PORT` เอง
    ใน GitHub → Settings → Secrets and variables → Actions (อย่ารับหรือจัดการ private key แทนผู้ใช้)
-6. ผู้ใช้อัปเดตเซิร์ฟเวอร์โรงเรียน **ทั้ง backend และ frontend พร้อมกัน** เพราะ response เปลี่ยนรูปทรง
-   ถ้า backend ใหม่คู่ frontend เก่า ตารางอันดับจะว่าง:
+7. ผู้ใช้อัปเดตเซิร์ฟเวอร์โรงเรียน **ทั้ง backend และ frontend พร้อมกัน** นอกเวลาเรียน:
    ```bash
    docker compose -f docker-compose.prod.yml pull
    docker compose -f docker-compose.prod.yml -f docker-compose.cloudflare.yml up -d
    ```
 
-## 8. ผลรีวิวทั้งสาขา
+## 8. ผลรีวิวทั้งสาขา (6952c72..588cffe)
 
-**ยังไม่มีผล** รีวิวทั้งสาขาถูกสั่งรันไปแล้วแต่ผู้ใช้ให้หยุดกลางทางเพื่อส่งงานต่อ จึงไม่มีข้อสรุปใด ๆ
-ผู้รับช่วงต้องรีวิวเองตามขั้นตอนที่ 1 ในหัวข้อ 7 ก่อน merge ห้ามถือว่าสาขานี้ผ่านรีวิวทั้งสาขาแล้ว
-(ผ่านเฉพาะรีวิวรายงานทั้ง 4 งาน)
+**ข้อสรุป: merge ได้หลังแก้** ไม่มี Critical ผู้รีวิวรันเทสต์ครบแล้ว: frontend build ผ่าน, lint ไม่มี warning ในไฟล์ที่แก้,
+เทสต์ 29/29, backend 5 ชุด `ผ่านทั้งหมด`, harness ผ่าน โดยไม่แตะ DB
+ยืนยันว่า `/leaderboard-3d` ไม่เปลี่ยนนอกจากตัวตัดเสมอกับการแก้ปุ่มค้าง และการเปลี่ยน mission id โดยไม่ remount
+เกิดไม่ได้ เพราะ `App.tsx:433` ใส่ `key={location.pathname}` ไว้แล้ว
+
+### Important 1 — แถบข้างตอนทำข้อสอบโหลดรูปโพเดียมที่ไม่เคยแสดง (แก้ก่อน merge)
+- `backend/gamification.py:247` ส่งรูปให้ top 3 เสมอ แต่ `MCQLeaderboard.tsx:44` แสดงแค่มงกุฎกับเลขอันดับ ไม่เคยอ่าน `avatar_url`
+- ก่อนสาขานี้แถบ MCQ ไม่ขอรูป 40 แถวราว 1 KB gzip ตอนนี้ต่อการดึงหนึ่งครั้งราว 30–45 KB gzip (วัดจริงด่าน 9: 101,554 B / gzip 29,853 B)
+- เป็นเส้นที่ยิงถี่ที่สุด: `sync_mcq_points` emit ทุกครั้งที่คะแนนรวมเปลี่ยน (`mcq_routes.py:801`) แถบถูกซ่อนด้วย CSS
+  `hidden lg:block` (`StudentMCQPlayer.tsx:1013`) แต่ยัง mount อยู่ แท็บเล็ตจึงดึงด้วย
+- ประมาณการห้อง 40 คน ข้อสอบ 20 ข้อ: ~480 emit × 40 เครื่อง ≈ 19,000 ครั้ง × ~45 KB ≈ **850 MB** เทียบของเดิม ~20 MB — สวนทางกับจุดประสงค์ของงาน
+- ทางแก้: ให้แต่ละหน้าเลือกเอง เช่น `useMissionLeaderboard(id, { podiumAvatars: false })` ส่งเป็น query parameter
+  backend ส่ง flag `podium_avatars` เข้า `_paginate_ranking` คู่กับ `row_avatars` มีแค่ `Leaderboard.tsx` ที่เปิดรับรูป
+  (ถ้าทำ จะดึงคอลัมน์ `avatar_url` เฉพาะ id ของโพเดียมในคิวรีที่สองไปด้วยก็ได้)
+
+### Important 2 — `points_awarded` จากที่ไหนก็ได้ในโรงเรียน ทำให้ทุกหน้าอันดับดึงใหม่
+- `useMissionLeaderboard.ts:148` ไม่ดู payload ซูโดกุห้องอื่นหรือครูให้โบนัสก็ทำให้ทุกเครื่องดึงใหม่ และไม่รวม burst
+- กรองฝั่ง client ได้ปลอดภัย: emit แบบ global ทุกจุดมี `mission_id` (`mcq_routes.py:801`, `sudoku_routes.py:333,351`,
+  `mission_routes.py:714,783`, `gamification.py:178`) และตารางนับเฉพาะคะแนนที่ `source_id == mission_id`
+  ส่วน emit ของ brainstorm ไม่มี `mission_id` แต่ส่งเข้าห้องของบอร์ดซึ่ง socket นี้ไม่เคย join
+- ทางแก้ (~10 บรรทัด): `socket.on('points_awarded', d => { if (d?.mission_id != null && String(d.mission_id) !== missionId) return; refresh(true); })`
+  และ throttle ท้าย ~2–3 วินาที ให้คำตอบถูกรัว ๆ ได้การดึงหนึ่งครั้งต่อเครื่อง ไม่ใช่ครั้งละคำตอบ
+
+### Important 3 — deploy ไม่พร้อมกันแล้วหน้าจอขาวทั้งหน้า (สเปกเขียนผิดว่าแค่ตารางว่าง)
+- frontend เก่า + backend ใหม่: `Leaderboard.tsx:44,75` และ `MCQLeaderboard.tsx:45,98` เดิม `.map` บน object → TypeError ตอน render
+- frontend ใหม่ + backend เก่า: hook เก็บ array ไว้ `top3.map` บน `undefined`
+- `frontend/src` ไม่มี ErrorBoundary React 19 จึง unmount ทั้ง root และ workflow deploy ทุกครั้งที่ push เข้า main
+  **merge ตอนมีเรียน = deploy ตอนมีเรียน** แท็บที่ยังรัน bundle เก่าจะขาวภายใน ~10 วินาที (รีโหลดแล้วหาย เพราะ `index.html` เป็น `no-cache`)
+- ทางแก้: merge นอกเวลาเรียน, ใส่ตัวกันรูปทรงใน `fetchPage` เช่น `if (!res.data || !Array.isArray(res.data.top3)) throw ...`
+  ให้ frontend ใหม่ตกไปที่ `loadFailed` แทนการพัง, แก้หัวข้อผลข้างเคียงในสเปก
+
+### Important 4 — `/api/v1/game/leaderboard` ไม่ต้องล็อกอินก็ดูรายชื่อนักเรียนทั้งรายวิชาได้
+- ใครก็ไล่ `?course_id=N` แล้วเห็นชื่อ-นามสกุลนักเรียน (ผู้เยาว์) กับรูปโพเดียม มีมาก่อนสาขานี้ และสาขานี้แคบลงแล้ว (ปิดแบบทั้งโรงเรียนได้)
+- แก้ถูก: frontend ไม่เรียกด้วย `course_id` แล้ว ทุกหน้าที่ใช้อยู่ใน `ProtectedRoute` (`App.tsx:462–483`) และ hook ส่ง token อยู่แล้ว
+- ทางแก้: บังคับ `get_current_user_id()` และตรวจ `can_play_mission` หรือ `has_course_access`
+  (แก้ Minor "course_id กับ mission_id คนละรายวิชาไม่ถูกตรวจ" ไปด้วย) ไม่ใช่ตัวกั้น merge แต่อย่าปล่อยค้าง
+
+### Minor
+- `useMissionLeaderboard.ts:98` เซิร์ฟเวอร์บีบหน้าที่ผู้ใช้ขอแล้วยิงซ้ำแบบเห็นได้หนึ่งครั้ง (UI ปกติขอหน้าเกินช่วงไม่ได้ ผลกระทบน้อยมาก)
+- `test_flowchart_submit_emit.py:135–136` และ `test_mission_leaderboard_pagination.py:315–316` ลบ Mission/Course ด้วย `LIKE` ตามแท็ก
+  โอกาสชนแทบไม่มี แต่ด้วยประวัติข้อมูลหายของสาขานี้ ควรลบตาม primary key ที่สคริปต์จดไว้
+- ตรรกะกันการชนกันของ hook ซับซ้อนที่สุดในสาขา แต่มีแค่ harness ที่ไม่ได้อยู่ใน repo ควรพิจารณาเอา H1–H5 เข้า repo
+  (ต้องประกาศ `happy-dom` เป็น devDependency ก่อน ซึ่งเป็นการเพิ่ม dependency ถามผู้ใช้ก่อน)
+- `leaderboardRange.ts` ประกาศ `LEADERBOARD_PAGE_SIZE` ซ้ำ ทั้งที่ response มี `page_size` อยู่แล้ว ส่งผ่านมาจะลดค่าคงที่ที่ต้องคอยให้ตรงกัน
+
+### คำตัดสิน Minor ที่ค้างจากหัวข้อ 6
+ไม่มีข้อไหนต้องแก้ก่อน merge
+- ปุ่มกดไม่ติดได้ถึง 30 วินาที: ต้องเกิดสามอย่างซ้อนกัน และหายเองเมื่อรีเฟรชถัดไปสำเร็จ ถ้าอยากแก้: ใน catch ให้คืนหน้าที่ขอสำหรับคำขอล่าสุดไม่ว่าจะเงียบหรือไม่
+- ข้อความ "ยังไม่มีใครได้คะแนน" วาบ: เกิดชั่วคราว แต่จะบ่อยขึ้นเมื่อ MCQ emit ถี่ แก้บรรทัดเดียว: เรียก `setLoading(false)` เฉพาะเมื่อ `myReq === reqIdRef.current`
+- คิวรีที่สองดึง User ทั้งแถว: ทำพร้อม Important 1 ได้
+- ไม่ต้องล็อกอิน / course_id กับ mission_id ไม่ถูกตรวจ: คือ Important 4
+- เทสต์เข้าถึง key ตรง ๆ, ไม่มีเทสต์ 404: ไม่ใช่ผลผ่านปลอม เพิ่มเมื่อแก้ไฟล์นั้นครั้งถัดไป
+- mission id เปลี่ยนโดยไม่ remount, กระโดดหน้าหลังบีบ, ยิงซ้ำหลังเปลี่ยนหน้าล้มเหลว, เงื่อนไขตายใน `rankRangeLabel`: ไม่ต้องแก้
 
 ## 9. ไฟล์อ้างอิงเพิ่มเติม (local เท่านั้น ถูก ignore)
 
