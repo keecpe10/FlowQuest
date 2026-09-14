@@ -1778,3 +1778,56 @@ def manual_grade(mission_id):
     except Exception as e:
         import traceback
         return jsonify({'message': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@mcq_bp.route('/<int:mission_id>/item-analysis', methods=['GET'])
+def get_item_analysis(mission_id):
+    """Teacher-only, read-only snapshot; never starts or finalizes an attempt."""
+    from models import CourseEnrollment, Role, Class
+    from sqlalchemy.orm import selectinload
+    from item_analysis import analyze_items
+
+    mission, err = _teacher_mission(mission_id)
+    if err:
+        return err
+    class_id = request.args.get('class_id', type=int)
+    if request.args.get('class_id') and class_id is None:
+        return jsonify({'message': 'ห้องเรียนไม่ถูกต้อง'}), 400
+    roster = (User.query.join(Role, User.role_id == Role.role_id)
+              .join(CourseEnrollment, CourseEnrollment.user_id == User.user_id)
+              .filter(CourseEnrollment.course_id == mission.course_id, Role.role_name == 'student')
+              .distinct().all())
+    roster_class_ids = {u.class_id for u in roster if u.class_id is not None}
+    classes = Class.query.filter(Class.class_id.in_(roster_class_ids)).order_by(Class.grade_level, Class.class_name).all() if roster_class_ids else []
+    selected = [u for u in roster if class_id is None or u.class_id == class_id]
+    user_ids = [u.user_id for u in selected]
+    questions = (live_questions(mission_id).options(selectinload(MCQQuestion.choices))
+                 .order_by(MCQQuestion.order_index, MCQQuestion.question_id).all())
+    attempts = (UserMission.query.filter(UserMission.mission_id == mission_id, UserMission.user_id.in_(user_ids))
+                .options(selectinload(UserMission.mcq_answers)).all()) if user_ids else []
+    finished = [a for a in attempts if a.status in ('completed', 'failed')]
+    # Old completions cannot describe questions that were added afterwards.
+    newest_question = max((q.created_at for q in questions if q.created_at), default=None)
+    excluded = [a for a in finished if newest_question and a.completed_at and a.completed_at < newest_question]
+    eligible = [a for a in finished if a not in excluded]
+    qdata = [{
+        'question_id': q.question_id, 'question_type': q.question_type,
+        'question_text': q.question_text, 'content_blocks': q.content_blocks, 'image_url': q.image_url,
+        'xp_points': q.xp_points,
+        'choices': [{'choice_id': c.choice_id, 'choice_text': c.choice_text, 'image_url': c.image_url,
+                     'content_blocks': c.content_blocks, 'is_correct': c.is_correct}
+                    for c in sorted(q.choices, key=lambda c: c.choice_id)],
+    } for q in questions]
+    adata = [{'answers': {a.question_id: {
+        'selected_choice_id': a.selected_choice_id, 'answer_data': a.answer_data,
+        'is_correct': a.is_correct, 'xp_awarded': a.xp_awarded,
+    } for a in sorted(attempt.mcq_answers, key=lambda a: a.answer_id)}} for attempt in eligible]
+    result = analyze_items(qdata, adata)
+    result.update({
+        'mission_id': mission_id, 'mission_title': mission.title, 'roster_count': len(selected),
+        'pending_count': sum(a.status == 'pending' for a in attempts),
+        'not_started_count': len(selected) - len(attempts), 'excluded_before_questions': len(excluded),
+        'classes': [{'class_id': c.class_id, 'class_name': c.class_name, 'grade_level': c.grade_level} for c in classes],
+        'class_id': class_id,
+    })
+    return jsonify(result)

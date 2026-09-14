@@ -27,6 +27,7 @@ const TeacherFlowBuilder = lazy(() => import('./pages/TeacherFlowBuilder'));
 const MissionProgress = lazy(() => import('./pages/MissionProgress'));
 const StudentFlowchartView = lazy(() => import('./pages/StudentFlowchartView'));
 const TeacherMCQBuilder = lazy(() => import('./pages/TeacherMCQBuilder'));
+const TeacherMCQAnalysis = lazy(() => import('./pages/TeacherMCQAnalysis'));
 const StudentMCQPlayer = lazy(() => import('./pages/StudentMCQPlayer'));
 const StudentMCQView = lazy(() => import('./pages/StudentMCQView'));
 const TeacherSudokuBuilder = lazy(() => import('./pages/TeacherSudokuBuilder'));
@@ -478,6 +479,7 @@ function App() {
           <Route path="/teacher/manage-students" element={<PageWithTitle title="จัดการนักเรียนส่วนกลาง"><DashboardLayout>{user?.is_super_admin ? <StudentManagement /> : <Navigate to="/teacher/courses" replace />}</DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/courses/:courseId" element={<PageWithTitle title="จัดการด่าน"><DashboardLayout><TeacherDashboard /></DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/mission/:id/design" element={<PageWithTitle title="ออกแบบผังงาน"><TeacherFlowBuilder /></PageWithTitle>} />
+          <Route path="/teacher/mission/:id/item-analysis" element={<PageWithTitle title="วิเคราะห์ข้อสอบรายข้อ"><TeacherMCQAnalysis /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/mcq-design" element={<PageWithTitle title="สร้างแบบทดสอบ"><TeacherMCQBuilder /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/sudoku-design" element={<PageWithTitle title="ออกแบบซูโดกุ"><TeacherSudokuBuilder /></PageWithTitle>} />
           <Route path="/mcq/:id" element={<PageWithTitle title="ทำแบบทดสอบ"><StudentMCQPlayer /></PageWithTitle>} />

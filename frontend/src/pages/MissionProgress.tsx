@@ -478,6 +478,12 @@ const MissionProgress = () => {
           </div>
           
           <div className="flex gap-4 items-center flex-wrap">
+            {mission?.mission_type === 'mcq' && (
+              <Link to={`/teacher/mission/${missionId}/item-analysis${filterClass ? `?class_id=${filterClass}` : ''}`}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-violet-700 bg-violet-50 hover:bg-violet-100 font-semibold border border-violet-100">
+                <BarChart2 size={18} /> วิเคราะห์ข้อสอบรายข้อ
+              </Link>
+            )}
             {mission?.mission_type === 'sudoku' && (
               <button
                 onClick={fetchSudokuStats}
