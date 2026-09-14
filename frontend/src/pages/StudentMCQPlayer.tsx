@@ -548,21 +548,36 @@ const StudentMCQPlayer = () => {
                     <div className="mt-1">
                       {isCorrect ? <CheckCircle className="text-emerald-400" size={24} /> : <XCircle className="text-rose-400" size={24} />}
                     </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-white mb-4">ข้อ {i+1}: {q.question_text}</h3>
+                    <div className="flex-1 min-w-0">
+                      <div className="mb-4 flex items-start gap-2">
+                        <h3 className="text-lg font-bold text-white shrink-0">ข้อ {i+1}:</h3>
+                        <ContentBlockView
+                          size="question"
+                          content={q.content_blocks}
+                          text={q.question_text}
+                          imageUrl={q.image_url}
+                          className="flex-1 min-w-0"
+                          textClassName="text-lg font-bold text-white"
+                        />
+                      </div>
                       
                       {['multiple_choice', 'true_false'].includes(q.question_type) && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                             {q.choices.map(c => {
                               const isSelected = selectedAns === c.choice_id;
                               const isCorrectChoice = res?.correct_choice_id === c.choice_id;
-                              let bg = 'bg-slate-800 border-slate-700';
+                              let bg = 'bg-slate-800 border-slate-700 text-slate-300';
                               if (isCorrectChoice) bg = 'bg-emerald-500/20 border-emerald-500 text-emerald-300';
                               else if (isSelected && !isCorrectChoice) bg = 'bg-rose-500/20 border-rose-500 text-rose-300';
                               
                               return (
                                 <div key={c.choice_id} className={`p-3 rounded-xl border ${bg} text-sm`}>
-                                  {typeof c.choice_text === 'object' ? JSON.stringify(c.choice_text) : c.choice_text}
+                                  <ContentBlockView
+                                    size="choice"
+                                    content={c.content_blocks}
+                                    text={typeof c.choice_text === 'object' ? JSON.stringify(c.choice_text) : c.choice_text}
+                                    imageUrl={c.image_url}
+                                  />
                                 </div>
                               );
                             })}
