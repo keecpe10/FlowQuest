@@ -29,6 +29,7 @@ interface Question {
   image_url?: string;
   content_blocks?: StoredContent;
   xp_points: number;
+  score_points: number;
   choices: Choice[];
 }
 
@@ -38,6 +39,7 @@ interface Answer {
   answer_data?: any;
   is_correct?: boolean;
   xp_awarded?: number;
+  score_awarded?: number;
   teacher_graded?: boolean;
   review_state?: 'pending' | 'graded' | null;
 }
@@ -102,9 +104,9 @@ const StudentMCQView = () => {
   }, [missionId, studentId, status]);
 
   const handleManualGrade = async (question: Question) => {
-      const maxScore = question.xp_points || 0;
+      const maxScore = question.score_points || 0;
       const ans = answers.find(a => a.question_id === question.question_id);
-      const raw = (scoreDrafts[question.question_id] ?? String(ans?.xp_awarded ?? 0)).trim();
+      const raw = (scoreDrafts[question.question_id] ?? String(ans?.score_awarded ?? 0)).trim();
       const score = Number(raw);
 
       if (raw === '' || !Number.isInteger(score)) {
@@ -331,7 +333,7 @@ const StudentMCQView = () => {
                                           </span>
                                       ) : (
                                           <span className="inline-flex items-center gap-1 text-emerald-300 text-xs font-black bg-emerald-900/50 px-2 py-1 rounded-md">
-                                              <CheckCircle size={14} /> ครูตรวจแล้ว: {ansRecord?.xp_awarded ?? 0}/{q.xp_points} คะแนน
+                                              <CheckCircle size={14} /> ครูตรวจแล้ว: {ansRecord?.score_awarded ?? 0}/{q.score_points} คะแนน
                                           </span>
                                       )}
                                       {isTeacher && (
@@ -345,13 +347,13 @@ const StudentMCQView = () => {
                                                   type="number"
                                                   inputMode="numeric"
                                                   min={0}
-                                                  max={q.xp_points}
+                                                  max={q.score_points}
                                                   step={1}
-                                                  value={scoreDrafts[q.question_id] ?? String(ansRecord?.xp_awarded ?? 0)}
+                                                  value={scoreDrafts[q.question_id] ?? String(ansRecord?.score_awarded ?? 0)}
                                                   onChange={(e) => setScoreDrafts(prev => ({ ...prev, [q.question_id]: e.target.value }))}
-                                                  className={`w-20 px-2 py-1 rounded-lg bg-slate-900 border text-white text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${Number(scoreDrafts[q.question_id]) > q.xp_points || Number(scoreDrafts[q.question_id]) < 0 ? 'border-rose-500' : 'border-slate-600'}`}
+                                                  className={`w-20 px-2 py-1 rounded-lg bg-slate-900 border text-white text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${Number(scoreDrafts[q.question_id]) > q.score_points || Number(scoreDrafts[q.question_id]) < 0 ? 'border-rose-500' : 'border-slate-600'}`}
                                               />
-                                              <span className="text-slate-400 text-sm">/ {q.xp_points}</span>
+                                              <span className="text-slate-400 text-sm">/ {q.score_points}</span>
                                               <button
                                                   type="submit"
                                                   disabled={savingQuestionId === q.question_id}
@@ -432,8 +434,8 @@ const StudentMCQView = () => {
                           <div className="space-y-4">
                               {showCorrectness && (
                                   <p className="text-slate-300 text-sm">
-                                    ได้ <span className="text-white font-bold">{ansRecord?.xp_awarded ?? 0}</span> จาก{' '}
-                                    <span className="text-white font-bold">{q.xp_points}</span> คะแนน
+                                    ได้ <span className="text-white font-bold">{ansRecord?.score_awarded ?? 0}</span> จาก{' '}
+                                    <span className="text-white font-bold">{q.score_points}</span> คะแนน
                                   </p>
                               )}
                               

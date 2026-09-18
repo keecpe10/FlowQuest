@@ -33,6 +33,7 @@ interface Question {
   image_url?: string;
   content_blocks?: StoredContent;
   xp_points: number;
+  score_points: number;
   choices: Choice[];
 }
 
@@ -40,6 +41,7 @@ interface AnswerResult {
   question_id: number;
   is_correct: boolean;
   xp_awarded: number;
+  score_awarded?: number;
   correct_choice_id?: number;
   correct_answer_data?: any;
   explanation?: string;
@@ -133,6 +135,7 @@ const StudentMCQPlayer = () => {
                     question_id: q.question_id,
                     is_correct: past.is_correct,
                     xp_awarded: past.xp_awarded,
+                    score_awarded: past.score_awarded,
                     // Note: explanation and correct_answer_data are not fully returned here, but it's enough to mark as done
                 };
                 newSubmittedAnswers[q.question_id] = result;
@@ -165,7 +168,9 @@ const StudentMCQPlayer = () => {
             setIsCompleted(true);
             setTotalXp(newResults.reduce((acc, curr) => acc + curr.xp_awarded, 0));
             setIsPassed(mRes.data.mission_status === 'completed');
-            setScoreText(`${newResults.filter(r => r.is_correct).length}/${fetchedQuestions.length}`);
+            const earnedScore = newResults.reduce((acc, curr) => acc + (curr.score_awarded || 0), 0);
+            const totalScore = fetchedQuestions.reduce((acc: number, q: Question) => acc + (q.score_points || 0), 0);
+            setScoreText(`${earnedScore}/${totalScore} คะแนน`);
         } else if (firstUnansweredIndex !== -1) {
             setCurrentQIndex(firstUnansweredIndex);
         } else if (fetchedQuestions.length > 0) {
@@ -328,7 +333,8 @@ const StudentMCQPlayer = () => {
       setMatchingState({ ...matchingState, [qId]: newState });
   };
   
-  const handleNext = () => goToQuestion(currentQIndex + 1);
+  // ตรวจให้อัตโนมัติเฉพาะปุ่ม "ข้อถัดไป" — ย้อนกลับกับแถบนำทางแค่พาไปข้อนั้น
+  const handleNext = () => goToQuestion(currentQIndex + 1, true);
   const handlePrev = () => goToQuestion(currentQIndex - 1);
 
   /** ข้อนี้เลือก/กรอกคำตอบไว้แล้วหรือยัง (ยังไม่นับว่าตรวจแล้ว) */
@@ -378,6 +384,7 @@ const StudentMCQPlayer = () => {
             question_id: currentQ.question_id,
             is_correct: res.data.is_correct,
             xp_awarded: res.data.xp_awarded,
+            score_awarded: res.data.score_awarded,
             correct_choice_id: res.data.correct_choice_id,
             correct_answer_data: res.data.correct_answer_data,
             explanation: res.data.explanation
@@ -388,8 +395,8 @@ const StudentMCQPlayer = () => {
         setIsSubmitting(false);
 
         await Swal.fire(res.data.is_correct
-            ? { icon: 'success', title: 'ถูกต้อง!', text: `คุณได้รับ ${res.data.xp_awarded} XP`, timer: 1500, showConfirmButton: false }
-            : { icon: 'error', title: 'ไม่ถูกต้อง!', text: 'คุณไม่ได้รับ XP ในข้อนี้', timer: 1500, showConfirmButton: false });
+            ? { icon: 'success', title: 'ถูกต้อง!', text: `ได้ ${res.data.score_awarded}/${currentQ.score_points} คะแนน · +${res.data.xp_awarded} XP`, timer: 1500, showConfirmButton: false }
+            : { icon: 'error', title: 'ไม่ถูกต้อง!', text: `ได้ ${res.data.score_awarded ?? 0}/${currentQ.score_points} คะแนน`, timer: 1500, showConfirmButton: false });
         return true;
 
     } catch (error) {
@@ -415,17 +422,16 @@ const StudentMCQPlayer = () => {
   /**
    * ย้ายไปข้อที่ต้องการ
    *
-   * ถ้าข้อปัจจุบันเลือกคำตอบไว้แล้วแต่ยังไม่ได้ตรวจ จะตรวจให้ก่อนเสมอ ไม่ว่าจะออก
-   * ทางปุ่มถัดไป ย้อนกลับ หรือกดเลขในแถบนำทาง เพราะคำตอบที่ยังไม่ตรวจจะไม่ถูก
-   * บันทึกเลย พอจบแบบทดสอบจะกลายเป็นข้อที่ตอบผิดทั้งที่นักเรียนเลือกไว้แล้ว
-   * ส่วนข้อที่ยังไม่ได้เลือกอะไร ปล่อยให้ข้ามไปได้ตามปกติ
+   * checkFirst = true (ปุ่ม "ข้อถัดไป") ถ้าข้อปัจจุบันเลือกคำตอบไว้แล้วแต่ยังไม่ได้ตรวจ
+   * จะตรวจให้ก่อนแล้วค่อยไป ส่วนปุ่มย้อนกลับและแถบนำทางแค่พาไปดูข้อนั้นเฉย ๆ
+   * คำตอบที่เลือกไว้ยังค้างอยู่ในหน้า (แถบนำทางขึ้นสีม่วง "ยังไม่ตรวจ") กลับมากดตรวจทีหลังได้
    */
-  const goToQuestion = async (target: number) => {
+  const goToQuestion = async (target: number, checkFirst = false) => {
     if (isSubmitting || target === currentQIndex) return;
     if (target < 0 || target > questions.length - 1) return;
 
     const currentQ = questions[currentQIndex];
-    if (!submittedAnswers[currentQ.question_id] && hasDraftAnswer(currentQ.question_id)) {
+    if (checkFirst && !submittedAnswers[currentQ.question_id] && hasDraftAnswer(currentQ.question_id)) {
       await submitCurrentAnswer();
     }
     setCurrentQIndex(target);
@@ -437,7 +443,7 @@ const StudentMCQPlayer = () => {
       const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${id}/complete`, {}, { headers: { Authorization: `Bearer ${token}` } });
       setTotalXp(res.data.total_xp);
       setIsPassed(res.data.status === 'completed');
-      setScoreText(`${res.data.correct_answers}/${res.data.total_questions}`);
+      setScoreText(`${res.data.earned_score}/${res.data.total_score} คะแนน`);
       setIsCompleted(true);
     } catch (error) {
       console.error('Failed to complete mission', error);
@@ -622,8 +628,8 @@ const StudentMCQPlayer = () => {
                       {['sudoku', 'flowchart'].includes(q.question_type) && (
                           <div className="mb-4 space-y-2">
                               <p className="text-slate-300 text-sm">
-                                ได้ <span className="text-white font-bold">{res?.xp_awarded ?? 0}</span> จาก{' '}
-                                <span className="text-white font-bold">{q.xp_points}</span> คะแนน
+                                ได้ <span className="text-white font-bold">{res?.score_awarded ?? 0}</span> จาก{' '}
+                                <span className="text-white font-bold">{q.score_points}</span> คะแนน
                               </p>
                               {q.question_type === 'sudoku' ? (
                                   <SudokuAnswer
@@ -784,14 +790,21 @@ const StudentMCQPlayer = () => {
             
             {isSubmitted && (
                 <div className={`absolute -top-4 right-6 px-4 py-1.5 rounded-full font-bold text-sm shadow-lg ${qResult.is_correct ? 'bg-emerald-500 text-slate-900' : 'bg-rose-500 text-white'}`}>
-                    {qResult.is_correct ? `ถูกต้อง! +${qResult.xp_awarded} XP` : 'ผิด'}
+                    {qResult.is_correct
+                      ? `ถูกต้อง! ${qResult.score_awarded ?? currentQ.score_points}/${currentQ.score_points} คะแนน`
+                      : `ผิด · ${qResult.score_awarded ?? 0}/${currentQ.score_points} คะแนน`}
                 </div>
             )}
             
             <div className="mb-8 text-center">
-              <span className="inline-block px-3 py-1 bg-violet-500/20 text-violet-300 text-xs font-bold rounded-full mb-4">
-                {currentQ.xp_points} XP
-              </span>
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <span className="inline-block px-3 py-1 bg-sky-500/20 text-sky-200 text-xs font-bold rounded-full">
+                  ข้อนี้ {currentQ.score_points} คะแนน
+                </span>
+                <span className="inline-block px-3 py-1 bg-violet-500/20 text-violet-300 text-xs font-bold rounded-full">
+                  {currentQ.xp_points} XP
+                </span>
+              </div>
               <ContentBlockView
                 size="question"
                 content={currentQ.content_blocks}

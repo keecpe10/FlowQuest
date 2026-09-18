@@ -7,7 +7,7 @@ from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
 # ข้อร่างถูกซ่อนจากนักเรียนด้วยกฎเดียวกันทั้งระบบ ดู mcq_routes.live_questions
-from mcq_routes import live_questions, teacher_review_summary
+from mcq_routes import live_questions, teacher_review_summary, mcq_score_text
 from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
@@ -76,10 +76,8 @@ def get_missions(course_id):
         
         score_text = None
         if m.mission_type == 'mcq' and status in ['completed', 'failed'] and um:
-            total_questions = live_questions(m.mission_id).count()
             mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
-            correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-            score_text = f"{correct_answers}/{total_questions}"
+            score_text = mcq_score_text(live_questions(m.mission_id).all(), mcq_answers)
 
         mission_data = {
             'mission_id': m.mission_id,
@@ -248,7 +246,8 @@ def get_mission(mission_id):
                     'choice_id': a.selected_choice_id,
                     'answer_data': a.answer_data,
                     'is_correct': a.is_correct,
-                    'xp_awarded': a.xp_awarded
+                    'xp_awarded': a.xp_awarded,
+                    'score_awarded': a.score_awarded,
                 })
             response_data['mcq_answers'] = ans_data
     
@@ -326,10 +325,8 @@ def get_students_progress(mission_id):
                     mcq_progress_text = f"กำลังทำข้อ {current_q} จาก {total_q} ข้อ"
             elif status in ['completed', 'failed'] and um:
                 # Calculate correct answers
-                total_questions = len(mcq_live)
                 mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
-                correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-                score_text = f"{correct_answers}/{total_questions}"
+                score_text = mcq_score_text(mcq_live, mcq_answers)
                 grading_status, grading_pending, grading_total = teacher_review_summary(mcq_live, mcq_answers)
                 
         is_passed = True

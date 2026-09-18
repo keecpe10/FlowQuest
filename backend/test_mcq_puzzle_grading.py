@@ -180,17 +180,19 @@ def flowchart_meta(**over):
     return meta
 
 
-def puzzle_question(qtype, meta, xp=10):
+def puzzle_question(qtype, meta, xp=10, score=None):
+    """score ไม่ระบุ = เท่ากับ xp เพื่อให้เคสเดิมที่คิดน้ำหนักจาก XP ยังความหมายเดิม"""
     return {
         'content_blocks': doc(txt('ทำโจทย์นี้')),
         'question_type': qtype,
         'question_metadata': meta,
         'xp_points': xp,
+        'score_points': xp if score is None else score,
         'choices': [],
     }
 
 
-def mc_question(text='คำถาม', filled_choices=4, xp=10):
+def mc_question(text='คำถาม', filled_choices=4, xp=10, score=None):
     """คำถาม 4 ตัวเลือก โดย filled_choices บอกว่ากรอกตัวเลือกไปกี่ตัว"""
     choices = []
     for i in range(4):
@@ -204,6 +206,7 @@ def mc_question(text='คำถาม', filled_choices=4, xp=10):
         'question_type': 'multiple_choice',
         'question_metadata': {},
         'xp_points': xp,
+        'score_points': xp if score is None else score,
         'choices': choices,
     }
 
@@ -467,6 +470,41 @@ def test_manual_grade_matches_student_pass_fail(client, f):
           history is not None and history.points == 75)
 
 
+def test_pass_uses_score_not_xp(client, f):
+    """คะแนนรายข้อแยกจาก XP และผ่าน/ไม่ผ่านคิดจากคะแนน
+
+    ข้อ A: 1 คะแนน 90 XP (ตอบถูก) + ข้อ B: 9 คะแนน 10 XP (ตอบผิด)
+    ถ้าคิดจาก XP = 90% ผ่าน แต่คิดจากคะแนน = 1/10 = 10% ต้องไม่ผ่าน
+    """
+    clear_questions(f)
+    clear_answers(f)
+    client.post(q_url(f), json=mc_question('A', xp=90, score=1), headers=auth(f['teacher_token']))
+    client.post(q_url(f), json=mc_question('B', xp=10, score=9), headers=auth(f['teacher_token']))
+    qs = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).order_by(MCQQuestion.order_index).all()
+    check('บันทึกคะแนนรายข้อแยกจาก XP', [q.score_points for q in qs] == [1, 9])
+
+    right = MCQChoice.query.filter_by(question_id=qs[0].question_id, is_correct=True).first()
+    wrong = MCQChoice.query.filter_by(question_id=qs[1].question_id, is_correct=False).first()
+    res = client.post(single_url(f), json={
+        'answer': {'question_id': qs[0].question_id, 'choice_id': right.choice_id},
+    }, headers=auth(f['student_token'])).get_json()
+    check('ตอบถูกได้คะแนนเต็มของข้อและ XP ของข้อ',
+          res['score_awarded'] == 1 and res['xp_awarded'] == 90)
+    client.post(single_url(f), json={
+        'answer': {'question_id': qs[1].question_id, 'choice_id': wrong.choice_id},
+    }, headers=auth(f['student_token']))
+
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    check('1/10 คะแนน ไม่ผ่านแม้ XP จะได้ 90%', um.status == 'failed')
+    check('ยังได้ XP ตามที่ตอบถูก', um.score_awarded == 90)
+
+    detail = client.get(f"/api/v1/mcq/{f['mission'].mission_id}/student/{f['student'].user_id}",
+                        headers=auth(f['teacher_token'])).get_json()
+    check('score_text เป็นคะแนนได้/เต็ม', detail['score_text'] == '1/10')
+
+
 def test_manual_grade_typed_score(client, f):
     """ครูพิมพ์คะแนนข้อเติมคำเองได้ 0 ถึงคะแนนเต็ม และหน้าสถานะนักเรียนบอกว่าตรวจแล้วหรือยัง
 
@@ -568,6 +606,8 @@ def main():
             test_manual_grade_matches_student_pass_fail(client, f)
             clear_answers(f)
             test_manual_grade_typed_score(client, f)
+            clear_answers(f)
+            test_pass_uses_score_not_xp(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

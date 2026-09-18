@@ -185,7 +185,7 @@ def _has_content(doc, legacy_text):
     return doc is not None or bool((legacy_text or '').strip())
 
 
-def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, choices):
+def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, choices, score_points=1):
     """ข้อนี้ยังกรอกไม่ครบหรือเปล่า
 
     เกณฑ์ตรงกับ validateQuestion ฝั่งหน้าเว็บ แต่ที่นี่เป็นตัวตัดสินจริง เพราะเป็น
@@ -196,6 +196,8 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
     if not _has_content(q_doc, q_legacy_text):
         return True
     if not xp_points or xp_points < 1:
+        return True
+    if not score_points or score_points < 1:
         return True
 
     meta = metadata or {}
@@ -248,8 +250,18 @@ def live_questions(mission_id):
     return MCQQuestion.query.filter_by(mission_id=mission_id, is_draft=False)
 
 
+def scale_points(earned, total, points):
+    """แปลงสัดส่วน earned/total เป็นแต้มเต็ม points ปัดครึ่งขึ้นด้วยเลขจำนวนเต็มล้วน"""
+    if total <= 0:
+        return 0
+    return (earned * (points or 0) + total // 2) // total
+
+
 def grade_answer(question, choice_id, answer_data):
-    """ตรวจคำตอบหนึ่งข้อ คืน (is_correct, xp_awarded, correct_choice_id)
+    """ตรวจคำตอบหนึ่งข้อ คืน (is_correct, xp_awarded, correct_choice_id, score_awarded)
+
+    score_awarded คือคะแนนของข้อ (เต็ม = question.score_points) คิดจากสัดส่วน
+    เดียวกับ XP แต่เป็นคนละหน่วย — คะแนนใช้ตัดสินผ่าน/ไม่ผ่าน XP เป็นรางวัลในเกม
 
     ที่เดียวของทั้งระบบ — submit_mcq กับ submit_mcq_single เรียกตัวนี้ทั้งคู่
     ชนิดคำถามใหม่จึงเสียบที่นี่ที่เดียว
@@ -294,14 +306,48 @@ def grade_answer(question, choice_id, answer_data):
     else:
         earned, total = 0, 1
 
-    xp_points = question.xp_points or 0
     if total <= 0:
-        return False, 0, correct_choice_id
+        return False, 0, correct_choice_id, 0
 
     # ปัดครึ่งขึ้นด้วยเลขจำนวนเต็มล้วน และตัดสินถูกทั้งข้อจากการเทียบจำนวนเต็ม
     # ไม่ใช่ ratio == 1.0 เพราะการหารทศนิยมให้ค่าอย่าง 0.9999999 ได้
-    xp_awarded = (earned * xp_points + total // 2) // total
-    return earned == total, xp_awarded, correct_choice_id
+    xp_awarded = scale_points(earned, total, question.xp_points)
+    score_awarded = scale_points(earned, total, question.score_points)
+    return earned == total, xp_awarded, correct_choice_id, score_awarded
+
+
+def mcq_attempt_result(mission, user_mission):
+    """สรุปผลของ attempt ปัจจุบัน: คะแนนที่ได้/คะแนนเต็ม และผ่านเกณฑ์หรือไม่
+
+    ที่เดียวที่ตัดสินผ่าน/ไม่ผ่าน — finalize_mcq และ manual_grade เรียกตัวนี้ทั้งคู่
+    ครูกับนักเรียนจึงเห็นผลของ attempt เดียวกันตรงกันเสมอ
+
+    คิดเปอร์เซ็นต์จากคะแนน (score_points) ที่ครูกำหนดรายข้อ ไม่ใช่จำนวนข้อที่ถูก
+    ทั้งข้อ เพราะคะแนนบางส่วนของข้อซูโดกุ/ผังงาน/ที่ครูตรวจเองจะหายไปทั้งก้อน
+    และนับเฉพาะคำตอบของข้อที่ยังไม่ใช่ร่าง ไม่งั้นคำตอบของข้อที่ครูเปลี่ยนเป็นร่าง
+    ทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้นแล้ว
+    """
+    live = live_questions(mission.mission_id).all()
+    live_ids = {q.question_id for q in live}
+    answers = [a for a in MCQUserAnswer.query.filter_by(
+        user_mission_id=user_mission.user_mission_id).all() if a.question_id in live_ids]
+    total_score = sum(q.score_points or 0 for q in live)
+    earned_score = sum(a.score_awarded or 0 for a in answers)
+    percentage = (earned_score / total_score * 100) if total_score > 0 else 0
+    return {
+        'total_questions': len(live),
+        'correct_answers': sum(1 for a in answers if a.is_correct),
+        'earned_score': earned_score,
+        'total_score': total_score,
+        'is_passed': percentage >= (mission.passing_percentage or 70),
+    }
+
+
+def mcq_score_text(questions, answers):
+    """ข้อความคะแนน "ได้/เต็ม" ของ attempt สำหรับแสดงผล"""
+    live_ids = {q.question_id for q in questions}
+    earned = sum(a.score_awarded or 0 for a in answers if a.question_id in live_ids)
+    return f"{earned}/{sum(q.score_points or 0 for q in questions)}"
 
 
 # ชนิดคำถามที่ครูต้องตรวจเองเมื่อระบบตรวจอัตโนมัติไม่ตรงเฉลย
@@ -852,27 +898,8 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
     """
     from datetime import datetime
 
-    mission_id = mission.mission_id
-    live = live_questions(mission_id).all()
-    total_questions = len(live)
-    live_ids = {q.question_id for q in live}
-    total_possible = sum(q.xp_points or 0 for q in live)
-
-    # นับเฉพาะคำตอบของข้อที่ยังไม่ใช่ร่าง ไม่งั้นคำตอบของข้อที่ครูเปลี่ยนเป็นร่าง
-    # ทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้นแล้ว
-    mcq_answers = [a for a in MCQUserAnswer.query.filter_by(
-        user_mission_id=user_mission.user_mission_id
-    ).all() if a.question_id in live_ids]
-
-    correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-    total_xp = sum(a.xp_awarded or 0 for a in mcq_answers)
-
-    # คิดจาก XP ไม่ใช่จำนวนข้อ เพราะคะแนนบางส่วนจากข้อซูโดกุ/ผังงาน
-    # จะหายไปทั้งก้อนถ้านับเป็นรายข้อ และ XP รายข้อที่ครูตั้งไว้ก็ควรถ่วงน้ำหนักจริง
-    percentage = (total_xp / total_possible * 100) if total_possible > 0 else 0
-
-    passing_percentage = mission.passing_percentage or 70
-    is_passed = percentage >= passing_percentage
+    summary = mcq_attempt_result(mission, user_mission)
+    is_passed = summary['is_passed']
 
     # นับครั้งเฉพาะตอนที่ attempt เปลี่ยนจาก pending ไปเป็นสถานะจบเท่านั้น
     # ฟังก์ชันนี้ถูกเรียกซ้ำได้ (เช่น นักเรียนกดจบพร้อมกับที่นาฬิกาหมดพอดี)
@@ -902,8 +929,10 @@ def finalize_mcq(user_id, mission, user_mission, count_attempt=True, award_xp=Tr
         'status': user_mission.status,
         'is_passed': is_passed,
         'total_xp': user_mission.score_awarded,
-        'correct_answers': correct_answers,
-        'total_questions': total_questions
+        'correct_answers': summary['correct_answers'],
+        'total_questions': summary['total_questions'],
+        'earned_score': summary['earned_score'],
+        'total_score': summary['total_score'],
     }
 
 
@@ -961,6 +990,7 @@ def get_mcq_questions(mission_id):
             'image_url': q.image_url,
             'content_blocks': q.content_blocks,
             'xp_points': q.xp_points,
+            'score_points': q.score_points,
             'order_index': q.order_index,
             'choices': c_data,
         }
@@ -1066,6 +1096,7 @@ def update_mcq_questions(mission_id):
             image_url=None if q_doc else q_data.get('image_url'),
             content_blocks=q_doc,
             xp_points=q_data.get('xp_points', 10),
+            score_points=_read_score_points(q_data),
             order_index=idx,
             explanation=q_data.get('explanation'),
             is_draft=compute_is_draft(
@@ -1073,6 +1104,7 @@ def update_mcq_questions(mission_id):
                 q_doc, q_data.get('question_text'), meta,
                 q_data.get('xp_points', 10),
                 _draft_choice_tuples(c_normalized, q_data.get('choices', [])),
+                _read_score_points(q_data),
             ),
         )
         db.session.add(new_q)
@@ -1143,6 +1175,7 @@ def _question_json(q):
         'image_url': q.image_url,
         'content_blocks': q.content_blocks,
         'xp_points': q.xp_points,
+        'score_points': q.score_points,
         'order_index': q.order_index,
         'explanation': q.explanation,
         'is_draft': q.is_draft,
@@ -1156,6 +1189,21 @@ def _question_json(q):
     }
 
 
+MAX_SCORE_POINTS = 1000
+
+
+def _read_score_points(q_data):
+    """คะแนนของข้อจาก payload — ไม่ส่งมาได้ 1 ค่าที่อ่านไม่ได้/ติดลบเป็น 0 (ข้อร่าง)"""
+    raw = q_data.get('score_points', 1)
+    if isinstance(raw, bool):
+        return 0
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(value, MAX_SCORE_POINTS))
+
+
 def _write_question(q, q_data, q_doc, q_text, c_normalized, meta):
     """เขียนค่าจาก payload ลงคำถาม (ยังไม่ commit) และคำนวณสถานะร่างให้เอง"""
     choices_data = q_data.get('choices', [])
@@ -1165,10 +1213,11 @@ def _write_question(q, q_data, q_doc, q_text, c_normalized, meta):
     q.image_url = None if q_doc else q_data.get('image_url')
     q.content_blocks = q_doc
     q.xp_points = q_data.get('xp_points', 10)
+    q.score_points = _read_score_points(q_data)
     q.explanation = q_data.get('explanation')
     q.is_draft = compute_is_draft(
         q.question_type, q_doc, q_data.get('question_text'), q.question_metadata,
-        q.xp_points, _draft_choice_tuples(c_normalized, choices_data),
+        q.xp_points, _draft_choice_tuples(c_normalized, choices_data), q.score_points,
     )
 
 
@@ -1422,7 +1471,7 @@ def submit_mcq(mission_id):
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
 
-        is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
+        is_correct, xp_awarded, correct_choice_id, score_awarded = grade_answer(question, c_id, answer_data)
 
         user_ans = MCQUserAnswer(
             user_mission_id=user_mission.user_mission_id,
@@ -1430,7 +1479,8 @@ def submit_mcq(mission_id):
             selected_choice_id=c_id if question.question_type in ['multiple_choice', 'true_false'] else None,
             answer_data=answer_data,
             is_correct=is_correct,
-            xp_awarded=xp_awarded
+            xp_awarded=xp_awarded,
+            score_awarded=score_awarded,
         )
         db.session.add(user_ans)
 
@@ -1438,6 +1488,7 @@ def submit_mcq(mission_id):
             'question_id': q_id,
             'is_correct': is_correct,
             'xp_awarded': xp_awarded,
+            'score_awarded': score_awarded,
             'correct_choice_id': correct_choice_id,
             'correct_answer_data': question.question_metadata,
             'explanation': question.explanation
@@ -1461,7 +1512,7 @@ def submit_mcq(mission_id):
         'total_xp_awarded': result['total_xp'],
         'results': results,
         'is_passed': result['is_passed'],
-        'score_text': f"{result['correct_answers']}/{result['total_questions']}",
+        'score_text': f"{result['earned_score']}/{result['total_score']}",
         'passing_percentage': mission.passing_percentage or 70
     }), 200
 
@@ -1521,6 +1572,7 @@ def get_mcq_student_progress(mission_id, student_id):
             'image_url': q.image_url,
             'content_blocks': q.content_blocks,
             'xp_points': q.xp_points,
+            'score_points': q.score_points,
             'choices': [{'choice_id': c.choice_id, 'choice_text': c.choice_text, 'is_correct': c.is_correct, 'image_url': c.image_url, 'content_blocks': c.content_blocks} for c in choices]
         })
         
@@ -1533,7 +1585,6 @@ def get_mcq_student_progress(mission_id, student_id):
         if um.status in ['completed', 'failed']:
             mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
             qtypes = {q.question_id: q.question_type for q in questions}
-            correct_count = 0
             for a in mcq_answers:
                 answers.append({
                     'question_id': a.question_id,
@@ -1541,12 +1592,11 @@ def get_mcq_student_progress(mission_id, student_id):
                     'answer_data': a.answer_data,
                     'is_correct': a.is_correct,
                     'xp_awarded': a.xp_awarded,
+                    'score_awarded': a.score_awarded,
                     'teacher_graded': a.teacher_graded,
                     'review_state': teacher_review_state(qtypes.get(a.question_id), a),
                 })
-                if a.is_correct:
-                    correct_count += 1
-            score_text = f"{correct_count}/{len(questions)}"
+            score_text = mcq_score_text(questions, mcq_answers)
         else:
             # Pending status, get from current_nodes
             progress_data = um.current_nodes or {}
@@ -1648,7 +1698,7 @@ def submit_mcq_single(mission_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 
-    is_correct, xp_awarded, correct_choice_id = grade_answer(question, c_id, answer_data)
+    is_correct, xp_awarded, correct_choice_id, score_awarded = grade_answer(question, c_id, answer_data)
 
     total_questions = live_questions(mission_id).count()
 
@@ -1658,7 +1708,8 @@ def submit_mcq_single(mission_id):
         selected_choice_id=c_id if question.question_type in ['multiple_choice', 'true_false'] else None,
         answer_data=answer_data,
         is_correct=is_correct,
-        xp_awarded=xp_awarded
+        xp_awarded=xp_awarded,
+        score_awarded=score_awarded,
     )
     db.session.add(user_ans)
 
@@ -1689,6 +1740,8 @@ def submit_mcq_single(mission_id):
     return jsonify({
         'is_correct': is_correct,
         'xp_awarded': xp_awarded,
+        'score_awarded': score_awarded,
+        'score_points': question.score_points,
         'correct_choice_id': correct_choice_id,
         'correct_answer_data': question.question_metadata,
         'explanation': question.explanation,
@@ -1734,7 +1787,9 @@ def complete_mcq(mission_id):
         'status': result['status'],
         'total_xp': result['total_xp'],
         'correct_answers': result['correct_answers'],
-        'total_questions': result['total_questions']
+        'total_questions': result['total_questions'],
+        'earned_score': result['earned_score'],
+        'total_score': result['total_score'],
     }), 200
 
 @mcq_bp.route('/<int:mission_id>/grade-manual', methods=['POST'])
@@ -1767,10 +1822,10 @@ def manual_grade(mission_id):
         question = MCQQuestion.query.get(question_id)
         if not question or question.mission_id != mission_id:
             return jsonify({'message': 'Question not found'}), 404
-        max_score = question.xp_points or 0
+        max_score = question.score_points or 0
 
-        # ครูพิมพ์คะแนนเองได้ตั้งแต่ 0 ถึงคะแนนเต็มของข้อ ไม่ส่ง score มา = ให้เต็ม
-        # (พฤติกรรมเดิมของปุ่ม "ให้คะแนนข้อนี้")
+        # ครูพิมพ์คะแนนเองได้ตั้งแต่ 0 ถึงคะแนนเต็มของข้อ (score_points ไม่ใช่ XP)
+        # ไม่ส่ง score มา = ให้เต็ม (พฤติกรรมเดิมของปุ่ม "ให้คะแนนข้อนี้")
         raw_score = data.get('score')
         if raw_score is None:
             if answer.is_correct:
@@ -1791,31 +1846,14 @@ def manual_grade(mission_id):
 
         answer.is_correct = score >= max_score
         answer.teacher_graded = True
+        answer.score_awarded = score
+        # XP ของข้อได้ตามสัดส่วนคะแนนที่ครูให้ ด้วยสูตรปัดเดียวกับ grade_answer
+        answer.xp_awarded = scale_points(score, max_score, question.xp_points) if max_score else 0
 
-        # xp_points ของโจทย์ข้อนั้นเป็นแหล่งความจริงเดียวของคะแนน MCQ เหมือนกับ
-        # submit_mcq/submit_mcq_single (ดู grade_answer) ไม่ใช่ mission.points หาร
-        # เฉลี่ยเท่าจำนวนข้อ ซึ่งเป็นสูตรเก่าที่ไม่ตรงกับสองเส้นทางนั้นมานาน
-        live = live_questions(mission_id).all()
-        live_ids = {q.question_id for q in live}
-        total_possible = sum(q.xp_points or 0 for q in live)
-        answer.xp_awarded = score
+        # ผ่าน/ไม่ผ่านตัดสินที่ mcq_attempt_result ที่เดียว เหมือน finalize_mcq
+        # autoflush ทำให้คำตอบที่เพิ่งแก้ถูกนับด้วย
+        is_passed = mcq_attempt_result(mission, user_mission)['is_passed']
 
-        # Recalculate pass/fail
-        # สูตรนี้ต้องตรงกับ finalize_mcq เป๊ะ: คิดเปอร์เซ็นต์จาก XP ถ่วงน้ำหนัก ไม่ใช่
-        # นับจำนวนข้อที่ถูกทั้งข้อ เพราะคะแนนบางส่วนของข้อซูโดกุ/ผังงานจะหายไปทั้งก้อน
-        # ถ้านับเป็นรายข้อ และกรองคำตอบเฉพาะข้อที่ยังไม่ใช่ร่าง (live_ids) ไม่งั้นคำตอบ
-        # ของข้อที่ครูเปลี่ยนเป็นร่างทีหลังจะยังบวกเข้าตัวเศษ ทั้งที่ตัวส่วนไม่นับข้อนั้น
-        # แล้ว ถ้าจะแก้สูตรนี้ต้องไปแก้ finalize_mcq ด้วย (และกลับกัน) ไม่งั้นครูกับ
-        # นักเรียนจะเห็นผ่าน/ตกของ attempt เดียวกันไม่ตรงกัน
-        mcq_answers = [a for a in MCQUserAnswer.query.filter_by(
-            user_mission_id=user_mission.user_mission_id).all() if a.question_id in live_ids]
-        # Note: mcq_answers includes the currently modified answer because it's in the session
-        correct_answers = sum(1 for a in mcq_answers if a.is_correct)
-        total_xp_earned = sum((a.xp_awarded or 0) for a in mcq_answers)
-        percentage = (total_xp_earned / total_possible * 100) if total_possible > 0 else 0
-        passing_percentage = mission.passing_percentage or 70
-        is_passed = percentage >= passing_percentage
-        
         if is_passed:
             user_mission.status = 'completed'
             from datetime import datetime
@@ -1835,7 +1873,8 @@ def manual_grade(mission_id):
         socketio.emit('missions_updated')
 
         return jsonify({'message': 'Graded successfully', 'is_passed': is_passed,
-                        'xp_awarded': score, 'max_score': max_score}), 200
+                        'score_awarded': score, 'xp_awarded': answer.xp_awarded,
+                        'max_score': max_score}), 200
     except Exception as e:
         import traceback
         return jsonify({'message': str(e), 'trace': traceback.format_exc()}), 500
@@ -1875,6 +1914,7 @@ def get_item_analysis(mission_id):
         'question_id': q.question_id, 'question_type': q.question_type,
         'question_text': q.question_text, 'content_blocks': q.content_blocks, 'image_url': q.image_url,
         'xp_points': q.xp_points,
+        'score_points': q.score_points,
         'choices': [{'choice_id': c.choice_id, 'choice_text': c.choice_text, 'image_url': c.image_url,
                      'content_blocks': c.content_blocks, 'is_correct': c.is_correct}
                     for c in sorted(q.choices, key=lambda c: c.choice_id)],

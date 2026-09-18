@@ -264,6 +264,8 @@ class MCQQuestion(db.Model):
     # question_text + image_url แบบเดิม (รูปอยู่เหนือข้อความ)
     content_blocks = db.Column(db.JSON, nullable=True)
     xp_points = db.Column(db.Integer, default=10)
+    # คะแนนของข้อ (ใช้ตัดสินผ่าน/ไม่ผ่านและแสดงผลสอบ) แยกจาก XP ที่เป็นรางวัลในเกม
+    score_points = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     order_index = db.Column(db.Integer, default=0)
     explanation = db.Column(db.Text, nullable=True)
     # ข้อที่ครูยังกรอกไม่ครบ นักเรียนไม่เห็นและไม่ถูกนับเป็นคะแนนเต็ม
@@ -293,6 +295,8 @@ class MCQUserAnswer(db.Model):
     answer_data = db.Column(db.JSON, nullable=True) # Used for non-choice questions like matching/fill_blank
     is_correct = db.Column(db.Boolean, default=False)
     xp_awarded = db.Column(db.Integer, default=0)
+    # คะแนนที่ได้จริงของข้อนี้ (เต็ม = MCQQuestion.score_points) แยกจาก XP
+    score_awarded = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     # ครูให้คะแนนข้อนี้ด้วยมือแล้ว (ข้อเติมคำที่ระบบตรวจอัตโนมัติไม่ผ่าน) ใช้บอกสถานะ
     # "รอตรวจ/ตรวจแล้ว" ในหน้าสถานะนักเรียน เพราะครูให้ 0 คะแนนก็ถือว่าตรวจแล้ว
     teacher_graded = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text('false'))

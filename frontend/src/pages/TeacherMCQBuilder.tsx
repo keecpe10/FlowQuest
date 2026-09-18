@@ -55,7 +55,8 @@ const validateQuestion = (q: Question): string[] => {
     if (items.some((it: any) => !it?.category)) problems.push('มีรายการที่ยังไม่ได้ระบุหมวดหมู่');
   }
 
-  if (!q.xp_points || q.xp_points < 1) problems.push('คะแนน XP ต้องมากกว่า 0');
+  if (!q.score_points || q.score_points < 1) problems.push('คะแนนของข้อต้องมากกว่า 0');
+  if (!q.xp_points || q.xp_points < 1) problems.push('XP ต้องมากกว่า 0');
 
   return problems;
 };
@@ -65,6 +66,7 @@ const blankQuestion = (): Question => ({
   question_metadata: {},
   content_blocks: EMPTY_DOC,
   xp_points: 10,
+  score_points: 1,
   explanation: '',
   choices: [0, 1, 2, 3].map((i) => ({
     choice_text: '',
@@ -91,6 +93,7 @@ const fromApi = (q: any): Question => {
     // ข้อเก่าถูกแปลงเป็นเอกสารให้อัตโนมัติ ทั้งแบบลิสต์บล็อกและแบบฟิลด์เดิม
     content_blocks: toDoc(q.content_blocks, q.question_text, q.image_url),
     xp_points: q.xp_points || 10,
+    score_points: q.score_points ?? 1,
     explanation: q.explanation || '',
     is_draft: q.is_draft,
     choices: choices
@@ -309,6 +312,7 @@ const TeacherMCQBuilder = () => {
   if (loading) return <div className="p-8">Loading...</div>;
 
   const totalXp = questions.reduce((sum, q) => sum + (q.xp_points || 0), 0);
+  const totalScore = questions.reduce((sum, q) => sum + (q.score_points || 0), 0);
 
   return (
     <div className="flex-1 flex flex-col h-screen bg-slate-50">
@@ -327,6 +331,7 @@ const TeacherMCQBuilder = () => {
         </div>
         <p className="text-sm text-slate-500">
           ทั้งหมด <span className="font-bold text-slate-700">{questions.length}</span> ข้อ
+          {' · '}คะแนนเต็ม <span className="font-bold text-slate-700">{totalScore}</span> คะแนน
           {' · '}รวม <span className="font-bold text-slate-700">{totalXp}</span> XP
         </p>
       </div>

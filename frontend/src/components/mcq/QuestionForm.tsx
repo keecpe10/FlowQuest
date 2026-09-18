@@ -23,6 +23,8 @@ export interface Question {
   image_url?: string;
   content_blocks?: RichDoc;
   xp_points: number;
+  /** คะแนนของข้อ (ใช้ตัดสินผ่าน/ไม่ผ่าน) แยกจาก XP ที่เป็นรางวัลในเกม */
+  score_points: number;
   explanation?: string;
   is_draft?: boolean;
   choices: Choice[];
@@ -238,14 +240,33 @@ export default function QuestionForm({
               onChange={docHandler()}
             />
           </div>
-          <div className="w-32">
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">คะแนน XP</label>
-            <input
-              type="number"
-              value={question.xp_points}
-              onChange={(e) => set({ xp_points: parseInt(e.target.value) || 0 })}
-              className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none"
-            />
+          <div className="w-32 space-y-3">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5" htmlFor="question-score-points">คะแนน</label>
+              <input
+                id="question-score-points"
+                type="number"
+                min={1}
+                step={1}
+                value={question.score_points}
+                onChange={(e) => set({ score_points: parseInt(e.target.value) || 0 })}
+                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">ใช้คิดผลสอบ</p>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5" htmlFor="question-xp-points">XP</label>
+              <input
+                id="question-xp-points"
+                type="number"
+                min={1}
+                step={1}
+                value={question.xp_points}
+                onChange={(e) => set({ xp_points: parseInt(e.target.value) || 0 })}
+                className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-violet-400 outline-none"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">รางวัลในเกม</p>
+            </div>
           </div>
         </div>
 
