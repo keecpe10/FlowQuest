@@ -31,8 +31,11 @@ REFRESH_MAX_PER_WINDOW = 20
 REFRESH_WINDOW_SECONDS = 300
 
 
-def generate_token(user_id, session_id=None, session_start=None):
+def generate_token(user_id, session_id=None, session_start=None, multi_session=False):
     """ออก token ใหม่ พร้อมบันทึกว่ารอบนี้คือรอบล่าสุดของบัญชีนี้
+
+    multi_session=True (บัญชีครู) ล็อกอินได้หลายเครื่องพร้อมกัน — ไม่บันทึกรอบล่าสุด
+    เครื่องอื่นจึงไม่ถูกตัด และ token ติดธง msess ไว้ให้ payload_from_token รู้
 
     หนึ่งบัญชีล็อกอินได้ทีละเครื่อง การล็อกอินใหม่ (ไม่ส่ง session_id มา) จึงสุ่ม
     รหัสรอบใหม่ ซึ่งเท่ากับตัดเครื่องเดิมออกโดยอัตโนมัติ เพราะ sid ที่บันทึกไว้จะ
@@ -52,9 +55,12 @@ def generate_token(user_id, session_id=None, session_start=None):
         'sub': user_id,
         'sid': session_id,
     }
-    shared_state.set_value(
-        auth_utils.session_key(user_id), session_id, SESSION_TTL_SECONDS,
-    )
+    if multi_session:
+        payload['msess'] = True
+    else:
+        shared_state.set_value(
+            auth_utils.session_key(user_id), session_id, SESSION_TTL_SECONDS,
+        )
     return jwt.encode(payload, secret_key, algorithm='HS256')
 
 # จำกัดจำนวนครั้งที่ล็อกอินผิดต่อชื่อผู้ใช้ + ไอพี
@@ -102,7 +108,8 @@ def login():
     if role_name == 'teacher' and not user.is_approved:
         return jsonify({'message': 'รอการอนุมัติจาก Super Admin'}), 403
         
-    token = generate_token(user.user_id)
+    # ครูใช้หลายเครื่องพร้อมกันได้ (เช่นคอมหน้าห้องกับโน้ตบุ๊ก) นักเรียนยังได้ทีละเครื่อง
+    token = generate_token(user.user_id, multi_session=(role_name == 'teacher'))
     
     return jsonify({
         'access_token': token,
@@ -123,7 +130,14 @@ def logout():
     เดิมการออกจากระบบทำแค่ลบ token ทิ้งจากเบราว์เซอร์ ตัว token ยังใช้ได้จนหมดอายุ
     ถ้าใครก๊อปไปก่อนหน้านั้น
     """
-    user_id = auth_utils.get_current_user_id()
+    payload = auth_utils.payload_from_token(request.headers.get('Authorization'))
+    if payload and payload.get('msess') and payload.get('sid'):
+        # ครูล็อกอินหลายเครื่อง — เพิกถอนเฉพาะรอบของเครื่องนี้ เครื่องอื่นใช้ต่อได้
+        shared_state.set_value(
+            auth_utils.revoked_session_key(payload['sid']), '1', SESSION_TTL_SECONDS,
+        )
+        return jsonify({'message': 'ออกจากระบบแล้ว'}), 200
+    user_id = payload['sub'] if payload else None
     if user_id:
         # ตั้งเป็นรหัสรอบที่ไม่มีใครถืออยู่ แทนที่จะลบคีย์ทิ้ง
         # เพราะกติกาคือ "ไม่มีค่าเก็บไว้ = ปล่อยผ่าน" (กันคนหลุดยกแผงตอน Redis
@@ -178,7 +192,8 @@ def refresh():
         return jsonify({'message': 'บัญชีนี้ถูกระงับการอนุมัติ'}), 401
 
     token = generate_token(user_id, payload['sid'],
-                           datetime.utcfromtimestamp(started) if started else None)
+                           datetime.utcfromtimestamp(started) if started else None,
+                           multi_session=(role_name == 'teacher'))
     return jsonify({'access_token': token}), 200
 
 

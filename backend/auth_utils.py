@@ -7,15 +7,23 @@ def session_key(user_id):
     return f'active_session:{user_id}'
 
 
+def revoked_session_key(session_id):
+    """รอบของครูที่กดออกจากระบบแล้ว (ครูล็อกอินได้หลายเครื่อง จึงเพิกถอนเป็นรายรอบ)"""
+    return f'revoked_session:{session_id}'
+
+
 def payload_from_token(token):
     """ถอด JWT คืน payload ที่ตรวจแล้ว หรือ None ถ้า token ไม่ถูกต้อง หมดอายุ หรือถูกแทนที่
 
     แยกออกมาจาก user_id_from_token เพราะ /auth/refresh ต้องใช้ sid เดิมจาก token
     ใบที่ถืออยู่ ไม่ใช่แค่ user_id
 
-    หนึ่งบัญชีล็อกอินได้ทีละเครื่อง — ตอนล็อกอินจะบันทึกรหัสรอบ (sid) ล่าสุดไว้
+    นักเรียนล็อกอินได้ทีละเครื่อง — ตอนล็อกอินจะบันทึกรหัสรอบ (sid) ล่าสุดไว้
     ถ้า token ที่ถืออยู่มี sid ไม่ตรงกับตัวล่าสุด แปลว่ามีคนล็อกอินบัญชีนี้จาก
     เครื่องอื่นทีหลัง เครื่องเก่าจึงถูกตัดสิทธิ์
+
+    ครูล็อกอินได้หลายเครื่องพร้อมกัน (token มี msess) จึงไม่เทียบกับรอบล่าสุด
+    ตรวจแค่ว่ารอบนั้นถูกออกจากระบบไปแล้วหรือยัง
     """
     if not token:
         return None
@@ -32,7 +40,11 @@ def payload_from_token(token):
         return None
 
     token_sid = data.get('sid')
-    if token_sid:
+    if token_sid and data.get('msess'):
+        import shared_state
+        if shared_state.get_value(revoked_session_key(token_sid)):
+            return None
+    elif token_sid:
         import shared_state
         active_sid = shared_state.get_value(session_key(user_id))
         # ไม่มีรอบที่บันทึกไว้ (เช่น Redis เพิ่งถูกล้าง) ก็ปล่อยผ่าน ไม่งั้นทุกคน
