@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, CheckCircle, XCircle, Zap, Target } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Zap, Target, Clock } from 'lucide-react';
 import { useWindowSize } from 'react-use';
 import Confetti from 'react-confetti';
 import Swal from 'sweetalert2';
@@ -38,12 +38,13 @@ interface Answer {
   answer_data?: any;
   is_correct?: boolean;
   xp_awarded?: number;
+  teacher_graded?: boolean;
+  review_state?: 'pending' | 'graded' | null;
 }
 
 const StudentMCQView = () => {
   const { id: missionId, studentId: paramStudentId } = useParams<{ id: string, studentId: string }>();
   const navigate = useNavigate();
-  const token = useAuthStore(state => state.token);
   const user = useAuthStore(state => state.user);
   
   const studentId = paramStudentId || String(user?.user_id);
@@ -59,6 +60,9 @@ const StudentMCQView = () => {
   const [totalXp, setTotalXp] = useState(0);
   const [scoreText, setScoreText] = useState('');
   const [passingPercentage, setPassingPercentage] = useState(70);
+  // คะแนนที่ครูกำลังพิมพ์ แยกตามข้อ (เก็บเป็นข้อความเพื่อให้ลบจนว่างได้ระหว่างพิมพ์)
+  const [scoreDrafts, setScoreDrafts] = useState<Record<number, string>>({});
+  const [savingQuestionId, setSavingQuestionId] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -97,34 +101,47 @@ const StudentMCQView = () => {
   // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
   }, [missionId, studentId, status]);
 
-  const handleManualGrade = async (questionId: number) => {
+  const handleManualGrade = async (question: Question) => {
+      const maxScore = question.xp_points || 0;
+      const ans = answers.find(a => a.question_id === question.question_id);
+      const raw = (scoreDrafts[question.question_id] ?? String(ans?.xp_awarded ?? 0)).trim();
+      const score = Number(raw);
+
+      if (raw === '' || !Number.isInteger(score)) {
+          Swal.fire('คะแนนไม่ถูกต้อง', 'กรุณาพิมพ์คะแนนเป็นจำนวนเต็ม', 'warning');
+          return;
+      }
+      if (score < 0 || score > maxScore) {
+          Swal.fire('คะแนนเกินกำหนด', `คะแนนข้อนี้ต้องอยู่ระหว่าง 0 ถึง ${maxScore}`, 'warning');
+          return;
+      }
+
+      setSavingQuestionId(question.question_id);
       try {
-          const result = await Swal.fire({
-              title: 'ยืนยันการให้คะแนน?',
-              text: "ระบบจะปรับให้ข้อนี้ 'ถูกต้อง' และบวก XP ให้นักเรียน",
-              icon: 'warning',
-              showCancelButton: true,
-              confirmButtonText: 'ให้คะแนน',
-              cancelButtonText: 'ยกเลิก'
+          const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${missionId}/grade-manual`, {
+              student_id: studentId,
+              question_id: question.question_id,
+              score
+          }, { headers: { Authorization: `Bearer ${getToken()}` } });
+
+          Swal.fire({
+              title: 'บันทึกคะแนนแล้ว',
+              text: `ข้อนี้ได้ ${score} จาก ${maxScore} คะแนน` + (res.data.is_passed ? ' • นักเรียนผ่านเกณฑ์ของด่าน' : ''),
+              icon: 'success',
+              timer: 1800,
+              showConfirmButton: false
           });
 
-          if (result.isConfirmed) {
-              const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/mcq/${missionId}/grade-manual`, {
-                  student_id: studentId,
-                  question_id: questionId
-              }, { headers: { Authorization: `Bearer ${token}` } });
-
-              Swal.fire({
-                  title: 'ให้คะแนนสำเร็จ!',
-                  text: res.data.is_passed ? 'นักเรียนผ่านเกณฑ์แล้วและได้รับ XP ของด่าน!' : 'ให้คะแนนข้อนี้เรียบร้อยแล้ว',
-                  icon: 'success'
-              });
-
-              // Force reload data
-              setStatus(''); // Trigger useEffect refetch
-          }
+          setScoreDrafts(prev => {
+              const next = { ...prev };
+              delete next[question.question_id];
+              return next;
+          });
+          setStatus(''); // Trigger useEffect refetch
       } catch (error: any) {
           Swal.fire('Error', error.response?.data?.message || 'ไม่สามารถให้คะแนนได้', 'error');
+      } finally {
+          setSavingQuestionId(null);
       }
   };
 
@@ -205,9 +222,13 @@ const StudentMCQView = () => {
               const showCorrectness = isFinished;
               const isCorrect = showCorrectness ? ansRecord?.is_correct : null;
               
+              const reviewState = showCorrectness ? ansRecord?.review_state : null;
+
               let borderClass = 'border-white/10 bg-slate-800';
               if (showCorrectness) {
-                  borderClass = isCorrect ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-rose-900/20 border-rose-500/30';
+                  borderClass = reviewState === 'pending'
+                      ? 'bg-amber-900/20 border-amber-500/40'
+                      : isCorrect ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-rose-900/20 border-rose-500/30';
               }
 
               return (
@@ -215,7 +236,8 @@ const StudentMCQView = () => {
                   <div className="flex items-start gap-4">
                     <div className="mt-1">
                         {showCorrectness && (
-                            isCorrect ? <CheckCircle className="text-emerald-400" size={24} /> : <XCircle className="text-rose-400" size={24} />
+                            reviewState === 'pending' ? <Clock className="text-amber-400" size={24} />
+                            : isCorrect ? <CheckCircle className="text-emerald-400" size={24} /> : <XCircle className="text-rose-400" size={24} />
                         )}
                         {!showCorrectness && ansRecord && (
                             <div className="w-6 h-6 rounded-full bg-blue-500/20 border border-blue-400 flex items-center justify-center">
@@ -298,16 +320,46 @@ const StudentMCQView = () => {
                       {q.question_type === 'fill_blank' && (
                           <div className="space-y-2">
                               <p className="text-slate-300 text-sm">คำตอบที่นักเรียนพิมพ์: <span className={`font-bold ${!ansRecord ? 'text-slate-500' : 'text-white'}`}>{typeof ansRecord?.answer_data === 'object' ? JSON.stringify(ansRecord.answer_data) : (ansRecord?.answer_data || '(ยังไม่ตอบ)')}</span></p>
-                              {showCorrectness && !isCorrect && (
-                                  <div className="flex items-center gap-4">
-                                      <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{typeof q.question_metadata?.correct_text === 'object' ? JSON.stringify(q.question_metadata.correct_text) : q.question_metadata?.correct_text}</span></p>
-                                      {user?.role === 'teacher' && (
-                                          <button 
-                                              onClick={() => handleManualGrade(q.question_id)}
-                                              className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shadow-lg shadow-emerald-500/20"
+                              {showCorrectness && (!isCorrect || ansRecord?.teacher_graded) && (
+                                  <p className="text-emerald-400 text-sm">คำตอบที่ถูกต้อง: <span className="font-bold">{typeof q.question_metadata?.correct_text === 'object' ? JSON.stringify(q.question_metadata.correct_text) : q.question_metadata?.correct_text}</span></p>
+                              )}
+                              {showCorrectness && reviewState && (
+                                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                                      {reviewState === 'pending' ? (
+                                          <span className="inline-flex items-center gap-1 text-amber-300 text-xs font-black bg-amber-900/50 px-2 py-1 rounded-md">
+                                              <Clock size={14} /> {isTeacher ? 'รอครูตรวจ' : 'รอครูตรวจให้คะแนน'}
+                                          </span>
+                                      ) : (
+                                          <span className="inline-flex items-center gap-1 text-emerald-300 text-xs font-black bg-emerald-900/50 px-2 py-1 rounded-md">
+                                              <CheckCircle size={14} /> ครูตรวจแล้ว: {ansRecord?.xp_awarded ?? 0}/{q.xp_points} คะแนน
+                                          </span>
+                                      )}
+                                      {isTeacher && (
+                                          <form
+                                              className="flex items-center gap-2"
+                                              onSubmit={(e) => { e.preventDefault(); handleManualGrade(q); }}
                                           >
-                                              <CheckCircle size={14} /> ให้คะแนนข้อนี้
-                                          </button>
+                                              <label className="text-slate-300 text-sm" htmlFor={`score-${q.question_id}`}>ให้คะแนน</label>
+                                              <input
+                                                  id={`score-${q.question_id}`}
+                                                  type="number"
+                                                  inputMode="numeric"
+                                                  min={0}
+                                                  max={q.xp_points}
+                                                  step={1}
+                                                  value={scoreDrafts[q.question_id] ?? String(ansRecord?.xp_awarded ?? 0)}
+                                                  onChange={(e) => setScoreDrafts(prev => ({ ...prev, [q.question_id]: e.target.value }))}
+                                                  className={`w-20 px-2 py-1 rounded-lg bg-slate-900 border text-white text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${Number(scoreDrafts[q.question_id]) > q.xp_points || Number(scoreDrafts[q.question_id]) < 0 ? 'border-rose-500' : 'border-slate-600'}`}
+                                              />
+                                              <span className="text-slate-400 text-sm">/ {q.xp_points}</span>
+                                              <button
+                                                  type="submit"
+                                                  disabled={savingQuestionId === q.question_id}
+                                                  className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shadow-lg shadow-emerald-500/20"
+                                              >
+                                                  <CheckCircle size={14} /> {savingQuestionId === q.question_id ? 'กำลังบันทึก...' : 'บันทึกคะแนน'}
+                                              </button>
+                                          </form>
                                       )}
                                   </div>
                               )}

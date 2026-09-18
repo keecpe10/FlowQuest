@@ -467,6 +467,83 @@ def test_manual_grade_matches_student_pass_fail(client, f):
           history is not None and history.points == 75)
 
 
+def test_manual_grade_typed_score(client, f):
+    """ครูพิมพ์คะแนนข้อเติมคำเองได้ 0 ถึงคะแนนเต็ม และหน้าสถานะนักเรียนบอกว่าตรวจแล้วหรือยัง
+
+    ข้อเติมคำ xp=10 (นักเรียนตอบผิด) + ข้อตัวเลือก xp=10 (ตอบถูก) = 50% < 70% -> ตก
+    ครูให้ 6 จาก 10 -> 16/20 = 80% -> ผ่าน แล้วลดเหลือ 0 -> กลับไปตก
+    """
+    clear_questions(f)
+    clear_answers(f)
+    client.post(q_url(f), json=puzzle_question('fill_blank', {'correct_text': 'abc'}, xp=10),
+                headers=auth(f['teacher_token']))
+    client.post(q_url(f), json=mc_question('ข้อตัวเลือก', xp=10),
+                headers=auth(f['teacher_token']))
+    qs = MCQQuestion.query.filter_by(
+        mission_id=f['mission'].mission_id).order_by(MCQQuestion.order_index).all()
+    fill_q, mc_q = qs[0], qs[1]
+    check('ข้อเติมคำไม่เป็นร่าง', fill_q.is_draft is False)
+    right = MCQChoice.query.filter_by(question_id=mc_q.question_id, is_correct=True).first()
+
+    client.post(single_url(f), json={
+        'answer': {'question_id': fill_q.question_id, 'answer_data': 'xyz'},
+    }, headers=auth(f['student_token']))
+    client.post(single_url(f), json={
+        'answer': {'question_id': mc_q.question_id, 'choice_id': right.choice_id},
+    }, headers=auth(f['student_token']))
+
+    def progress_row():
+        res = client.get(f"/api/v1/missions/{f['mission'].mission_id}/students-progress",
+                         headers=auth(f['teacher_token']))
+        return next(r for r in res.get_json() if r['user_id'] == f['student'].user_id)
+
+    row = progress_row()
+    check('ก่อนครูตรวจ สถานะการตรวจเป็นรอตรวจ', row['grading_status'] == 'pending')
+    check('รอตรวจ 1 จาก 1 ข้อ', row['grading_pending'] == 1 and row['grading_total'] == 1)
+
+    def grade(score):
+        return client.post(manual_grade_url(f), json={
+            'student_id': f['student'].user_id, 'question_id': fill_q.question_id, 'score': score,
+        }, headers=auth(f['teacher_token']))
+
+    check('คะแนนเกินเต็มถูกปฏิเสธ', grade(11).status_code == 400)
+    check('คะแนนติดลบถูกปฏิเสธ', grade(-1).status_code == 400)
+    check('คะแนนไม่ใช่ตัวเลขถูกปฏิเสธ', grade('abc').status_code == 400)
+    check('คะแนนทศนิยมถูกปฏิเสธ', grade(2.5).status_code == 400)
+    check('ยังเป็นรอตรวจหลังส่งคะแนนผิดรูป', progress_row()['grading_status'] == 'pending')
+
+    res = grade(6)
+    check('ให้ 6 คะแนนสำเร็จ', res.status_code == 200)
+    check('6+10 = 80% ผ่าน', res.get_json()['is_passed'] is True)
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    ans = MCQUserAnswer.query.filter_by(
+        user_mission_id=um.user_mission_id, question_id=fill_q.question_id).first()
+    check('ได้ 6 คะแนนตามที่ครูพิมพ์', ans.xp_awarded == 6)
+    check('ไม่เต็มจึงยังไม่นับว่าถูกทั้งข้อ', ans.is_correct is False)
+    check('บันทึกว่าครูตรวจแล้ว', ans.teacher_graded is True)
+    check('score_awarded = 16', um.score_awarded == 16)
+    check('สถานะเป็นผ่าน', um.status == 'completed')
+    check('หน้าสถานะนักเรียนเป็นตรวจแล้ว', progress_row()['grading_status'] == 'graded')
+
+    detail = client.get(f"/api/v1/mcq/{f['mission'].mission_id}/student/{f['student'].user_id}",
+                        headers=auth(f['teacher_token'])).get_json()
+    fill_ans = next(a for a in detail['answers'] if a['question_id'] == fill_q.question_id)
+    check('หน้าดูผลงานได้ review_state = graded', fill_ans['review_state'] == 'graded')
+
+    res = grade(0)
+    check('ให้ 0 คะแนนได้', res.status_code == 200)
+    um = UserMission.query.filter_by(
+        user_id=f['student'].user_id, mission_id=f['mission'].mission_id).first()
+    check('ลดคะแนนจนต่ำกว่าเกณฑ์แล้วกลับเป็นไม่ผ่าน', um.status == 'failed')
+    check('ให้ 0 ก็ยังถือว่าตรวจแล้ว', progress_row()['grading_status'] == 'graded')
+
+    res = grade(10)
+    ans = MCQUserAnswer.query.filter_by(
+        user_mission_id=um.user_mission_id, question_id=fill_q.question_id).first()
+    check('ให้เต็มแล้วนับว่าถูกทั้งข้อ', res.status_code == 200 and ans.is_correct is True)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -489,6 +566,8 @@ def main():
             test_partial_credit_counts_toward_passing(client, f)
             clear_answers(f)
             test_manual_grade_matches_student_pass_fail(client, f)
+            clear_answers(f)
+            test_manual_grade_typed_score(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

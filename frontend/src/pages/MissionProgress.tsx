@@ -3,7 +3,7 @@ import { getToken } from '../utils/sessionToken';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download, ClipboardCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { io } from 'socket.io-client';
@@ -19,6 +19,9 @@ interface StudentProgress {
   is_passed?: boolean;
   time_spent?: number;
   attempt_count?: number;
+  grading_status?: 'pending' | 'graded' | null;
+  grading_pending?: number;
+  grading_total?: number;
   class_id?: number;
   grade_level?: string;
   class_name?: string;
@@ -49,6 +52,7 @@ const MissionProgress = () => {
   // Filtering States
   const [filterGrade, setFilterGrade] = useState<string>('');
   const [filterClass, setFilterClass] = useState<string>('');
+  const [filterGrading, setFilterGrading] = useState<string>('');
 
   // AI Modal States
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -408,6 +412,12 @@ const MissionProgress = () => {
   if (filterClass) {
     filteredStudents = filteredStudents.filter(s => String(s.class_id) === filterClass);
   }
+  // นับก่อนกรองตามสถานะการตรวจ เพื่อให้ตัวเลขสรุปยังตรงกับห้อง/ชั้นที่เลือกอยู่
+  const gradingPendingCount = filteredStudents.filter(s => s.grading_status === 'pending').length;
+  const gradingDoneCount = filteredStudents.filter(s => s.grading_status === 'graded').length;
+  if (filterGrading) {
+    filteredStudents = filteredStudents.filter(s => s.grading_status === filterGrading);
+  }
 
   const handleExportProgress = async () => {
     try {
@@ -579,6 +589,18 @@ const MissionProgress = () => {
                   </option>
                 ))}
             </select>
+
+            {mission?.mission_type === 'mcq' && (
+              <select
+                value={filterGrading}
+                onChange={(e) => setFilterGrading(e.target.value)}
+                className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
+              >
+                <option value="">การตรวจ: ทั้งหมด</option>
+                <option value="pending">รอตรวจ ({gradingPendingCount})</option>
+                <option value="graded">ตรวจแล้ว ({gradingDoneCount})</option>
+              </select>
+            )}
           </div>
         </div>
 
@@ -631,6 +653,18 @@ const MissionProgress = () => {
                               {student.score_text && (
                                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 shrink-0">
                                   คะแนน: {student.score_text}
+                                </div>
+                              )}
+                              {student.grading_status === 'pending' && (
+                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-orange-700 bg-orange-50 border border-orange-200 shrink-0" title="ข้อเติมคำที่ครูต้องตรวจและให้คะแนนเอง">
+                                  <ClipboardCheck size={10} className="text-orange-500" />
+                                  รอตรวจ {student.grading_pending}/{student.grading_total} ข้อ
+                                </div>
+                              )}
+                              {student.grading_status === 'graded' && (
+                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 shrink-0">
+                                  <ClipboardCheck size={10} className="text-teal-500" />
+                                  ตรวจแล้ว
                                 </div>
                               )}
                               {student.xp_awarded !== undefined && student.xp_awarded > 0 && (

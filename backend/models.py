@@ -293,6 +293,9 @@ class MCQUserAnswer(db.Model):
     answer_data = db.Column(db.JSON, nullable=True) # Used for non-choice questions like matching/fill_blank
     is_correct = db.Column(db.Boolean, default=False)
     xp_awarded = db.Column(db.Integer, default=0)
+    # ครูให้คะแนนข้อนี้ด้วยมือแล้ว (ข้อเติมคำที่ระบบตรวจอัตโนมัติไม่ผ่าน) ใช้บอกสถานะ
+    # "รอตรวจ/ตรวจแล้ว" ในหน้าสถานะนักเรียน เพราะครูให้ 0 คะแนนก็ถือว่าตรวจแล้ว
+    teacher_graded = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text('false'))
     answered_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user_mission = db.relationship('UserMission', backref=db.backref('mcq_answers', cascade='all, delete-orphan', lazy=True))

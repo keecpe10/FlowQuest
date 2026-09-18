@@ -7,7 +7,7 @@ from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
 # ข้อร่างถูกซ่อนจากนักเรียนด้วยกฎเดียวกันทั้งระบบ ดู mcq_routes.live_questions
-from mcq_routes import live_questions
+from mcq_routes import live_questions, teacher_review_summary
 from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
@@ -302,6 +302,8 @@ def get_students_progress(mission_id):
     ).group_by(PointHistory.user_id).all()
     points_dict = {p[0]: p[1] for p in points_data}
     
+    mcq_live = live_questions(mission_id).all() if mission.mission_type == 'mcq' else []
+
     results = []
     for student in students:
         um = UserMission.query.filter_by(user_id=student.user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
@@ -313,6 +315,9 @@ def get_students_progress(mission_id):
         
         mcq_progress_text = None
         score_text = None
+        grading_status = None
+        grading_pending = 0
+        grading_total = 0
         if mission.mission_type == 'mcq':
             if status == 'pending' and um and um.current_nodes:
                 current_q = um.current_nodes.get('current_index', 0) + 1
@@ -321,10 +326,11 @@ def get_students_progress(mission_id):
                     mcq_progress_text = f"กำลังทำข้อ {current_q} จาก {total_q} ข้อ"
             elif status in ['completed', 'failed'] and um:
                 # Calculate correct answers
-                total_questions = live_questions(mission_id).count()
+                total_questions = len(mcq_live)
                 mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
                 correct_answers = sum(1 for a in mcq_answers if a.is_correct)
                 score_text = f"{correct_answers}/{total_questions}"
+                grading_status, grading_pending, grading_total = teacher_review_summary(mcq_live, mcq_answers)
                 
         is_passed = True
         time_spent = None
@@ -359,6 +365,9 @@ def get_students_progress(mission_id):
             'is_passed': is_passed,
             'time_spent': time_spent,
             'attempt_count': attempt_count,
+            'grading_status': grading_status,
+            'grading_pending': grading_pending,
+            'grading_total': grading_total,
             'class_id': student.class_id,
             'grade_level': student.school_class.grade_level if student.school_class else None,
             'class_name': student.school_class.class_name if student.school_class else None
@@ -412,6 +421,7 @@ def export_students_progress(mission_id):
             'ห้อง': class_text or "-",
             'สถานะ': status_th,
             'คะแนน (หากมี)': r.get('score_text', '-'),
+            'สถานะการตรวจ': {'pending': f"รอตรวจ {r.get('grading_pending', 0)} ข้อ", 'graded': 'ตรวจแล้ว'}.get(r.get('grading_status'), '-'),
             'XP ที่ได้รับ': r['xp_awarded'],
             'เวลาที่ใช้ (วินาที)': r['time_spent'] if r.get('time_spent') is not None else '-',
             'จำนวนครั้งที่พยายาม': r['attempt_count'] if r.get('attempt_count') is not None else '-'

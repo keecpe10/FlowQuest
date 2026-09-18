@@ -304,6 +304,40 @@ def grade_answer(question, choice_id, answer_data):
     return earned == total, xp_awarded, correct_choice_id
 
 
+# ชนิดคำถามที่ครูต้องตรวจเองเมื่อระบบตรวจอัตโนมัติไม่ตรงเฉลย
+TEACHER_REVIEW_TYPES = {'fill_blank'}
+
+
+def teacher_review_state(question_type, answer):
+    """สถานะการตรวจของครูสำหรับคำตอบหนึ่งข้อ: None (ไม่ต้องตรวจ), 'pending' หรือ 'graded'
+
+    ข้อเติมคำที่ตอบมาแต่ไม่ตรงเฉลยต้องให้ครูดู เพราะคำตอบอาจถูกแต่สะกดต่าง
+    ข้อที่ไม่ได้ตอบ (ว่าง) ไม่ต้องตรวจ ข้อที่ครูให้คะแนนแล้วถือว่าตรวจแล้วแม้ให้ 0
+    """
+    if question_type not in TEACHER_REVIEW_TYPES or answer is None:
+        return None
+    if getattr(answer, 'teacher_graded', False):
+        return 'graded'
+    if answer.is_correct or not str(answer.answer_data or '').strip():
+        return None
+    return 'pending'
+
+
+def teacher_review_summary(questions, answers):
+    """สรุปสถานะการตรวจของ attempt หนึ่ง คืน (สถานะ, จำนวนรอตรวจ, จำนวนที่ต้องตรวจทั้งหมด)
+
+    สถานะเป็น None เมื่อไม่มีข้อที่ครูต้องตรวจเลย
+    """
+    qtypes = {q.question_id: q.question_type for q in questions}
+    states = [teacher_review_state(qtypes[a.question_id], a)
+              for a in answers if a.question_id in qtypes]
+    total = sum(1 for st in states if st)
+    pending = sum(1 for st in states if st == 'pending')
+    if total == 0:
+        return None, 0, 0
+    return ('pending' if pending else 'graded'), pending, total
+
+
 # ---- โจทย์ซูโดกุ/ผังงานที่ฝังอยู่ในข้อสอบ ----
 #
 # เก็บใน question_metadata ไม่ใช้ตาราง sudoku_puzzles เพราะตารางนั้นผูกกับ
@@ -1498,6 +1532,7 @@ def get_mcq_student_progress(mission_id, student_id):
         status = um.status
         if um.status in ['completed', 'failed']:
             mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+            qtypes = {q.question_id: q.question_type for q in questions}
             correct_count = 0
             for a in mcq_answers:
                 answers.append({
@@ -1505,7 +1540,9 @@ def get_mcq_student_progress(mission_id, student_id):
                     'choice_id': a.selected_choice_id,
                     'answer_data': a.answer_data,
                     'is_correct': a.is_correct,
-                    'xp_awarded': a.xp_awarded
+                    'xp_awarded': a.xp_awarded,
+                    'teacher_graded': a.teacher_graded,
+                    'review_state': teacher_review_state(qtypes.get(a.question_id), a),
                 })
                 if a.is_correct:
                     correct_count += 1
@@ -1726,13 +1763,34 @@ def manual_grade(mission_id):
         answer = MCQUserAnswer.query.filter_by(user_mission_id=user_mission.user_mission_id, question_id=question_id).first()
         if not answer:
             return jsonify({'message': 'Answer not found'}), 404
-            
-        if answer.is_correct:
-            return jsonify({'message': 'Already correct'}), 200
-            
+
         question = MCQQuestion.query.get(question_id)
-        
-        answer.is_correct = True
+        if not question or question.mission_id != mission_id:
+            return jsonify({'message': 'Question not found'}), 404
+        max_score = question.xp_points or 0
+
+        # ครูพิมพ์คะแนนเองได้ตั้งแต่ 0 ถึงคะแนนเต็มของข้อ ไม่ส่ง score มา = ให้เต็ม
+        # (พฤติกรรมเดิมของปุ่ม "ให้คะแนนข้อนี้")
+        raw_score = data.get('score')
+        if raw_score is None:
+            if answer.is_correct:
+                return jsonify({'message': 'Already correct'}), 200
+            score = max_score
+        else:
+            if isinstance(raw_score, bool):
+                return jsonify({'message': 'คะแนนต้องเป็นตัวเลข'}), 400
+            try:
+                score_f = float(raw_score)
+            except (TypeError, ValueError):
+                return jsonify({'message': 'คะแนนต้องเป็นตัวเลข'}), 400
+            if score_f != int(score_f):
+                return jsonify({'message': 'คะแนนต้องเป็นจำนวนเต็ม'}), 400
+            score = int(score_f)
+            if score < 0 or score > max_score:
+                return jsonify({'message': f'คะแนนต้องอยู่ระหว่าง 0 ถึง {max_score}'}), 400
+
+        answer.is_correct = score >= max_score
+        answer.teacher_graded = True
 
         # xp_points ของโจทย์ข้อนั้นเป็นแหล่งความจริงเดียวของคะแนน MCQ เหมือนกับ
         # submit_mcq/submit_mcq_single (ดู grade_answer) ไม่ใช่ mission.points หาร
@@ -1740,8 +1798,7 @@ def manual_grade(mission_id):
         live = live_questions(mission_id).all()
         live_ids = {q.question_id for q in live}
         total_possible = sum(q.xp_points or 0 for q in live)
-        points_per_q = question.xp_points
-        answer.xp_awarded = points_per_q
+        answer.xp_awarded = score
 
         # Recalculate pass/fail
         # สูตรนี้ต้องตรงกับ finalize_mcq เป๊ะ: คิดเปอร์เซ็นต์จาก XP ถ่วงน้ำหนัก ไม่ใช่
@@ -1765,6 +1822,9 @@ def manual_grade(mission_id):
             if user_mission.started_at and not user_mission.time_spent_seconds:
                 user_mission.time_spent_seconds = int(
                     (datetime.utcnow() - user_mission.started_at).total_seconds())
+        elif user_mission.status == 'completed':
+            # ครูลดคะแนนลงจนต่ำกว่าเกณฑ์ ต้องตกตามสูตรเดียวกับ finalize_mcq
+            user_mission.status = 'failed'
 
         # ใช้ตัวกลางเดียวกับ submit_mcq_single และ finalize_mcq
         # การเขียนทับยอดแทนการเพิ่มแถวใหม่ทุกครั้งที่ครูตรวจ ทำให้ครูแก้คำตอบ
@@ -1774,7 +1834,8 @@ def manual_grade(mission_id):
         db.session.commit()
         socketio.emit('missions_updated')
 
-        return jsonify({'message': 'Graded successfully', 'is_passed': is_passed}), 200
+        return jsonify({'message': 'Graded successfully', 'is_passed': is_passed,
+                        'xp_awarded': score, 'max_score': max_score}), 200
     except Exception as e:
         import traceback
         return jsonify({'message': str(e), 'trace': traceback.format_exc()}), 500
