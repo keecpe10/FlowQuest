@@ -3,7 +3,7 @@ import { getToken } from '../utils/sessionToken';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download, ClipboardCheck } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download, ClipboardCheck, LayoutGrid, List } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { io } from 'socket.io-client';
@@ -53,6 +53,22 @@ const MissionProgress = () => {
   const [filterGrade, setFilterGrade] = useState<string>('');
   const [filterClass, setFilterClass] = useState<string>('');
   const [filterGrading, setFilterGrading] = useState<string>('');
+  // การ์ดหลายคอลัมน์ หรือรายการแถวเดียวไล่ลงมา — จำค่าที่ครูเลือกไว้ในเครื่อง
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    try {
+      return localStorage.getItem('missionProgressView') === 'list' ? 'list' : 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+  const changeViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('missionProgressView', mode);
+    } catch {
+      // เบราว์เซอร์ปิด storage ไว้ ใช้ค่าในหน้านี้ไปก่อน
+    }
+  };
 
   // AI Modal States
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -602,6 +618,26 @@ const MissionProgress = () => {
               </select>
             )}
           </div>
+          <div className="flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-xl shadow-sm self-start md:ml-auto" role="group" aria-label="รูปแบบการแสดงผล">
+            <button
+              type="button"
+              onClick={() => changeViewMode('grid')}
+              aria-pressed={viewMode === 'grid'}
+              title="แสดงเป็นการ์ด"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${viewMode === 'grid' ? 'bg-violet-100 text-violet-700' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              <LayoutGrid size={16} /> การ์ด
+            </button>
+            <button
+              type="button"
+              onClick={() => changeViewMode('list')}
+              aria-pressed={viewMode === 'list'}
+              title="แสดงเป็นรายการแถวเดียว"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${viewMode === 'list' ? 'bg-violet-100 text-violet-700' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              <List size={16} /> รายการ
+            </button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -609,7 +645,7 @@ const MissionProgress = () => {
             <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className={viewMode === 'list' ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
             {filteredStudents.length === 0 ? (
               <div className="col-span-full py-12 text-center text-slate-500">
                 <Users size={48} className="mx-auto mb-4 text-slate-300" />
