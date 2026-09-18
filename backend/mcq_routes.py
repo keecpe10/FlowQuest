@@ -343,6 +343,33 @@ def mcq_attempt_result(mission, user_mission):
     }
 
 
+def rescale_answer_scores(question, old_points):
+    """ครูเปลี่ยนคะแนนเต็มของข้อ — ปรับคะแนนของคำตอบที่มีอยู่แล้วให้อยู่ในสเกลใหม่
+
+    ไม่งั้นคำตอบเก่ายังถือคะแนนสเกลเดิมไว้ เช่นเดิมข้อละ 10 เปลี่ยนเป็นข้อละ 1
+    นักเรียนจะได้ 190 จากคะแนนเต็ม 23 ข้อที่ถูกทั้งข้อได้เต็มสเกลใหม่ ข้อที่ได้
+    บางส่วน (ซูโดกุ/ผังงาน/ครูให้เอง) ได้ตามสัดส่วนเดิม ไม่ commit
+    """
+    new_points = question.score_points or 0
+    if old_points == new_points:
+        return
+    for a in MCQUserAnswer.query.filter_by(question_id=question.question_id).all():
+        if a.is_correct:
+            a.score_awarded = new_points
+        elif old_points:
+            a.score_awarded = min(new_points, scale_points(a.score_awarded or 0, old_points, new_points))
+        else:
+            a.score_awarded = 0
+
+
+def refresh_finished_attempts(mission):
+    """ตัดสินผ่าน/ไม่ผ่านของ attempt ที่จบแล้วใหม่ หลังคะแนนเต็มของข้อเปลี่ยน ไม่ commit"""
+    for um in UserMission.query.filter(
+            UserMission.mission_id == mission.mission_id,
+            UserMission.status.in_(('completed', 'failed'))).all():
+        um.status = 'completed' if mcq_attempt_result(mission, um)['is_passed'] else 'failed'
+
+
 def mcq_score_text(questions, answers):
     """ข้อความคะแนน "ได้/เต็ม" ของ attempt สำหรับแสดงผล"""
     live_ids = {q.question_id for q in questions}
@@ -1301,8 +1328,13 @@ def update_mcq_question(mission_id, question_id):
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
+    old_score_points = question.score_points
     _write_question(question, q_data, q_doc, q_text, c_normalized, meta)
     _sync_choices(question, q_data.get('choices', []), c_normalized)
+    if question.score_points != old_score_points:
+        rescale_answer_scores(question, old_score_points)
+        db.session.flush()
+        refresh_finished_attempts(mission)
 
     db.session.commit()
     socketio.emit('missions_updated')
