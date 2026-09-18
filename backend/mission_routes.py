@@ -288,9 +288,22 @@ def get_students_progress(mission_id):
     if not has_course_access(user_id, mission.course_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
+    from collections import defaultdict
+    from sqlalchemy.orm import joinedload
+
     enrollments = CourseEnrollment.query.filter_by(course_id=mission.course_id, role_in_course='student').all()
     student_ids = [e.user_id for e in enrollments]
-    students = User.query.filter(User.user_id.in_(student_ids)).all() if student_ids else []
+    # ดึงทุกอย่างเป็นชุดเดียว ไม่ query รายคน หน้านี้ถูกเรียกซ้ำทุกครั้งที่นักเรียนตอบ
+    # เดิมยิงหลาย query ต่อคน ห้องใหญ่ ๆ จึงช้าจนหน้าครูค้าง
+    students = (User.query.options(joinedload(User.school_class))
+                .filter(User.user_id.in_(student_ids)).all()) if student_ids else []
+
+    um_by_user = {}
+    if student_ids:
+        for um in (UserMission.query
+                   .filter(UserMission.mission_id == mission_id, UserMission.user_id.in_(student_ids))
+                   .order_by(UserMission.user_mission_id.asc()).all()):
+            um_by_user.setdefault(um.user_id, um)  # attempt แรกของแต่ละคน ตามเดิม
     
     # Get all points awarded for this mission
     points_data = db.session.query(
@@ -302,10 +315,19 @@ def get_students_progress(mission_id):
     points_dict = {p[0]: p[1] for p in points_data}
     
     mcq_live = live_questions(mission_id).all() if mission.mission_type == 'mcq' else []
+    answers_by_um = defaultdict(list)
+    if mission.mission_type == 'mcq':
+        finished_ids = [um.user_mission_id for um in um_by_user.values()
+                        if um.status in ('completed', 'failed')]
+        if finished_ids:
+            for a in MCQUserAnswer.query.filter(MCQUserAnswer.user_mission_id.in_(finished_ids)).all():
+                answers_by_um[a.user_mission_id].append(a)
+    sudoku_puzzle = (SudokuPuzzle.query.filter_by(mission_id=mission_id).first()
+                     if mission.mission_type == 'sudoku' else None)
 
     results = []
     for student in students:
-        um = UserMission.query.filter_by(user_id=student.user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
+        um = um_by_user.get(student.user_id)
         status = um.status if um else 'not_started'
         updated_at = um.updated_at.isoformat() + 'Z' if um and um.updated_at else None
         
@@ -325,7 +347,7 @@ def get_students_progress(mission_id):
                     mcq_progress_text = f"กำลังทำข้อ {current_q} จาก {total_q} ข้อ"
             elif status in ['completed', 'failed'] and um:
                 # Calculate correct answers
-                mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
+                mcq_answers = answers_by_um[um.user_mission_id]
                 score_text = mcq_score_text(mcq_live, mcq_answers)
                 grading_status, grading_pending, grading_total = teacher_review_summary(mcq_live, mcq_answers)
                 
@@ -338,8 +360,7 @@ def get_students_progress(mission_id):
             if um and um.score_awarded is not None:
                 xp_awarded = um.score_awarded
                 
-            puzzle = SudokuPuzzle.query.filter_by(mission_id=mission_id).first()
-            min_xp = puzzle.min_xp_to_pass if puzzle else 0
+            min_xp = sudoku_puzzle.min_xp_to_pass if sudoku_puzzle else 0
             score = um.score_awarded or 0 if um else 0
             
             if um and status == 'completed':

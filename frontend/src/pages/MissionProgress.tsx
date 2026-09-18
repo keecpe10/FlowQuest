@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getToken } from '../utils/sessionToken';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
-import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download, ClipboardCheck, LayoutGrid, List } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download, ClipboardCheck, LayoutGrid, List, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { io } from 'socket.io-client';
@@ -61,6 +61,8 @@ const MissionProgress = () => {
       return 'grid';
     }
   });
+  const [page, setPage] = useState(1);
+  const listTopRef = useRef<HTMLDivElement>(null);
   const changeViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
     try {
@@ -69,6 +71,11 @@ const MissionProgress = () => {
       // เบราว์เซอร์ปิด storage ไว้ ใช้ค่าในหน้านี้ไปก่อน
     }
   };
+
+  // เปลี่ยนตัวกรอง/คำค้น/รูปแบบแล้วกลับไปหน้าแรก ไม่งั้นอาจค้างอยู่หน้าที่ไม่มีข้อมูล
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterGrade, filterClass, filterGrading, viewMode]);
 
   // AI Modal States
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -83,20 +90,53 @@ const MissionProgress = () => {
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isAnalyzingStats, setIsAnalyzingStats] = useState(false);
 
+  // กันการโหลดซ้อน: ระหว่างที่คำขอหนึ่งยังไม่กลับ ถ้ามีคนขอโหลดอีกให้จดไว้
+  // แล้วโหลดซ้ำครั้งเดียวตอนคำขอแรกเสร็จ ไม่ยิงซ้อนกันหลายคำขอ
+  const fetchingRef = useRef(false);
+  const fetchAgainRef = useRef(false);
+  const lastPayloadRef = useRef('');
+  const refetchTimerRef = useRef<number | null>(null);
+
   const fetchProgress = async () => {
     // อ่าน token สดตอนเรียกจริง ไม่ใช่ใบที่ปิดทับมาตอน mount เพราะฟังก์ชันนี้ถูก
     // setInterval/socket ถือไว้ข้ามการต่ออายุ ถ้ายังใช้ใบเก่ามันจะหมดอายุแล้วยิง 401
     // ซ้ำ ๆ จน interceptor เตะผู้ใช้ออกทั้งที่รอบเข้าใช้งานยังดีอยู่
     const authToken = getToken();
     if (!authToken || !missionId) return;
+    if (fetchingRef.current) {
+      fetchAgainRef.current = true;
+      return;
+    }
+    fetchingRef.current = true;
     try {
       const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}/students-progress`, {
         headers: { Authorization: `Bearer ${authToken}` }
       });
-      setStudents(response.data);
+      // ข้อมูลเหมือนเดิมไม่ต้อง setState ไม่งั้นทั้งหน้าเรนเดอร์ใหม่ทุก 5 วินาทีจนเลื่อนแล้วกระตุก
+      const payload = JSON.stringify(response.data);
+      if (payload !== lastPayloadRef.current) {
+        lastPayloadRef.current = payload;
+        setStudents(response.data);
+      }
     } catch (error) {
       console.error("Failed to fetch progress", error);
+    } finally {
+      fetchingRef.current = false;
+      if (fetchAgainRef.current) {
+        fetchAgainRef.current = false;
+        fetchProgress();
+      }
     }
+  };
+
+  // missions_updated ถูกส่งทุกครั้งที่นักเรียนคนไหนก็ได้ตอบ ช่วงสอบมาเป็นชุด ๆ
+  // รวบให้เหลือโหลดครั้งเดียวต่อ 1.5 วินาที
+  const scheduleRefetch = () => {
+    if (refetchTimerRef.current !== null) return;
+    refetchTimerRef.current = window.setTimeout(() => {
+      refetchTimerRef.current = null;
+      fetchProgress();
+    }, 1500);
   };
 
   useEffect(() => {
@@ -122,14 +162,18 @@ const MissionProgress = () => {
       fetchProgress().finally(() => setIsLoading(false));
       
       const socket = io(import.meta.env.VITE_API_BASE_URL || '');
-      socket.on('missions_updated', () => {
-        fetchProgress();
-      });
+      socket.on('missions_updated', scheduleRefetch);
       
-      // Poll every 5 seconds as fallback
-      const interval = setInterval(fetchProgress, 5000);
+      // Poll every 5 seconds as fallback — ข้ามไปถ้าแท็บนี้ไม่ได้เปิดดูอยู่
+      const interval = setInterval(() => {
+        if (!document.hidden) fetchProgress();
+      }, 5000);
       return () => {
         clearInterval(interval);
+        if (refetchTimerRef.current !== null) {
+          clearTimeout(refetchTimerRef.current);
+          refetchTimerRef.current = null;
+        }
         socket.disconnect();
       };
     }
@@ -435,6 +479,17 @@ const MissionProgress = () => {
     filteredStudents = filteredStudents.filter(s => s.grading_status === filterGrading);
   }
 
+  // แบ่งหน้า — เรนเดอร์เฉพาะหน้าที่ดูอยู่ ห้องใหญ่ ๆ จะได้ไม่ค้างตอนเลื่อน
+  const pageSize = viewMode === 'list' ? 30 : 24;
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pagedStudents = filteredStudents.slice(pageStart, pageStart + pageSize);
+  const goToPage = (next: number) => {
+    setPage(Math.min(Math.max(1, next), totalPages));
+    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const handleExportProgress = async () => {
     try {
       Swal.fire({
@@ -645,6 +700,12 @@ const MissionProgress = () => {
             <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : (
+          <>
+          <div ref={listTopRef} className="scroll-mt-4 mb-3 text-sm text-slate-500">
+            {filteredStudents.length > 0 && (
+              <>แสดง <span className="font-semibold text-slate-700">{pageStart + 1}–{pageStart + pagedStudents.length}</span> จาก <span className="font-semibold text-slate-700">{filteredStudents.length}</span> คน</>
+            )}
+          </div>
           <div className={viewMode === 'list' ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'}>
             {filteredStudents.length === 0 ? (
               <div className="col-span-full py-12 text-center text-slate-500">
@@ -652,14 +713,14 @@ const MissionProgress = () => {
                 <p className="text-lg font-medium">ไม่พบชื่อนักเรียนที่ค้นหา</p>
               </div>
             ) : (
-              filteredStudents.map((student, index) => {
+              pagedStudents.map((student, index) => {
                 const display = getStatusDisplay(student);
                 return (
                   <motion.div
                     key={student.user_id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
+                    transition={{ delay: Math.min(index, 12) * 0.03 }}
                     className={`rounded-2xl shadow-sm border hover:shadow-md transition-all hover:border-violet-300 group ${display.cardColor}`}
                   >
                       <Link 
@@ -779,6 +840,42 @@ const MissionProgress = () => {
               })
             )}
           </div>
+          {totalPages > 1 && (
+            <nav className="mt-8 flex flex-wrap items-center justify-center gap-2" aria-label="เปลี่ยนหน้า">
+              <button
+                type="button"
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              >
+                <ChevronLeft size={16} /> ก่อนหน้า
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(n => n === 1 || n === totalPages || Math.abs(n - currentPage) <= 2)
+                .map((n, i, arr) => (
+                  <React.Fragment key={n}>
+                    {i > 0 && n - arr[i - 1] > 1 && <span className="px-1 text-slate-400">…</span>}
+                    <button
+                      type="button"
+                      onClick={() => goToPage(n)}
+                      aria-current={n === currentPage ? 'page' : undefined}
+                      className={`min-w-[2.5rem] px-3 py-2 rounded-xl border text-sm font-bold shadow-sm transition-colors ${n === currentPage ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                    >
+                      {n}
+                    </button>
+                  </React.Fragment>
+                ))}
+              <button
+                type="button"
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              >
+                ถัดไป <ChevronRight size={16} />
+              </button>
+            </nav>
+          )}
+          </>
         )}
       </div>
 
