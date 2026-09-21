@@ -1,7 +1,9 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from werkzeug.security import generate_password_hash
 from app import db
-from models import User, Role, Class
+from models import User, Role, Class, ActivityLog
+from sqlalchemy.exc import IntegrityError
+from student_import import parse_students, student_number, template
 from auth_utils import get_current_user_id
 
 student_bp = Blueprint('student', __name__, url_prefix='/api/v1/students')
@@ -15,6 +17,7 @@ def _serialize_student(user: User) -> dict:
         'name': f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username,
         'email': user.email or '',
         'class_id': user.class_id,
+        'student_number': user.student_number,
         'class_name': user.school_class.class_name if user.school_class else None,
         'grade_level': user.school_class.grade_level if user.school_class else None,
         'academic_year': user.school_class.academic_year if user.school_class else None,
@@ -29,7 +32,7 @@ def _require_super_admin():
         return None, jsonify({'error': 'Unauthorized'}), 401
     
     requester = User.query.get(requester_id)
-    if not requester or not requester.role or requester.role.role_name != 'teacher' or not requester.is_super_admin:
+    if not requester or not requester.is_active or not requester.is_approved or not requester.role or requester.role.role_name != 'teacher' or not requester.is_super_admin:
         return None, jsonify({'error': 'Forbidden - Only super admin can perform this action'}), 403
         
     return requester, None, None
@@ -52,6 +55,8 @@ def create_student():
     if err: return err, status
 
     data = request.get_json() or {}
+    try: number=student_number(data.get('student_number'))
+    except ValueError as error: return jsonify(error=str(error)),400
     username = (data.get('username') or '').strip()
     password = (data.get('password') or '').strip()
     first_name = (data.get('first_name') or '').strip()
@@ -98,6 +103,7 @@ def create_student():
         last_name=last_name,
         email=email,
         class_id=class_id,
+        student_number=number,
         is_active=True,
         is_approved=True,
     )
@@ -116,6 +122,10 @@ def update_student(user_id):
         return jsonify({'error': 'User is not a student'}), 404
 
     data = request.get_json() or {}
+
+    if 'student_number' in data:
+        try: user.student_number=student_number(data['student_number'])
+        except ValueError as error: return jsonify(error=str(error)),400
 
     if 'first_name' in data:
         user.first_name = (data['first_name'] or '').strip()
@@ -188,3 +198,47 @@ def delete_student(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+
+
+@student_bp.get('/import-template')
+def student_import_template():
+    _,err,status=_require_super_admin()
+    if err:return err,status
+    return send_file(template(),as_attachment=True,download_name='flowquest-students.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+@student_bp.post('/import/preview')
+@student_bp.post('/import')
+def import_students():
+    requester,err,status=_require_super_admin()
+    if err:return err,status
+    try:rows,errors=parse_students(request.files.get('file'))
+    except ValueError as error:return jsonify(error=str(error)),400
+    preview=[{key:value for key,value in row.items() if key!='password'} for row in rows]
+    if errors:return jsonify(valid=False,total=len(rows),students=preview,errors=errors),422
+    if request.path.endswith('/preview'):
+        return jsonify(valid=True,total=len(rows),students=preview,errors=[])
+    role=Role.query.filter_by(role_name='student').first()
+    if not role:return jsonify(error='ไม่พบบทบาทนักเรียน กรุณาตรวจสอบการตั้งค่าระบบ'),409
+    try:
+        classes={}
+        for row in rows:
+            class_id=None
+            if row['class_name']:
+                key=(row['academic_year'],row['grade_level'],row['class_name'])
+                if key not in classes:
+                    classroom=Class.query.filter_by(academic_year=key[0],grade_level=key[1],class_name=key[2]).first()
+                    if not classroom:
+                        classroom=Class(academic_year=key[0],grade_level=key[1],class_name=key[2])
+                        db.session.add(classroom);db.session.flush()
+                    classes[key]=classroom.class_id
+                class_id=classes[key]
+            db.session.add(User(username=row['username'],password_hash=generate_password_hash(row['password']),
+                first_name=row['first_name'],last_name=row['last_name'],email=row['email'] or None,
+                student_number=row['student_number'],class_id=class_id,role_id=role.role_id,is_active=True,is_approved=True))
+        db.session.add(ActivityLog(user_id=requester.user_id,action='student_xlsx_import',entity='users',details={'count':len(rows)}))
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify(error='ข้อมูลซ้ำกับรายการที่เพิ่งเพิ่ม กรุณาตรวจสอบไฟล์อีกครั้ง ยังไม่มีการนำเข้ารายชื่อจากไฟล์นี้'),409
+    return jsonify(imported=len(rows),message='นำเข้ารายชื่อนักเรียนเรียบร้อยแล้ว'),201

@@ -30,6 +30,7 @@ class User(db.Model):
     
     role_id = db.Column(db.Integer, db.ForeignKey('roles.role_id'), nullable=False)
     class_id = db.Column(db.Integer, db.ForeignKey('classes.class_id'))
+    student_number = db.Column(db.Integer, nullable=True)
     
     avatar_url = db.Column(db.Text)
     

@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Users, UserPlus, Edit2, Trash2, Key, Search, Save,
+  Users, Upload, UserPlus, Edit2, Trash2, Key, Search, Save,
   X, Loader2, ShieldCheck, Mail, AtSign, Eye, EyeOff,
   CheckCircle, AlertCircle, GraduationCap
 } from 'lucide-react';
 import { stagger } from '../components/reactbits/Reveal';
+import StudentImportModal from '../components/StudentImportModal';
 import Swal from 'sweetalert2';
 import { useAuthStore } from '../store/useAuthStore';
 
@@ -12,6 +13,7 @@ const API = `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1`;
 
 interface Student {
   user_id: number;
+  student_number?: number | null;
   username: string;
   first_name: string;
   last_name: string;
@@ -75,6 +77,8 @@ const InputField: React.FC<{
       <input
         id={id}
         type={type}
+        min={type==='number'?1:undefined}
+        step={type==='number'?1:undefined}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
@@ -115,13 +119,14 @@ const StudentManagement: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Modals state
+  const [showImport,setShowImport]=useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ username: '', first_name: '', last_name: '', email: '', password: '', class_name: '', grade_level: '', academic_year: '' });
+  const [createForm, setCreateForm] = useState({ username: '', first_name: '', last_name: '', email: '', password: '', class_name: '', grade_level: '', academic_year: '', student_number: '' });
   const [showCreatePw, setShowCreatePw] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   const [editTarget, setEditTarget] = useState<Student | null>(null);
-  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', email: '', class_name: '', grade_level: '', academic_year: '' });
+  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', email: '', class_name: '', grade_level: '', academic_year: '', student_number: '' });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const [resetTarget, setResetTarget] = useState<Student | null>(null);
@@ -136,7 +141,7 @@ const StudentManagement: React.FC = () => {
   const fetchStudents = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${API}/students/`, { headers: authHeaders });
+      const res = await fetch(`${API}/students/`, { headers: {Authorization:`Bearer ${useAuthStore.getState().token}`} });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setStudents(data.students || []);
@@ -166,7 +171,7 @@ const StudentManagement: React.FC = () => {
       if (!res.ok) throw new Error(data.error || 'เพิ่มนักเรียนไม่สำเร็จ');
       showToast(`เพิ่มนักเรียน "${createForm.username}" เรียบร้อยแล้ว`, 'success');
       setShowCreate(false);
-      setCreateForm({ username: '', first_name: '', last_name: '', email: '', password: '', class_name: '', grade_level: '', academic_year: '' });
+      setCreateForm({ username: '', first_name: '', last_name: '', email: '', password: '', class_name: '', grade_level: '', academic_year: '', student_number: '' });
       fetchStudents();
     } catch (err: any) {
       showToast(err.message, 'error');
@@ -183,7 +188,8 @@ const StudentManagement: React.FC = () => {
       email: s.email,
       class_name: s.class_name || '',
       grade_level: s.grade_level || '',
-      academic_year: s.academic_year || ''
+      academic_year: s.academic_year || '',
+      student_number: s.student_number?.toString() || ''
     });
   };
 
@@ -267,7 +273,8 @@ const StudentManagement: React.FC = () => {
       s.name.toLowerCase().includes(q) ||
       s.username.toLowerCase().includes(q) ||
       (s.email || '').toLowerCase().includes(q) ||
-      (s.class_name || '').toLowerCase().includes(q)
+      (s.class_name || '').toLowerCase().includes(q) ||
+      String(s.student_number??'').includes(q)
     );
   });
 
@@ -285,12 +292,14 @@ const StudentManagement: React.FC = () => {
           </h1>
           <p className="text-slate-500 text-sm mt-1">Super Admin Dashboard - จัดการบัญชีนักเรียนทั้งหมดในระบบ</p>
         </div>
+        <div className="flex gap-2 flex-wrap">
+        <button onClick={()=>setShowImport(true)} className="flex items-center gap-2 border border-emerald-300 text-emerald-700 font-bold py-2.5 px-4 rounded-xl bg-white hover:bg-emerald-50"><Upload size={16}/>นำเข้า XLSX</button>
         <button
           onClick={() => setShowCreate(true)}
           className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-md shadow-emerald-500/20 transition-all whitespace-nowrap self-start md:self-auto"
         >
           <UserPlus size={16} /> เพิ่มนักเรียนใหม่
-        </button>
+        </button></div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
@@ -304,7 +313,7 @@ const StudentManagement: React.FC = () => {
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="ค้นหาชื่อ, username, ชั้นเรียน..."
+              placeholder="ค้นหาชื่อ, username, ชั้นเรียน, เลขที่..."
               className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-300 bg-slate-50 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-emerald-400 focus:bg-white transition-colors"
             />
           </div>
@@ -323,6 +332,7 @@ const StudentManagement: React.FC = () => {
           <div className="divide-y divide-slate-100">
             {filtered.map((s, idx) => (
               <div key={s.user_id} style={{ animationDelay: `${stagger(idx, 25, 300)}ms` }} className="rb-reveal flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors">
+                <div className="w-12 shrink-0 text-center text-slate-600"><span className="block text-[10px] text-slate-400">เลขที่</span><span className="font-semibold text-sm">{s.student_number??'—'}</span></div>
                 <Avatar student={s} size={42} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -357,6 +367,8 @@ const StudentManagement: React.FC = () => {
 
       {/* Modals ----------------------------------------------------------------*/}
 
+      {showImport&&<StudentImportModal onClose={()=>setShowImport(false)} onImported={count=>{setShowImport(false);showToast(`นำเข้านักเรียน ${count} คนเรียบร้อยแล้ว`,'success');fetchStudents();}}/>}
+
       {/* Create Modal */}
       {showCreate && (
         <ModalOverlay onClose={() => setShowCreate(false)}>
@@ -366,6 +378,7 @@ const StudentManagement: React.FC = () => {
                 <InputField label="ชื่อ" id="c-fn" value={createForm.first_name} onChange={v => setCreateForm(p => ({ ...p, first_name: v }))} placeholder="ชื่อ" />
                 <InputField label="นามสกุล" id="c-ln" value={createForm.last_name} onChange={v => setCreateForm(p => ({ ...p, last_name: v }))} placeholder="นามสกุล" />
               </div>
+              <InputField label="เลขที่" id="c-number" type="number" value={createForm.student_number} onChange={v=>setCreateForm(p=>({...p,student_number:v}))} placeholder="เช่น 1"/>
               <InputField label="ชื่อผู้ใช้" id="c-user" value={createForm.username} required onChange={v => setCreateForm(p => ({ ...p, username: v }))} icon={<AtSign size={14} />} />
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">รหัสผ่าน <span className="text-rose-400">*</span></label>
@@ -397,6 +410,7 @@ const StudentManagement: React.FC = () => {
                 <InputField label="ชื่อ" id="e-fn" value={editForm.first_name} onChange={v => setEditForm(p => ({ ...p, first_name: v }))} />
                 <InputField label="นามสกุล" id="e-ln" value={editForm.last_name} onChange={v => setEditForm(p => ({ ...p, last_name: v }))} />
               </div>
+              <InputField label="เลขที่" id="e-number" type="number" value={editForm.student_number} onChange={v=>setEditForm(p=>({...p,student_number:v}))} placeholder="เช่น 1"/>
               <InputField label="อีเมล" id="e-email" type="email" value={editForm.email} onChange={v => setEditForm(p => ({ ...p, email: v }))} icon={<Mail size={14} />} />
               <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="col-span-3 text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">ข้อมูลชั้นเรียน</div>
@@ -442,7 +456,7 @@ const ModalOverlay: React.FC<{ children: React.ReactNode; onClose: () => void }>
 );
 
 const ModalCard: React.FC<{ title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode; }> = ({ title, icon, onClose, children }) => (
-  <div className="bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-full">
+  <div className="bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
     <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
       <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
         <span className="text-emerald-500">{icon}</span> {title}
