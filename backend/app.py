@@ -82,6 +82,7 @@ def create_app():
         from course_routes import course_bp
         from teacher_routes import teacher_bp
         from student_routes import student_bp
+        from csquest.routes import csquest_bp
         
         app.register_blueprint(course_bp)
         app.register_blueprint(auth_bp)
@@ -98,6 +99,7 @@ def create_app():
         app.register_blueprint(outfit_bp)
         app.register_blueprint(teacher_bp)
         app.register_blueprint(student_bp)
+        app.register_blueprint(csquest_bp)
 
     # File Uploads Configuration
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')

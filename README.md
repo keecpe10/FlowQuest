@@ -102,3 +102,7 @@ docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml up -d --bu
 - เมื่อใช้ Tunnel แบบนี้ **ไม่ต้อง** ตั้ง `VITE_API_BASE_URL` เป็นโดเมน backend แยก เพราะ frontend จะเรียก API ผ่าน path เดียวกัน (เช่น `/api/v1/...`) อัตโนมัติ
 - Cloudflare ต้องเปิด **WebSockets** สำหรับการใช้งาน Socket.IO (ปกติเปิดไว้อยู่แล้ว)
 - ถ้าใช้ Cloudflare Pages แยกจาก backend ให้ตั้ง `VITE_API_BASE_URL` เป็น URL ของ backend และตั้ง `CORS_ORIGINS` ฝั่ง backend ให้ตรงกับโดเมน Pages
+
+## ผจญภัย ป.5 จาก CSGamifications
+
+รวมบทเรียนและเกม 4 โลก 51 ด่าน พร้อมแฟ้มผลงานไว้ในเมนู **ผจญภัย ป.5** (`/csquest`) ใช้บัญชีและ XP ของ FlowQuest ร่วมกัน ครูติดตามผลนักเรียนในรายวิชาของตนได้ ดูรายละเอียดการติดตั้ง การเชื่อมข้อมูล และการทดสอบที่ [คู่มือการรวม CSGamifications](docs/integrations/csquest.md)

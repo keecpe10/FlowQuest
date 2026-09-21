@@ -16,6 +16,7 @@ import { useAuthStore } from './store/useAuthStore';
 // เหตุผล: หอเกียรติยศ 3 มิติลากไลบรารีสามมิติทั้งก้อนมาด้วย และหน้าออกแบบผังงาน
 // ลากตัววาดผังงานมา ทั้งที่นักเรียนที่เข้ามาทำข้อสอบไม่ได้ใช้สักอย่าง การรวมไว้
 // ก้อนเดียวแปลว่าทุกเครื่องในห้องต้องโหลดของที่ตัวเองไม่ได้เปิดด้วย
+const CSQuest = lazy(() => import('./pages/CSQuest'));
 const FlowBuilder = lazy(() => import('./FlowBuilder'));
 const Leaderboard = lazy(() => import('./Leaderboard'));
 const Profile = lazy(() => import('./pages/Profile'));
@@ -79,6 +80,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         </Link>
 
         <div className="flex flex-col gap-2 mt-4 flex-1">
+          <Link to="/csquest" title="ผจญภัย ป.5" aria-label="ผจญภัย ป.5" className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center gap-1 ${location.pathname === '/csquest' ? 'bg-violet-500/20 text-violet-400' : 'text-slate-400 hover:text-violet-400'}`}><BrainCircuit size={22}/><span className="text-[9px] font-bold">ผจญภัย ป.5</span></Link>
           {isTeacher ? (
             <>
               <Link to="/teacher/courses">
@@ -461,6 +463,7 @@ function App() {
         <Route path="/register" element={<PageWithTitle title="สมัครสมาชิก"><Register /></PageWithTitle>} />
         
         <Route element={<ProtectedRoute />}>
+          <Route path="/csquest" element={<PageWithTitle title="ผจญภัย ป.5"><CSQuest /></PageWithTitle>} />
           <Route path="/" element={<PageWithTitle title="หน้าหลัก"><HomeRoute /></PageWithTitle>} />
           <Route path="/courses/:courseId/missions" element={<PageWithTitle title="เลือกด่าน"><DashboardLayout><MissionSelect /></DashboardLayout></PageWithTitle>} />
           <Route path="/mission/:id" element={<PageWithTitle title="เล่นเกม"><DashboardLayout><GameView /></DashboardLayout></PageWithTitle>} />
