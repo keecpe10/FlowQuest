@@ -439,6 +439,65 @@ def test_student_receives_puzzle_without_answer_key(client, f):
               for e in t_edges))
 
 
+def test_website_hotspot(client, f):
+    clear_questions(f)
+    teacher = auth(f['teacher_token'])
+    student = auth(f['student_token'])
+    base = q_url(f).removesuffix('/questions')
+    review_url = f"{base}/student/{f['student'].user_id}"
+    targets = [
+        {'label': 'ผู้เผยแพร่', 'rect': [0.1, 0.1, 0.2, 0.2]},
+        {'label': 'วันที่เผยแพร่', 'rect': [0.3, 0.3, 0.4, 0.4]},
+        {'label': 'หลักฐาน', 'rect': [0.5, 0.5, 0.6, 0.6]},
+    ]
+    meta = {'image_url': '/api/v1/uploads/website.png', 'targets': targets}
+    question = puzzle_question('website_hotspot', meta, xp=9)
+    question['score_points'] = 6
+
+    draft = client.post(q_url(f), json={
+        **question,
+        'question_metadata': {**meta, 'targets': [{'label': 'ผู้เผยแพร่', 'rect': None}]},
+    }, headers=teacher)
+    check('นักสืบเว็บไซต์ที่ยังไม่มีกรอบเป็นข้อร่าง',
+          draft.status_code == 201 and draft.get_json()['is_draft'])
+
+    created = client.post(q_url(f), json=question, headers=teacher)
+    check('ครูบันทึกภาพและกรอบเฉลยได้',
+          created.status_code == 201 and created.get_json()['question_metadata'] == meta)
+    if created.status_code != 201:
+        return
+    question_id = created.get_json()['question_id']
+
+    visible = client.get(q_url(f), headers=student).get_json()
+    check('นักเรียนได้ชื่อหลักฐานครบ แต่ไม่ได้กรอบและไม่เห็นข้อร่าง',
+          isinstance(visible, list) and len(visible) == 1
+          and visible[0]['question_metadata'] == {
+              'image_url': meta['image_url'],
+              'targets': [{'label': row['label']} for row in targets],
+          })
+    pending = client.get(review_url, headers=student)
+    check('หน้าติดตามผลซ่อนกรอบระหว่างทำข้อสอบ',
+          pending.status_code == 200 and not _contains_key(pending.get_json(), 'rect'))
+
+    invalid = client.post(f'{base}/submit-single', json={
+        'answer': {'question_id': question_id, 'answer_data': {'0': [99, 0.1]}},
+    }, headers=student)
+    check('ปฏิเสธตำแหน่งนอกภาพ', invalid.status_code == 400)
+
+    points = {'0': [0.2, 0.2], '1': [0.33, 0.33], '2': [0.8, 0.8]}
+    submitted = client.post(f'{base}/submit-single', json={
+        'answer': {'question_id': question_id, 'answer_data': points},
+    }, headers=student)
+    result = submitted.get_json()
+    check('ถูกสองในสามจุดได้ 4/6 คะแนนและ 6/9 XP พร้อมเฉลย',
+          submitted.status_code == 200 and not result['is_correct']
+          and result['score_awarded'] == 4 and result['xp_awarded'] == 6
+          and result['correct_answer_data'] == meta)
+    reviewed = client.get(review_url, headers=teacher).get_json()
+    check('ครูตรวจตำแหน่งที่นักเรียนส่งย้อนหลังได้',
+          bool(reviewed.get('answers')) and reviewed['answers'][0]['answer_data'] == points)
+
+
 def main():
     app = create_app()
     with app.app_context():
@@ -457,6 +516,7 @@ def main():
             test_draft_rules(client, f)
             test_bad_metadata_rejected_by_api(client, f)
             test_student_receives_puzzle_without_answer_key(client, f)
+            test_website_hotspot(client, f)
         finally:
             db.session.rollback()
             clear_questions(f)

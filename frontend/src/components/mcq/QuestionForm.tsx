@@ -1,3 +1,5 @@
+import type { HotspotMeta } from './WebsiteHotspotImage';
+import WebsiteHotspotEditor, { emptyWebsiteHotspot } from './editors/WebsiteHotspotEditor';
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Save, Trash2, CheckCircle, AlertTriangle, ImagePlus, Loader2 } from 'lucide-react';
 import RichContentEditor from './RichContentEditor';
@@ -53,6 +55,9 @@ const emptyChoice = (is_correct: boolean): Choice => ({
 
 /** ตั้งค่าเริ่มต้นของแต่ละชนิดข้อ ตอนครูสลับชนิด */
 const withQuestionType = (q: Question, type: string): Question => {
+  if (type === 'website_hotspot') {
+    return { ...q, question_type: type, question_metadata: emptyWebsiteHotspot(), choices: [] };
+  }
   const startingMetadata = (type: string) =>
     type === 'sudoku' ? emptySudokuMeta()
       : type === 'flowchart' ? emptyFlowchartMeta()
@@ -118,12 +123,28 @@ export default function QuestionForm({
   const categories: string[] = meta.categories || [];
   const items: any[] = meta.items || [];
   const [uploadingItem, setUploadingItem] = useState<number | null>(null);
+  const [uploadingHotspot, setUploadingHotspot] = useState(false);
   const uploadBusy = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  const uploadHotspotImage = async (file: File) => {
+    if (uploadBusy.current) return;
+    uploadBusy.current = true;
+    setUploadingHotspot(true);
+    try {
+      const image_url = await uploadImage(file, getToken());
+      if (!mounted.current) return;
+      const meta: HotspotMeta = latest.current.question_metadata;
+      setMeta({ image_url, targets: meta.targets.map(target => ({ ...target, rect: null })) });
+    } finally {
+      uploadBusy.current = false;
+      if (mounted.current) setUploadingHotspot(false);
+    }
+  };
 
   const uploadItemImage = async (file: File, itemIndex: number) => {
     if (uploadBusy.current) return;
@@ -180,7 +201,7 @@ export default function QuestionForm({
     set({ choices: question.choices.map((c, i) => ({ ...c, is_correct: i === cIndex })) });
 
   return (
-    <fieldset disabled={saving || uploadingItem !== null} className="min-w-0">
+    <fieldset disabled={saving || uploadingItem !== null || uploadingHotspot} className="min-w-0">
       {problems.length > 0 && (
         <div className="mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
           <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
@@ -216,6 +237,7 @@ export default function QuestionForm({
             <option value="categorize">ลากจัดหมวดหมู่</option>
             <option value="sudoku">เติมซูโดกุ</option>
             <option value="flowchart">ต่อผังงาน</option>
+            <option value="website_hotspot">นักสืบเว็บไซต์</option>
           </select>
 
           {onDelete && (
@@ -496,6 +518,15 @@ export default function QuestionForm({
                 onChange={(meta) => set({ question_metadata: meta })}
               />
             </>
+          )}
+
+          {question.question_type === 'website_hotspot' && (
+            <WebsiteHotspotEditor
+              metadata={question.question_metadata}
+              uploading={uploadingHotspot}
+              onUpload={uploadHotspotImage}
+              onChange={meta => set({ question_metadata: meta })}
+            />
           )}
 
           {question.question_type === 'flowchart' && (

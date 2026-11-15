@@ -25,7 +25,7 @@ const decisions: Record<Decision, {label: string; style: string}> = {
   discard: {label:'ควรพิจารณาตัดออก', style:'bg-rose-50 text-rose-700 border-rose-200'},
   insufficient: {label:'ข้อมูลยังไม่พอ', style:'bg-slate-100 text-slate-600 border-slate-200'},
 };
-const types: Record<string,string> = {multiple_choice:'เลือกตอบ',true_false:'ถูก / ผิด',fill_blank:'เติมคำ',matching:'จับคู่',categorize:'จัดหมวดหมู่',sudoku:'ซูโดกุ',flowchart:'ผังงาน'};
+const types: Record<string,string> = {multiple_choice:'เลือกตอบ',true_false:'ถูก / ผิด',fill_blank:'เติมคำ',matching:'จับคู่',categorize:'จัดหมวดหมู่',sudoku:'ซูโดกุ',flowchart:'ผังงาน',website_hotspot:'นักสืบเว็บไซต์'};
 const number = (value: number | null) => value === null ? '—' : value.toFixed(2);
 
 export default function TeacherMCQAnalysis() {

@@ -7,6 +7,7 @@ from auth_utils import has_course_access, is_course_teacher, can_play_mission
 import random
 from sudoku_solver import count_solutions
 from engine import flowchart_score, sudoku_score
+import website_hotspot
 
 mcq_bp = Blueprint('mcq', __name__, url_prefix='/api/v1/mcq')
 
@@ -231,6 +232,9 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
         if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
                    for i in items):
             return True
+    elif question_type == 'website_hotspot':
+        if not website_hotspot.is_complete(meta):
+            return True
     elif question_type == 'sudoku':
         if not sudoku_meta_complete(meta):
             return True
@@ -296,6 +300,9 @@ def grade_answer(question, choice_id, answer_data):
         ok = isinstance(answer_data, dict) and len(answer_data) == len(items) \
             and all(answer_data.get(i.get('text')) == i.get('category') for i in items)
         earned, total = (1 if ok else 0), 1
+
+    elif qt == 'website_hotspot':
+        earned, total = website_hotspot.score(meta, answer_data)
 
     elif qt == 'sudoku':
         earned, total = sudoku_score(meta, answer_data)
@@ -624,6 +631,9 @@ def clean_answer_data(question_type, answer_data, where):
     if answer_data is None:
         return None
 
+    if question_type == 'website_hotspot':
+        return website_hotspot.clean_answer(answer_data, where)
+
     if question_type == 'fill_blank':
         return _text(answer_data, where, 'คำตอบ')
 
@@ -732,6 +742,8 @@ def clean_answer_data(question_type, answer_data, where):
 def clean_puzzle_metadata(question_type, metadata, where):
     """ตรวจ metadata ปริศนาและ URL รูปในรายการจัดหมวดหมู่"""
     meta = metadata or {}
+    if question_type == 'website_hotspot':
+        return website_hotspot.clean_metadata(meta, where)
     if question_type == 'sudoku':
         return _clean_sudoku_metadata(meta, where)
     if question_type == 'flowchart':
@@ -1048,6 +1060,8 @@ def get_mcq_questions(mission_id):
                     item['text']: item['image_url'] for item in items_data
                     if isinstance(item.get('image_url'), str) and item['image_url']
                 }
+            elif q.question_type == 'website_hotspot':
+                filtered_metadata = website_hotspot.student_metadata(metadata)
             elif q.question_type == 'sudoku':
                 # ส่งแค่ตัวปริศนา ห้ามส่ง solution_grid (เฉลย) เด็ดขาด
                 filtered_metadata = {
@@ -1587,20 +1601,25 @@ def get_mcq_student_progress(mission_id, student_id):
         return jsonify({'message': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
-    if not mission or (not is_course_teacher(user_id, mission.course_id) and user_id != student_id):
+    is_teacher = mission is not None and is_course_teacher(user_id, mission.course_id)
+    if not mission or (not is_teacher and user_id != student_id):
         return jsonify({'message': 'Forbidden. Teacher access required.'}), 403
         
     um = UserMission.query.filter_by(user_id=student_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     
+    show_hotspot_solution = is_teacher or (um is not None and um.status in ('completed', 'failed'))
     questions = live_questions(mission_id).all()
     q_data = []
     for q in questions:
         choices = MCQChoice.query.filter_by(question_id=q.question_id).order_by(MCQChoice.choice_id).all()
+        metadata = q.question_metadata
+        if q.question_type == 'website_hotspot' and not show_hotspot_solution:
+            metadata = website_hotspot.student_metadata(metadata)
         q_data.append({
             'question_id': q.question_id,
             'question_text': q.question_text,
             'question_type': q.question_type,
-            'question_metadata': q.question_metadata,
+            'question_metadata': metadata,
             'image_url': q.image_url,
             'content_blocks': q.content_blocks,
             'xp_points': q.xp_points,

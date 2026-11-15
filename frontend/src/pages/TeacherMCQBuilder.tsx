@@ -55,6 +55,15 @@ const validateQuestion = (q: Question): string[] => {
     if (items.some((it: any) => !it?.category)) problems.push('มีรายการที่ยังไม่ได้ระบุหมวดหมู่');
   }
 
+  if (q.question_type === 'website_hotspot') {
+    const { image_url, targets = [] } = q.question_metadata || {};
+    if (!image_url) problems.push('ยังไม่ได้อัปโหลดภาพหน้าเว็บ');
+    if (!targets.length) problems.push('ต้องมีหลักฐานอย่างน้อย 1 จุด');
+    if (targets.some((target: { label: string; rect?: number[] }) => !target.label.trim() || !target.rect)) {
+      problems.push('ตั้งชื่อและกำหนดกรอบให้ครบทุกจุด');
+    }
+  }
+
   if (!q.score_points || q.score_points < 1) problems.push('คะแนนของข้อต้องมากกว่า 0');
   if (!q.xp_points || q.xp_points < 1) problems.push('XP ต้องมากกว่า 0');
 

@@ -6,7 +6,7 @@ from collections import Counter
 from math import sqrt
 
 MIN_RECOMMENDATION_N = 20
-PARTIAL_TYPES = {'sudoku', 'flowchart'}
+PARTIAL_TYPES = {'sudoku', 'flowchart', 'website_hotspot'}
 
 
 def correlation(xs, ys):

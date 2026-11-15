@@ -1,3 +1,4 @@
+import WebsiteHotspotAnswer from '../components/mcq/answers/WebsiteHotspotAnswer';
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -625,6 +626,15 @@ const StudentMCQPlayer = () => {
                           </div>
                       )}
 
+                      {q.question_type === 'website_hotspot' && (
+                          <div className="mb-4 space-y-3">
+                              <p className="text-sm text-slate-300">ได้ {res?.score_awarded ?? 0} จาก {q.score_points} คะแนน</p>
+                              <WebsiteHotspotAnswer metadata={q.question_metadata}
+                                  value={answers.find(a => a.question_id === q.question_id)?.answer_data}
+                                  solution={res?.correct_answer_data} disabled />
+                          </div>
+                      )}
+
                       {['sudoku', 'flowchart'].includes(q.question_type) && (
                           <div className="mb-4 space-y-2">
                               <p className="text-slate-300 text-sm">
@@ -968,6 +978,21 @@ const StudentMCQPlayer = () => {
                             }
                             return [...prev, { question_id: currentQ.question_id, answer_data: grid }];
                         })}
+                    />
+                </div>
+            )}
+
+            {currentQ.question_type === 'website_hotspot' && (
+                <div className="mt-8">
+                    <WebsiteHotspotAnswer key={currentQ.question_id}
+                        metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data}
+                        disabled={isSubmitted || isTimeUp}
+                        solution={isSubmitted ? qResult?.correct_answer_data : undefined}
+                        onChange={answer_data => setAnswers(prev => [
+                            ...prev.filter(a => a.question_id !== currentQ.question_id),
+                            { question_id: currentQ.question_id, answer_data },
+                        ])}
                     />
                 </div>
             )}

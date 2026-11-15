@@ -1,3 +1,4 @@
+import WebsiteHotspotAnswer from '../components/mcq/answers/WebsiteHotspotAnswer';
 import CategorizeItemContent from '../components/mcq/CategorizeItemContent';
 import { getToken } from '../utils/sessionToken';
 import React, { useState, useEffect } from 'react';
@@ -427,6 +428,17 @@ const StudentMCQView = () => {
                                       })
                                   )}
                               </div>
+                          </div>
+                      )}
+
+                      {q.question_type === 'website_hotspot' && (
+                          <div className="space-y-3">
+                              {showCorrectness && (
+                                  <p className="text-sm text-slate-300">ได้ {ansRecord?.score_awarded ?? 0} จาก {q.score_points} คะแนน</p>
+                              )}
+                              <WebsiteHotspotAnswer metadata={q.question_metadata}
+                                  value={ansRecord?.answer_data}
+                                  solution={showCorrectness ? q.question_metadata : undefined} disabled />
                           </div>
                       )}
 
