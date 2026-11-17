@@ -57,6 +57,14 @@ def require_board_access(board, teacher_only=False):
     return jsonify({'error': 'Forbidden'}), 403
 
 
+def _emit_card_change(event, data, board, author_id):
+    room = f"board_{board.board_id}"
+    if board.show_student_posts:
+        socketio.emit(event, data, to=room)
+    else:
+        socketio.emit(event, data, to=[f"{room}_teachers", f"{room}_user_{author_id}"])
+
+
 # --- REST API Routes ---
 
 @brainstorm_bp.route('/boards', methods=['POST'])
@@ -223,14 +231,6 @@ def get_board(board_id):
             "comments": comments_data
         })
     
-    # Allow board updates via Socket
-    socketio.emit('board_updated', {
-        "board_id": board.board_id,
-        "title": board.title,
-        "status": board.status,
-        "show_student_posts": board.show_student_posts
-    }, room=f'board_{board_id}')
-    
     response_data = {
         "board_id": board.board_id,
         "title": board.title,
@@ -257,6 +257,9 @@ def get_board(board_id):
 @brainstorm_bp.route('/boards/<int:board_id>/status', methods=['PATCH'])
 def update_board_status(board_id):
     board = BrainstormBoard.query.get_or_404(board_id)
+    access_error = require_board_access(board, teacher_only=True)
+    if access_error is not None:
+        return access_error
     data = request.json
     new_status = data.get('status')
     
@@ -271,6 +274,9 @@ def update_board_status(board_id):
 @brainstorm_bp.route('/boards/<int:board_id>/visibility', methods=['PATCH'])
 def update_board_visibility(board_id):
     board = BrainstormBoard.query.get_or_404(board_id)
+    access_error = require_board_access(board, teacher_only=True)
+    if access_error is not None:
+        return access_error
     data = request.json
     
     if 'show_student_posts' in data:
@@ -368,11 +374,13 @@ def add_card(board_id):
             "position_x": new_card.position_x,
             "position_y": new_card.position_y,
             "color": new_card.color,
+            "is_pinned": new_card.is_pinned,
             "author_id": new_card.author_id,
             "author_name": author_name,
             "author_avatar": author_avatar,
             "question_id": new_card.question_id,
-            "reactions": {}
+            "reactions": {},
+            "comments": []
         }
         
         # Award XP for posting
@@ -388,14 +396,7 @@ def add_card(board_id):
             db.session.commit()
             socketio.emit('points_awarded', {"user_id": user_id, "points": 10}, to=f"board_{board_id}")
             
-        # Broadcast card to room (respect show_student_posts visibility)
-        if board.show_student_posts:
-            # Everyone in the board room can see new cards
-            socketio.emit('card_added', card_data, to=f"board_{board_id}")
-        else:
-            # Only emit to the author's personal socket room
-            # (teacher joins board room so they receive via board_updated polling)
-            socketio.emit('card_added', card_data, to=f"user_{user_id}")
+        _emit_card_change('card_added', card_data, board, user_id)
         socketio.emit('missions_updated')
         return jsonify(card_data), 201
     except Exception as e:
@@ -405,32 +406,60 @@ def add_card(board_id):
 @brainstorm_bp.route('/cards/<int:card_id>', methods=['PATCH'])
 def update_card(card_id):
     card = BrainstormCard.query.get_or_404(card_id)
-    data = request.json
-    
-    if 'position_x' in data: card.position_x = data['position_x']
-    if 'position_y' in data: card.position_y = data['position_y']
-    if 'content' in data: card.content = data['content']
-    if 'color' in data: card.color = data['color']
-    if 'is_pinned' in data: card.is_pinned = data['is_pinned']
-    
+    board = card.board
+    access_error = require_board_access(board)
+    if access_error is not None:
+        return access_error
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        return jsonify({"error": "Invalid card update"}), 400
+
+    user_id = get_current_user_id()
+    can_manage_board = require_board_access(board, teacher_only=True) is None
+    if not can_manage_board:
+        if card.author_id != user_id:
+            return jsonify({"error": "แก้ไขได้เฉพาะคำตอบของตัวเอง"}), 403
+        if board.status == 'closed' or (board.mission_id and not can_play_mission(user_id, Mission.query.get(board.mission_id))):
+            return jsonify({"error": "ด่านนี้ปิดรับคำตอบแล้ว"}), 403
+        if data.keys() != {'content'}:
+            return jsonify({"error": "แก้ไขได้เฉพาะข้อความคำตอบ"}), 400
+
+    if 'content' in data:
+        if not isinstance(data['content'], str):
+            return jsonify({"error": "ข้อความคำตอบไม่ถูกต้อง"}), 400
+        data['content'] = data['content'].strip()
+        if not data['content'] and not card.media_url:
+            return jsonify({"error": "กรุณากรอกคำตอบ"}), 400
+
+    changes = {field: data[field] for field in ('position_x', 'position_y', 'content', 'color', 'is_pinned') if field in data}
+    if not changes:
+        return jsonify({"error": "Invalid card update"}), 400
+    for field, value in changes.items():
+        setattr(card, field, value)
     db.session.commit()
     
-    update_data = {"card_id": card.card_id, **data}
-    socketio.emit('card_updated', update_data, to=f"board_{card.board_id}")
+    update_data = {"card_id": card.card_id, **changes}
+    _emit_card_change('card_updated', update_data, board, card.author_id)
     
     return jsonify(update_data)
 
 @brainstorm_bp.route('/cards/<int:card_id>', methods=['DELETE'])
 def delete_card(card_id):
+    card = BrainstormCard.query.get_or_404(card_id)
+    board_id = card.board_id
+    board = BrainstormBoard.query.get_or_404(board_id)
+    access_error = require_board_access(board)
+    if access_error is not None:
+        return access_error
+
+    is_owner = card.author_id == get_current_user_id()
+    if not is_owner or board.status == 'closed':
+        access_error = require_board_access(board, teacher_only=True)
+        if access_error is not None:
+            return access_error
+
     try:
-        card = BrainstormCard.query.get_or_404(card_id)
-        board_id = card.board_id
-        board = BrainstormBoard.query.get_or_404(board_id)
-        
-        # Note: In a real app we'd verify the user token here
-        if board.status == 'closed':
-            pass # We'll enforce strictly via frontend UI for teacher overrides for now
-            
         # Delete the associated image file if it exists
         if card.media_url and card.media_url.startswith('/uploads/'):
             import os
@@ -445,7 +474,7 @@ def delete_card(card_id):
 
         author_id = card.author_id
         db.session.delete(card)
-        db.session.commit()
+        db.session.flush()
         
         # Check if user has any other cards left, if not, revert mission progress and XP
         if author_id and board.mission_id:
@@ -465,12 +494,13 @@ def delete_card(card_id):
                     )
                 ).delete()
                 
-                db.session.commit()
+        db.session.commit()
     
         socketio.emit('card_deleted', {"card_id": card_id}, to=f"board_{board_id}")
         socketio.emit('missions_updated')
         return jsonify({"message": "Card deleted"})
     except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 400
 
 @brainstorm_bp.route('/boards/<int:board_id>/cards/positions', methods=['PATCH'])
@@ -788,20 +818,19 @@ def on_join(data):
 
     # ใช้เกณฑ์เดียวกับฝั่ง REST — ครูประจำวิชาหรือนักเรียนที่ลงทะเบียนเท่านั้น
     course_id = _board_course_id(board)
-    if course_id is None:
-        allowed = board.created_by == user_id
-    else:
-        allowed = is_course_teacher(user_id, course_id) or has_course_access(user_id, course_id)
+    is_teacher = board.created_by == user_id if course_id is None else is_course_teacher(user_id, course_id)
+    allowed = is_teacher or (course_id is not None and has_course_access(user_id, course_id))
     if not allowed:
         emit('board_error', {"error": "ไม่มีสิทธิ์เข้าถึงกระดานนี้"})
         return
 
     room = f"board_{board_id}"
     join_room(room)
-    # Also join personal room so targeted events (e.g. card_added when
-    # show_student_posts=False) can reach this specific client.
-    join_room(f"user_{user_id}")
+    join_room(f"{room}_user_{user_id}")
+    if is_teacher:
+        join_room(f"{room}_teachers")
     emit('user_joined', {"user_id": user_id}, to=room)
+    return True
 
 
 @socketio.on('leave_board')
@@ -809,6 +838,8 @@ def on_leave(data):
     board_id = data.get('board_id')
     room = f"board_{board_id}"
     leave_room(room)
+    leave_room(f"{room}_user_{_socket_user_id()}")
+    leave_room(f"{room}_teachers")
 
 
 @socketio.on('cursor_move')

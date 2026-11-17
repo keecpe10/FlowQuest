@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Trash2, Pin, Maximize2, Loader2, MessageCircle, Send, X } from 'lucide-react';
+import { Trash2, Pin, Maximize2, Loader2, MessageCircle, Send, X, Pencil } from 'lucide-react';
+import Swal from 'sweetalert2';
 import { useBrainstormStore, API_URL } from '../../store/useBrainstormStore';
 import type { CardData } from '../../store/useBrainstormStore';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -15,7 +16,7 @@ interface CardProps {
 const emojis = ['❤️', '🔥', '💡', '👍', '🤔'];
 
 export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
-  const { board, toggleReaction, deleteCard, setSelectedCard, addComment, deleteComment } = useBrainstormStore();
+  const { board, toggleReaction, editCardContent, deleteCard, setSelectedCard, addComment, deleteComment } = useBrainstormStore();
   const user = useAuthStore(state => state.user);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -24,8 +25,37 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
 
   const isTeacher = user?.role === 'teacher';
   const isClosed = board?.status === 'closed';
-  const canModify = isTeacher || (card.author_id === user?.user_id && !isClosed && !board?.is_completed);
+  const canEdit = user?.role === 'student' && card.author_id === user.user_id && !isClosed;
+  const canDelete = isTeacher || (card.author_id === user?.user_id && !isClosed && !board?.is_completed);
   const comments = card.comments || [];
+
+  const handleEdit = () => {
+    void Swal.fire({
+      title: 'แก้ไขคำตอบ',
+      input: 'textarea',
+      inputLabel: 'คำตอบของคุณ',
+      inputValue: card.content,
+      showCancelButton: true,
+      showLoaderOnConfirm: true,
+      confirmButtonText: 'บันทึก',
+      cancelButtonText: 'ยกเลิก',
+      allowOutsideClick: () => !Swal.isLoading(),
+      allowEscapeKey: () => !Swal.isLoading(),
+      preConfirm: async (value: string) => {
+        if (!value.trim() && !card.media_url) {
+          Swal.showValidationMessage('กรุณากรอกคำตอบ');
+          return false;
+        }
+        try {
+          await editCardContent(card.card_id, value);
+          return true;
+        } catch (error) {
+          Swal.showValidationMessage(error instanceof Error ? error.message : 'บันทึกคำตอบไม่สำเร็จ');
+          return false;
+        }
+      },
+    });
+  };
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -33,6 +63,8 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
       await deleteCard(card.card_id);
     } catch (e) {
       console.error(e);
+      void Swal.fire({ icon: 'error', text: 'ลบคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง' });
+    } finally {
       setIsDeleting(false);
     }
   };
@@ -129,7 +161,19 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
               <Maximize2 size={16} />
             </button>
 
-            {canModify && (
+            {canEdit && (
+              <button
+                type="button"
+                onClick={handleEdit}
+                className="rounded-md p-1 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-800"
+                title="แก้ไขคำตอบ"
+                aria-label="แก้ไขคำตอบ"
+              >
+                <Pencil size={16} />
+              </button>
+            )}
+
+            {canDelete && (
               <button 
                 onClick={handleDelete} 
                 disabled={isDeleting}

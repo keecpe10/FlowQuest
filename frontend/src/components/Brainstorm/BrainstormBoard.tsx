@@ -33,6 +33,7 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   const [showAnswerModal, setShowAnswerModal] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [modalCommentText, setModalCommentText] = useState('');
   const [isPostingModalComment, setIsPostingModalComment] = useState(false);
@@ -171,6 +172,18 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
 
 
 
+  const handleToggleVisibility = async () => {
+    setIsUpdatingVisibility(true);
+    try {
+      await useBrainstormStore.getState().toggleBoardVisibility(!showPosts);
+    } catch (error) {
+      console.error(error);
+      void Swal.fire({ icon: 'error', text: 'เปลี่ยนการแสดงคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง' });
+    } finally {
+      setIsUpdatingVisibility(false);
+    }
+  };
+
   const handleGoHome = () => {
     Swal.fire({
       title: 'กลับหน้ารายการด่าน?',
@@ -247,7 +260,8 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
             </div>
 
             <button 
-              onClick={() => useBrainstormStore.getState().toggleBoardVisibility(!showPosts)}
+              onClick={handleToggleVisibility}
+              disabled={isUpdatingVisibility}
               className={`flex items-center gap-1 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold shadow-lg transition-transform hover:scale-105 text-white ${showPosts ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-500 hover:bg-gray-600'}`}
               title={showPosts ? "คลิกเพื่อซ่อนคำตอบของนักเรียน" : "คลิกเพื่อแสดงคำตอบทั้งหมด"}
             >

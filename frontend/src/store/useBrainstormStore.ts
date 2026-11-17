@@ -77,7 +77,7 @@ interface BrainstormState {
   
   initSocket: (boardId: number, userId: number | null) => void;
   disconnectSocket: () => void;
-  fetchBoard: (boardId: number) => Promise<number | 'forbidden' | void>;
+  fetchBoard: (boardId: number, shouldApply?: () => boolean) => Promise<number | 'forbidden' | void>;
   fetchBoardByMission: (missionId: number) => Promise<number | 'forbidden' | void>;
   
   addCard: (card: Partial<CardData>) => Promise<void>;
@@ -87,6 +87,7 @@ interface BrainstormState {
   saveCardPosition: (cardId: number, x: number, y: number) => Promise<void>;
   saveCardPositions: (boardId: number, positions: { card_id: number, position_x: number, position_y: number }[]) => Promise<void>;
   toggleReaction: (cardId: number, emoji: string) => Promise<void>;
+  editCardContent: (cardId: number, content: string) => Promise<void>;
   deleteCard: (cardId: number) => Promise<void>;
   addComment: (cardId: number, content: string) => Promise<void>;
   deleteComment: (commentId: number, cardId: number) => Promise<void>;
@@ -117,19 +118,36 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     // ส่ง token ตอนจับมือ เซิร์ฟเวอร์จะได้รู้ว่า connection นี้เป็นของใคร
     // และไม่ต้องเชื่อ user_id ที่ client ส่งมาในแต่ละอีเวนต์
     const socket = io(SOCKET_URL, {
-      auth: { token: getToken() },
+      auth: (callback) => callback({ token: useAuthStore.getState().token ?? getToken() }),
     });
-    
+    let boardRevision = 0;
+    let refreshId = 0;
+    const refreshBoard = async () => {
+      const id = ++refreshId;
+      const isCurrent = () => get().socket === socket && socket.connected
+        && get().board?.board_id === boardId && id === refreshId;
+      while (isCurrent()) {
+        const revision = boardRevision;
+        await get().fetchBoard(boardId, () => isCurrent() && revision === boardRevision);
+        if (revision === boardRevision) return;
+      }
+    };
+
     socket.on('connect', () => {
       set({ isConnected: true, socket });
-      socket.emit('join_board', { board_id: boardId });
+      socket.emit('join_board', { board_id: boardId }, (joined?: boolean) => {
+        if (joined) void refreshBoard();
+      });
     });
 
     socket.on('disconnect', () => {
+      refreshId++;
       set({ isConnected: false });
     });
 
     socket.on('card_added', (card: CardData) => {
+      if (card.board_id !== boardId) return;
+      boardRevision++;
       set((state) => {
         if (state.cards.some(c => c.card_id === card.card_id)) return state;
         // Defense-in-depth: respect show_student_posts visibility on client side too.
@@ -145,14 +163,18 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     });
 
     socket.on('card_updated', (updatedData: Partial<CardData>) => {
+      boardRevision++;
       set((state) => ({
         cards: state.cards.map((c) => 
           c.card_id === updatedData.card_id ? { ...c, ...updatedData } : c
-        )
+        ),
+        selectedCard: state.selectedCard && state.selectedCard.card_id === updatedData.card_id
+          ? { ...state.selectedCard, ...updatedData } : state.selectedCard,
       }));
     });
 
     socket.on('cards_moved', (data: { updates: { card_id: number, position_x: number, position_y: number }[] }) => {
+      boardRevision++;
       set((state) => {
         const updateMap = new Map(data.updates.map(u => [u.card_id, u]));
         return {
@@ -165,12 +187,15 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     });
 
     socket.on('card_deleted', (data: { card_id: number }) => {
+      boardRevision++;
       set((state) => ({
-        cards: state.cards.filter((c) => c.card_id !== data.card_id)
+        cards: state.cards.filter((c) => c.card_id !== data.card_id),
+        selectedCard: state.selectedCard?.card_id === data.card_id ? null : state.selectedCard,
       }));
     });
 
     socket.on('reaction_updated', (data: { card_id: number, emoji: string, action: string, user_id: number }) => {
+      boardRevision++;
       set((state) => {
         return {
           cards: state.cards.map(c => {
@@ -200,16 +225,25 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     });
 
     socket.on('board_updated', (data: { status?: string, show_student_posts?: boolean }) => {
+      boardRevision++;
+      const currentUser = useAuthStore.getState().user;
+      const isTeacher = currentUser?.role === 'teacher';
       set((state) => {
         if (!state.board) return state;
         const newBoard = { ...state.board };
         if (data.status !== undefined) newBoard.status = data.status;
         if (data.show_student_posts !== undefined) newBoard.show_student_posts = data.show_student_posts;
-        return { board: newBoard };
+        const shouldCloseCard = data.show_student_posts === false && !isTeacher
+          && state.selectedCard?.author_id !== currentUser?.user_id;
+        return { board: newBoard, selectedCard: shouldCloseCard ? null : state.selectedCard };
       });
+      if (data.show_student_posts === true && !isTeacher) {
+        void refreshBoard();
+      }
     });
 
     socket.on('comment_added', (comment: CommentData) => {
+      boardRevision++;
       set((state) => {
         const updatedCards = state.cards.map(c =>
           c.card_id === comment.card_id
@@ -225,6 +259,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     });
 
     socket.on('comment_deleted', (data: { comment_id: number, card_id: number }) => {
+      boardRevision++;
       set((state) => {
         const updatedCards = state.cards.map(c =>
           c.card_id === data.card_id
@@ -253,7 +288,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     }
   },
 
-  fetchBoard: async (boardId: number) => {
+  fetchBoard: async (boardId: number, shouldApply?: () => boolean) => {
     const token = useAuthStore.getState().token;
     try {
       const res = await fetch(`${API_URL}/brainstorm/boards/${boardId}`, {
@@ -263,7 +298,13 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       if (res.status === 403) return 'forbidden';
       if (!res.ok) throw new Error('Failed to load board');
       const data = await res.json();
-      set({ board: data, cards: data.cards || [] });
+      if (shouldApply && !shouldApply()) return;
+      const cards: CardData[] = data.cards || [];
+      set((state) => ({
+        board: data,
+        cards,
+        selectedCard: cards.find((card) => card.card_id === state.selectedCard?.card_id) ?? null,
+      }));
       return data.board_id;
     } catch (e) {
       console.error(e);
@@ -391,13 +432,41 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   },
   
   deleteCard: async (cardId) => {
-    try {
-      await fetch(`${API_URL}/brainstorm/cards/${cardId}`, {
-        method: 'DELETE'
-      });
-    } catch (e) {
-      console.error(e);
+    const token = useAuthStore.getState().token;
+    const res = await fetch(`${API_URL}/brainstorm/cards/${cardId}`, {
+      method: 'DELETE',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`Failed to delete card (${res.status})`);
+    set((state) => ({
+      cards: state.cards.filter((card) => card.card_id !== cardId),
+      selectedCard: state.selectedCard?.card_id === cardId ? null : state.selectedCard,
+    }));
+  },
+
+  editCardContent: async (cardId, content) => {
+    const token = useAuthStore.getState().token;
+    const res = await fetch(`${API_URL}/brainstorm/cards/${cardId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => null);
+      const message = res.status === 401 ? 'กรุณาเข้าสู่ระบบใหม่'
+        : (res.status === 400 || res.status === 403) && error?.error ? error.error
+        : 'บันทึกคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง';
+      throw new Error(message);
     }
+    const saved: { content: string } = await res.json();
+    set((state) => ({
+      cards: state.cards.map((card) => card.card_id === cardId ? { ...card, content: saved.content } : card),
+      selectedCard: state.selectedCard?.card_id === cardId
+        ? { ...state.selectedCard, content: saved.content } : state.selectedCard,
+    }));
   },
 
   addComment: async (cardId, content) => {
@@ -476,12 +545,20 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   toggleBoardStatus: async (status: string) => {
     const { board } = get();
     if (!board) return;
+    const token = useAuthStore.getState().token;
     try {
-      await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/status`, {
+      const res = await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ status })
       });
+      if (res.ok) {
+        set((state) => state.board?.board_id === board.board_id
+          ? { board: { ...state.board, status } } : state);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -490,15 +567,19 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   toggleBoardVisibility: async (show: boolean) => {
     const { board } = get();
     if (!board) return;
-    try {
-      await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/visibility`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_student_posts: show })
-      });
-    } catch (e) {
-      console.error(e);
-    }
+    const token = useAuthStore.getState().token;
+    const res = await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/visibility`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ show_student_posts: show }),
+    });
+    if (!res.ok) throw new Error(`Failed to update board visibility (${res.status})`);
+    set((state) => state.board?.board_id === board.board_id
+      ? { board: { ...state.board, show_student_posts: show } }
+      : state);
   },
 
   setSelectedCard: (card) => set({ selectedCard: card })
