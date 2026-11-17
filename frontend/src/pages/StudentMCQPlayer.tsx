@@ -62,6 +62,8 @@ const StudentMCQPlayer = () => {
   const { width, height } = useWindowSize();
   
   const [loading, setLoading] = useState(true);
+  const [missionType, setMissionType] = useState<string>();
+  const isProgrammingMission = missionType === 'programming';
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   
@@ -110,6 +112,7 @@ const StudentMCQPlayer = () => {
         
         const fetchedQuestions = qRes.data;
         setQuestions(fetchedQuestions);
+        setMissionType(mRes.data.mission_type);
         if (mRes.data.started_at) {
             setStartedAt(mRes.data.started_at);
         }
@@ -515,8 +518,8 @@ const StudentMCQPlayer = () => {
             {!isTeacherPreview && isLocked && (
               <div className="inline-block mb-4 px-4 py-2 rounded-xl bg-slate-500/10 border border-slate-500/30 text-slate-300 font-bold text-sm">
                 {isPassed
-                  ? 'สอบผ่านแล้ว ทำแบบทดสอบนี้ซ้ำไม่ได้'
-                  : 'ใช้สิทธิ์ทำแบบทดสอบนี้ครบตามที่ครูกำหนดแล้ว'}
+                  ? (isProgrammingMission ? 'ผ่านด่านแล้ว เล่นด่านนี้ซ้ำไม่ได้' : 'สอบผ่านแล้ว ทำแบบทดสอบนี้ซ้ำไม่ได้')
+                  : (isProgrammingMission ? 'ใช้สิทธิ์เล่นด่านนี้ครบตามที่ครูกำหนดแล้ว' : 'ใช้สิทธิ์ทำแบบทดสอบนี้ครบตามที่ครูกำหนดแล้ว')}
               </div>
             )}
             <h1 className="text-3xl font-black text-white mb-2">สรุปผลคะแนน</h1>
@@ -726,7 +729,7 @@ const StudentMCQPlayer = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-base font-bold text-white">แบบทดสอบ MCQ</h1>
+            <h1 className="text-base font-bold text-white">{isProgrammingMission ? 'ด่านการเขียนโปรแกรม' : 'แบบทดสอบ MCQ'}</h1>
             <p className="text-xs text-slate-400">ข้อ {currentQIndex + 1} จาก {questions.length}</p>
           </div>
         </div>
@@ -1076,7 +1079,7 @@ const StudentMCQPlayer = () => {
                   เพราะตอนนี้นักเรียนข้ามไปมาได้ อาจตรวจครบตอนอยู่ข้อกลาง ๆ */}
               {allChecked && (
                 <button onClick={handleComplete} disabled={isSubmitting} className="px-6 sm:px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50">
-                    {isSubmitting ? 'กำลังสรุปผล...' : 'จบแบบทดสอบ'} <CheckCircle size={18} />
+                    {isSubmitting ? 'กำลังสรุปผล...' : isProgrammingMission ? 'จบด่าน' : 'จบแบบทดสอบ'} <CheckCircle size={18} />
                 </button>
               )}
             </div>
