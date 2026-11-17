@@ -1,3 +1,4 @@
+import ProgrammingEditor, { emptyProgrammingMeta } from './editors/ProgrammingEditor';
 import type { HotspotMeta } from './WebsiteHotspotImage';
 import WebsiteHotspotEditor, { emptyWebsiteHotspot } from './editors/WebsiteHotspotEditor';
 import { useEffect, useRef, useState } from 'react';
@@ -34,6 +35,7 @@ export interface Question {
 
 interface Props {
   question: Question;
+  programming?: boolean;
   /** เลขข้อสำหรับหัวเรื่อง — null คือข้อใหม่ที่ยังไม่บันทึก */
   index: number | null;
   /** สิ่งที่ยังกรอกไม่ครบ ถ้ามีแปลว่าบันทึกแล้วจะเป็นข้อร่าง */
@@ -55,6 +57,9 @@ const emptyChoice = (is_correct: boolean): Choice => ({
 
 /** ตั้งค่าเริ่มต้นของแต่ละชนิดข้อ ตอนครูสลับชนิด */
 const withQuestionType = (q: Question, type: string): Question => {
+  if (type === 'programming') {
+    return { ...q, question_type: type, question_metadata: emptyProgrammingMeta(), choices: [] };
+  }
   if (type === 'website_hotspot') {
     return { ...q, question_type: type, question_metadata: emptyWebsiteHotspot(), choices: [] };
   }
@@ -106,7 +111,7 @@ const withQuestionType = (q: Question, type: string): Question => {
  * หน้าแม่เป็นที่เดียวที่คุยกับเซิร์ฟเวอร์
  */
 export default function QuestionForm({
-  question, index, problems, saving, dirty, onChange, onSave, onCancel, onDelete,
+  question, programming, index, problems, saving, dirty, onChange, onSave, onCancel, onDelete,
 }: Props) {
   // ตัวจัดการเนื้อหาถูกแคชไว้ให้ reference คงที่ (ดูด้านล่าง) จึงต้องอ่านค่าล่าสุด
   // ผ่าน ref แทนการพึ่ง closure ที่ถูกจับไว้ตั้งแต่เรนเดอร์แรก
@@ -226,6 +231,7 @@ export default function QuestionForm({
 
         <div className="flex items-center gap-4">
           <select
+            disabled={programming}
             value={question.question_type}
             onChange={(e) => onChange(withQuestionType(latest.current, e.target.value))}
             className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-violet-500"
@@ -238,6 +244,7 @@ export default function QuestionForm({
             <option value="sudoku">เติมซูโดกุ</option>
             <option value="flowchart">ต่อผังงาน</option>
             <option value="website_hotspot">นักสืบเว็บไซต์</option>
+            <option value="programming">การเขียนโปรแกรม</option>
           </select>
 
           {onDelete && (
@@ -518,6 +525,11 @@ export default function QuestionForm({
                 onChange={(meta) => set({ question_metadata: meta })}
               />
             </>
+          )}
+
+          {question.question_type === 'programming' && (
+            <ProgrammingEditor metadata={question.question_metadata}
+              onChange={meta => set({ question_metadata: meta })} />
           )}
 
           {question.question_type === 'website_hotspot' && (

@@ -7,7 +7,7 @@ from app import db, socketio
 from models import Mission, UserMission, User, Role, PointHistory, BrainstormBoard, BrainstormQuestion, BrainstormCard, CourseEnrollment, MCQQuestion, MCQUserAnswer, SudokuPuzzle
 from auth_utils import has_course_access, is_course_teacher, can_play_mission
 # ข้อร่างถูกซ่อนจากนักเรียนด้วยกฎเดียวกันทั้งระบบ ดู mcq_routes.live_questions
-from mcq_routes import live_questions, teacher_review_summary, mcq_score_text
+from mcq_routes import QUESTION_MISSION_TYPES, live_questions, teacher_review_summary, mcq_score_text
 from datetime import datetime
 
 mission_bp = Blueprint('missions', __name__, url_prefix='/api/v1/missions')
@@ -75,7 +75,7 @@ def get_missions(course_id):
         earned_xp = points_dict.get(m.mission_id, 0)
         
         score_text = None
-        if m.mission_type == 'mcq' and status in ['completed', 'failed'] and um:
+        if m.mission_type in QUESTION_MISSION_TYPES and status in ['completed', 'failed'] and um:
             mcq_answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
             score_text = mcq_score_text(live_questions(m.mission_id).all(), mcq_answers)
 
@@ -114,7 +114,7 @@ def get_missions(course_id):
             mission_data['is_passed'] = is_passed
             mission_data['is_completed'] = is_completed  # submitted (status==completed)
             mission_data['min_xp_to_pass'] = min_xp
-        if m.mission_type == 'mcq':
+        if m.mission_type in QUESTION_MISSION_TYPES:
             from mcq_routes import mcq_attempts_left, mcq_can_start_attempt
             # ครูต้องเข้าไปทดสอบด่านได้เสมอ และไม่ถูกนับ attempt
             if viewer_is_teacher:
@@ -201,7 +201,7 @@ def get_mission(mission_id):
     um = UserMission.query.filter_by(user_id=user_id, mission_id=mission_id).order_by(UserMission.user_mission_id.asc()).first()
     viewer_is_teacher = is_course_teacher(user_id, mission.course_id)
     if not viewer_is_teacher:
-        if mission.mission_type == 'mcq':
+        if mission.mission_type in QUESTION_MISSION_TYPES:
             # ตรรกะเริ่ม/รีเซ็ต/ปิดจ๊อบของ mcq อยู่ที่เดียวใน mcq_routes
             # หน้าเดียวกันเรียก endpoint นี้คู่กับ /mcq/<id>/questions
             # ถ้าต่างคนต่างรีเซ็ต ตัวนับจำนวนครั้งจะเพี้ยน
@@ -236,7 +236,7 @@ def get_mission(mission_id):
         response_data['started_at'] = um.started_at.isoformat() + 'Z' if um.started_at else None
         response_data['mission_status'] = um.status
         
-        if mission.mission_type == 'mcq':
+        if mission.mission_type in QUESTION_MISSION_TYPES:
             from models import MCQUserAnswer
             answers = MCQUserAnswer.query.filter_by(user_mission_id=um.user_mission_id).all()
             ans_data = []
@@ -257,7 +257,7 @@ def get_mission(mission_id):
     if is_course_teacher(user_id, mission.course_id):
         response_data['solution_edges'] = mission.solution_edges
 
-    if mission.mission_type == 'mcq':
+    if mission.mission_type in QUESTION_MISSION_TYPES:
         from mcq_routes import mcq_attempts_left, mcq_can_start_attempt
         attempts_left = mcq_attempts_left(mission, um)
         response_data['max_attempts'] = mission.max_attempts or 0
@@ -314,9 +314,9 @@ def get_students_progress(mission_id):
     ).group_by(PointHistory.user_id).all()
     points_dict = {p[0]: p[1] for p in points_data}
     
-    mcq_live = live_questions(mission_id).all() if mission.mission_type == 'mcq' else []
+    mcq_live = live_questions(mission_id).all() if mission.mission_type in QUESTION_MISSION_TYPES else []
     answers_by_um = defaultdict(list)
-    if mission.mission_type == 'mcq':
+    if mission.mission_type in QUESTION_MISSION_TYPES:
         finished_ids = [um.user_mission_id for um in um_by_user.values()
                         if um.status in ('completed', 'failed')]
         if finished_ids:
@@ -339,8 +339,8 @@ def get_students_progress(mission_id):
         grading_status = None
         grading_pending = 0
         grading_total = 0
-        if mission.mission_type == 'mcq':
-            if status == 'pending' and um and um.current_nodes:
+        if mission.mission_type in QUESTION_MISSION_TYPES:
+            if status == 'pending' and um and isinstance(um.current_nodes, dict) and um.current_nodes:
                 current_q = um.current_nodes.get('current_index', 0) + 1
                 total_q = um.current_nodes.get('total_questions', 0)
                 if total_q > 0:
@@ -560,9 +560,15 @@ def update_mission(mission_id):
         return jsonify({'message': 'Forbidden. You do not have access to this course.'}), 403
         
     data = request.get_json()
+    next_type = data.get('mission_type', mission.mission_type)
+    if next_type == 'programming' and mission.mission_type != 'programming' and (
+        MCQQuestion.query.filter_by(mission_id=mission_id)
+        .filter(MCQQuestion.question_type != 'programming').first()
+    ):
+        return jsonify({'message': 'ด่านนี้มีคำถามประเภทอื่นอยู่ กรุณาสร้างด่านการเขียนโปรแกรมใหม่'}), 400
     mission.title = data.get('title', mission.title)
     mission.description = data.get('description', mission.description)
-    mission.mission_type = data.get('mission_type', mission.mission_type)
+    mission.mission_type = next_type
     mission.points = data.get('points', mission.points)
     mission.difficulty_level = data.get('difficulty_level', mission.difficulty_level)
     

@@ -1,3 +1,4 @@
+import { usesQuestionPlayer } from '../utils/missionTypes';
 import React, { useEffect, useState } from 'react';
 import { getToken } from '../utils/sessionToken';
 import axios from 'axios';
@@ -59,6 +60,7 @@ const difficultyColor = (level: number) => {
 const missionTypeLabel: Record<string, string> = {
   flowchart: 'Flowchart',
   brainstorm: 'Brainstorm',
+  programming: 'การเขียนโปรแกรม',
   mcq: 'MCQ Quiz',
   sudoku: 'ซูโดกุ',
 };
@@ -66,6 +68,7 @@ const missionTypeLabel: Record<string, string> = {
 const missionTypeColor: Record<string, string> = {
   flowchart: 'bg-sky-100 text-sky-700',
   brainstorm: 'bg-pink-100 text-pink-700',
+  programming: 'bg-indigo-100 text-indigo-700',
   mcq: 'bg-indigo-100 text-indigo-700',
   sudoku: 'bg-amber-100 text-amber-700',
 };
@@ -134,19 +137,19 @@ const SortableMissionCard = ({ mission, isReordering, onMoveUp, onMoveDown, isFi
               <Users size={14} /> ดูความคืบหน้า
             </button>
           </Link>
-          <Link to={mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/teacher/mission/${mission.mission_id}/mcq-design` : mission.mission_type === 'sudoku' ? `/teacher/mission/${mission.mission_id}/sudoku-design` : `/teacher/mission/${mission.mission_id}/design`} className="flex-1">
+          <Link to={mission.mission_type === 'brainstorm' ? `/brainstorm/${mission.mission_id}` : mission.mission_type === 'programming' ? `/teacher/mission/${mission.mission_id}/programming-design` : usesQuestionPlayer(mission.mission_type) ? `/teacher/mission/${mission.mission_id}/mcq-design` : mission.mission_type === 'sudoku' ? `/teacher/mission/${mission.mission_id}/sudoku-design` : `/teacher/mission/${mission.mission_id}/design`} className="flex-1">
             <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold text-sm transition-colors">
               <LayoutDashboard size={14} /> ออกแบบด่าน
             </button>
           </Link>
-          {mission.mission_type === 'mcq' && (
+          {usesQuestionPlayer(mission.mission_type) && (
             <Link to={`/mcq/${mission.mission_id}`}>
               <button className="flex items-center justify-center p-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 transition-colors" title="ทดลองเล่นแบบทดสอบนี้ (ไม่นับสิทธิ์ ไม่ได้ XP)">
                 <PlayCircle size={18} />
               </button>
             </Link>
           )}
-          {(mission.mission_type === 'mcq' || mission.mission_type === 'flowchart' || mission.mission_type === 'sudoku') && (
+          {(usesQuestionPlayer(mission.mission_type) || mission.mission_type === 'flowchart' || mission.mission_type === 'sudoku') && (
             <Link to={`/leaderboard?mission_id=${mission.mission_id}`}>
               <button className="flex items-center justify-center p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 transition-colors tooltip" title="Leaderboard">
                 <Trophy size={18} />
@@ -442,7 +445,9 @@ const TeacherDashboard = () => {
       fetchData();
     } catch (error) {
       console.error('Failed to save mission', error);
-      Swal.fire({ icon: 'error', text: 'บันทึกข้อมูลด่านไม่สำเร็จ' });
+      Swal.fire({ icon: 'error', text: axios.isAxiosError(error)
+        ? error.response?.data?.message || 'บันทึกข้อมูลด่านไม่สำเร็จ'
+        : 'บันทึกข้อมูลด่านไม่สำเร็จ' });
     }
   };
 
@@ -1189,11 +1194,12 @@ const TeacherDashboard = () => {
                     <option value="flowchart">Flowchart — ผังงาน</option>
                     <option value="brainstorm">Brainstorm — ระดมความคิด</option>
                     <option value="mcq">MCQ — แบบทดสอบ 4 ตัวเลือก</option>
+                    <option value="programming">การเขียนโปรแกรม — เดินตามคำสั่ง</option>
                     <option value="sudoku">ซูโดกุ — เกมซูโดกุสัญลักษณ์</option>
                   </select>
                 </div>
 
-                {formData.mission_type === 'mcq' && (
+                {usesQuestionPlayer(formData.mission_type) && (
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -1254,7 +1260,7 @@ const TeacherDashboard = () => {
                         />
                         <span className="text-sm font-bold text-slate-700">สลับลำดับคำถาม</span>
                       </label>
-                      <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
+                      {formData.mission_type === 'mcq' && <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-violet-300 transition-colors">
                         <input
                           type="checkbox"
                           checked={formData.randomize_choices}
@@ -1262,7 +1268,7 @@ const TeacherDashboard = () => {
                           className="w-5 h-5 accent-violet-600 cursor-pointer"
                         />
                         <span className="text-sm font-bold text-slate-700">สลับลำดับตัวเลือก</span>
-                      </label>
+                      </label>}
                     </div>
                     <p className="text-xs text-slate-500 -mt-2">การสลับมีผลกับนักเรียนเท่านั้น ครูจะเห็นเรียงตามลำดับที่สร้างไว้เสมอ</p>
                   </div>

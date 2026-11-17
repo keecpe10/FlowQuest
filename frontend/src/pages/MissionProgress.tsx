@@ -1,3 +1,4 @@
+import { usesQuestionPlayer } from '../utils/missionTypes';
 import React, { useState, useEffect, useRef } from 'react';
 import { getToken } from '../utils/sessionToken';
 import { useParams, useNavigate, Link } from 'react-router-dom';
@@ -183,7 +184,7 @@ const MissionProgress = () => {
   const handleAnalyzeAll = async () => {
     setIsAnalyzingAll(true);
     const isBrainstorm = mission?.mission_type === 'brainstorm';
-    const isMcq = mission?.mission_type === 'mcq';
+    const isMcq = usesQuestionPlayer(mission?.mission_type);
     
     setAiModalTitle(
       isBrainstorm ? 'วิเคราะห์กระดานระดมสมอง (AI)' : 
@@ -259,7 +260,7 @@ const MissionProgress = () => {
     
     try {
       const isBrainstorm = mission?.mission_type === 'brainstorm';
-      const isMcq = mission?.mission_type === 'mcq';
+      const isMcq = usesQuestionPlayer(mission?.mission_type);
       
       let endpoint = `${import.meta.env.VITE_API_BASE_URL || ''}/api/v1/missions/${missionId}/analyze-student/${studentId}`;
       if (isBrainstorm) {
@@ -559,7 +560,7 @@ const MissionProgress = () => {
           </div>
           
           <div className="flex gap-4 items-center flex-wrap">
-            {mission?.mission_type === 'mcq' && (
+            {usesQuestionPlayer(mission?.mission_type) && (
               <Link to={`/teacher/mission/${missionId}/item-analysis${filterClass ? `?class_id=${filterClass}` : ''}`}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-violet-700 bg-violet-50 hover:bg-violet-100 font-semibold border border-violet-100">
                 <BarChart2 size={18} /> วิเคราะห์ข้อสอบรายข้อ
@@ -661,7 +662,7 @@ const MissionProgress = () => {
                 ))}
             </select>
 
-            {mission?.mission_type === 'mcq' && (
+            {usesQuestionPlayer(mission?.mission_type) && (
               <select
                 value={filterGrading}
                 onChange={(e) => setFilterGrading(e.target.value)}
@@ -727,7 +728,7 @@ const MissionProgress = () => {
                         to={
                           mission?.mission_type === 'brainstorm' && mission?.board_id
                             ? `/brainstorm/${mission.board_id}?focus_student=${student.user_id}`
-                            : mission?.mission_type === 'mcq'
+                            : usesQuestionPlayer(mission?.mission_type)
                             ? `/teacher/mission/${missionId}/mcq-student/${student.user_id}`
                             : mission?.mission_type === 'sudoku'
                             ? `/teacher/mission/${missionId}/sudoku-student/${student.user_id}`

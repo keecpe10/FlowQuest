@@ -28,6 +28,7 @@ const TYPE_LABEL: Record<string, string> = {
   sudoku: 'เติมซูโดกุ',
   flowchart: 'ต่อผังงาน',
   website_hotspot: 'นักสืบเว็บไซต์',
+  programming: 'การเขียนโปรแกรม',
 };
 
 /**

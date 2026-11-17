@@ -1,3 +1,4 @@
+import { usesQuestionPlayer } from '../utils/missionTypes';
 import React, { useEffect, useState } from 'react';
 import { getToken } from '../utils/sessionToken';
 import axios from 'axios';
@@ -29,6 +30,7 @@ interface Mission {
 const missionTypeLabel: Record<string, string> = {
   flowchart: 'Flowchart',
   brainstorm: 'Brainstorm',
+  programming: 'การเขียนโปรแกรม',
   mcq: 'MCQ Quiz',
   sudoku: 'ซูโดกุ',
 };
@@ -170,7 +172,7 @@ const MissionSelect = () => {
               : missions[idx - 1]?.is_completed) || mission.mission_type === 'brainstorm';
             // ด่าน mcq ที่สอบตกจะมี is_completed เป็นเท็จ จึงผ่านเงื่อนไข !effectiveCompleted
             // ได้เสมอ ต้องกันด้วย can_retry แยกอีกชั้น ไม่งั้นโควตาที่ครูตั้งไว้ไม่มีผล
-            const mcqOutOfAttempts = mission.mission_type === 'mcq' && mission.can_retry === false;
+            const mcqOutOfAttempts = usesQuestionPlayer(mission.mission_type) && mission.can_retry === false;
             const canPlay = isUnlocked && !mcqOutOfAttempts && (
               !effectiveCompleted ||
               isTeacher ||
@@ -188,7 +190,7 @@ const MissionSelect = () => {
                 style={{ animationDelay: `${stagger(idx)}ms` }}
               >
               <div
-                onClick={() => canPlay && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'mcq' ? `/mcq/${mission.mission_id}` : mission.mission_type === 'sudoku' ? `/sudoku/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
+                onClick={() => canPlay && navigate(mission.mission_type === 'brainstorm' ? `/brainstorm/mission/${mission.mission_id}` : mission.mission_type === 'programming' ? `/programming/${mission.mission_id}` : usesQuestionPlayer(mission.mission_type) ? `/mcq/${mission.mission_id}` : mission.mission_type === 'sudoku' ? `/sudoku/${mission.mission_id}` : `/mission/${mission.mission_id}`)}
                 className={`relative rounded-2xl overflow-hidden transition-all duration-300 flex flex-col ${
                   !isUnlocked
                     ? 'cursor-not-allowed opacity-50'
@@ -290,7 +292,7 @@ const MissionSelect = () => {
 
                         {isUnlocked && (
                           <div className="flex items-center gap-3">
-                            {(mission.mission_type === 'mcq' || mission.mission_type === 'sudoku' || mission.mission_type === 'flowchart') && (
+                            {(usesQuestionPlayer(mission.mission_type) || mission.mission_type === 'sudoku' || mission.mission_type === 'flowchart') && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); navigate(`/leaderboard?mission_id=${mission.mission_id}`); }}
                                 className={`p-2 rounded-xl text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 transition-colors ${!canPlay && 'cursor-pointer'}`}
@@ -299,7 +301,7 @@ const MissionSelect = () => {
                                 <Trophy size={16} />
                               </button>
                             )}
-                            {!isTeacher && mission.mission_type === 'mcq' && typeof mission.attempts_left === 'number' && !mission.is_completed && (
+                            {!isTeacher && usesQuestionPlayer(mission.mission_type) && typeof mission.attempts_left === 'number' && !mission.is_completed && (
                               <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                                 mission.attempts_left > 0
                                   ? 'bg-amber-400/10 text-amber-400'
@@ -319,7 +321,7 @@ const MissionSelect = () => {
                                     <button 
                                       onClick={(e) => { 
                                         e.stopPropagation(); 
-                                        navigate(`/student/mission/${mission.mission_id}/${mission.mission_type}-result`); 
+                                        navigate(`/student/mission/${mission.mission_id}/${usesQuestionPlayer(mission.mission_type) ? 'mcq' : mission.mission_type}-result`);
                                       }}
                                       className={`text-sm font-bold flex items-center gap-1 transition-transform group-hover:translate-x-1 ${
                                         mission.status === 'failed' ? 'text-rose-400 hover:text-rose-300' : 'text-emerald-400 hover:text-emerald-300'

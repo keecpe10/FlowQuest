@@ -1,3 +1,5 @@
+import { gridProblem } from '../components/mcq/ProgrammingGrid';
+import { emptyProgrammingMeta } from '../components/mcq/editors/ProgrammingEditor';
 import Swal from 'sweetalert2';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -55,6 +57,11 @@ const validateQuestion = (q: Question): string[] => {
     if (items.some((it: any) => !it?.category)) problems.push('มีรายการที่ยังไม่ได้ระบุหมวดหมู่');
   }
 
+  if (q.question_type === 'programming') {
+    const problem = gridProblem(q.question_metadata);
+    if (problem) problems.push(problem);
+  }
+
   if (q.question_type === 'website_hotspot') {
     const { image_url, targets = [] } = q.question_metadata || {};
     if (!image_url) problems.push('ยังไม่ได้อัปโหลดภาพหน้าเว็บ');
@@ -70,14 +77,17 @@ const validateQuestion = (q: Question): string[] => {
   return problems;
 };
 
-const blankQuestion = (): Question => ({
-  question_type: 'multiple_choice',
-  question_metadata: {},
-  content_blocks: EMPTY_DOC,
+const blankQuestion = (programming: boolean): Question => ({
+  question_type: programming ? 'programming' : 'multiple_choice',
+  question_metadata: programming ? emptyProgrammingMeta() : {},
+  content_blocks: programming ? {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'เรียงคำสั่งให้ตัวละครเดินจากจุดเริ่มต้นไปถึงเส้นชัย' }] }],
+  } : EMPTY_DOC,
   xp_points: 10,
   score_points: 1,
   explanation: '',
-  choices: [0, 1, 2, 3].map((i) => ({
+  choices: programming ? [] : [0, 1, 2, 3].map((i) => ({
     choice_text: '',
     is_correct: i === 0,
     content_blocks: EMPTY_DOC,
@@ -128,7 +138,7 @@ const fromApi = (q: any): Question => {
  * บันทึกรายข้อผ่าน POST/PUT/DELETE ไม่ใช่ PUT ทั้งชุด การแก้ข้อหนึ่งจึงไม่แตะ
  * question_id ของข้ออื่น และคำตอบที่นักเรียนทำไปแล้วไม่หาย
  */
-const TeacherMCQBuilder = () => {
+const TeacherMCQBuilder = ({ programming = false }: { programming?: boolean }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const token = useAuthStore((state) => state.token);
@@ -155,12 +165,12 @@ const TeacherMCQBuilder = () => {
           setDraft(loaded[0]);
         } else {
           setSelected('new');
-          setDraft(blankQuestion());
+          setDraft(blankQuestion(programming));
         }
       } catch (error) {
         console.error('Failed to fetch MCQ questions', error);
         setSelected('new');
-        setDraft(blankQuestion());
+        setDraft(blankQuestion(programming));
       } finally {
         setLoading(false);
       }
@@ -168,7 +178,7 @@ const TeacherMCQBuilder = () => {
     fetchQuestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   // ไม่ใส่ token ใน deps เพราะมันหมุนใหม่ทุก 15 นาทีตอนต่ออายุรอบเข้าใช้งาน ถ้าใส่ effect นี้จะรันซ้ำแล้วทับงานที่ค้างอยู่
-  }, [id]);
+  }, [id, programming]);
 
   /** คืน true เมื่อบันทึกสำเร็จ */
   const save = async (): Promise<boolean> => {
@@ -228,7 +238,7 @@ const TeacherMCQBuilder = () => {
     if (selected === 'new') return;
     if (!(await confirmLeave())) return;
     setSelected('new');
-    setDraft(blankQuestion());
+    setDraft(blankQuestion(programming));
     setDirty(false);
   };
 
@@ -265,7 +275,7 @@ const TeacherMCQBuilder = () => {
       setDraft(next);
     } else {
       setSelected('new');
-      setDraft(blankQuestion());
+      setDraft(blankQuestion(programming));
     }
   };
 
@@ -277,7 +287,7 @@ const TeacherMCQBuilder = () => {
         setSelected(first.question_id!);
         setDraft(first);
       } else {
-        setDraft(blankQuestion());
+        setDraft(blankQuestion(programming));
       }
     } else {
       setDraft(questions.find((q) => q.question_id === selected) ?? null);
@@ -334,7 +344,7 @@ const TeacherMCQBuilder = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">สร้างแบบทดสอบ</h1>
+            <h1 className="text-xl font-bold text-slate-800">{programming ? 'ออกแบบด่านการเขียนโปรแกรม' : 'สร้างแบบทดสอบ'}</h1>
             <p className="text-xs text-slate-500">สร้างและแก้ไขทีละข้อ</p>
           </div>
         </div>
@@ -367,6 +377,7 @@ const TeacherMCQBuilder = () => {
               <QuestionForm
                 key={selected ?? 'none'}
                 question={draft}
+                programming={programming}
                 index={selected === 'new'
                   ? null
                   : questions.findIndex((q) => q.question_id === selected)}

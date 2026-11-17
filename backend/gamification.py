@@ -60,6 +60,8 @@ def save_progress():
         return jsonify({'message': 'Missing mission_id'}), 400
         
     mission = Mission.query.get(mission_id)
+    if mission and mission.mission_type == 'programming':
+        return jsonify({'message': 'ด่านนี้ใช้การ์ดคำสั่งเดินตามแผนที่'}), 400
     if mission and not can_play_mission(user_id, mission):
         return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
         
@@ -85,6 +87,8 @@ def clear_progress():
         return jsonify({'message': 'Missing mission_id'}), 400
         
     mission = Mission.query.get(mission_id)
+    if mission and mission.mission_type == 'programming':
+        return jsonify({'message': 'ด่านนี้ใช้การ์ดคำสั่งเดินตามแผนที่'}), 400
     if mission and not can_play_mission(user_id, mission):
         return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
         
@@ -114,6 +118,9 @@ def submit_flowchart():
     if not can_play_mission(user_id, mission):
         return jsonify({'message': 'ครูยังไม่เปิดด่านนี้'}), 403
         
+    if mission.mission_type == 'programming':
+        return jsonify({'message': 'ด่านนี้ใช้การ์ดคำสั่งเดินตามแผนที่'}), 400
+
     is_valid, message = validate_flowchart(edges, mission.solution_edges)
     
     if is_valid:

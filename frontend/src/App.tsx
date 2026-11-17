@@ -483,8 +483,10 @@ function App() {
           <Route path="/teacher/courses/:courseId" element={<PageWithTitle title="จัดการด่าน"><DashboardLayout><TeacherDashboard /></DashboardLayout></PageWithTitle>} />
           <Route path="/teacher/mission/:id/design" element={<PageWithTitle title="ออกแบบผังงาน"><TeacherFlowBuilder /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/item-analysis" element={<PageWithTitle title="วิเคราะห์ข้อสอบรายข้อ"><TeacherMCQAnalysis /></PageWithTitle>} />
+          <Route path="/teacher/mission/:id/programming-design" element={<PageWithTitle title="ออกแบบด่านการเขียนโปรแกรม"><TeacherMCQBuilder programming /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/mcq-design" element={<PageWithTitle title="สร้างแบบทดสอบ"><TeacherMCQBuilder /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/sudoku-design" element={<PageWithTitle title="ออกแบบซูโดกุ"><TeacherSudokuBuilder /></PageWithTitle>} />
+          <Route path="/programming/:id" element={<PageWithTitle title="ด่านการเขียนโปรแกรม"><StudentMCQPlayer /></PageWithTitle>} />
           <Route path="/mcq/:id" element={<PageWithTitle title="ทำแบบทดสอบ"><StudentMCQPlayer /></PageWithTitle>} />
           <Route path="/sudoku/:id" element={<PageWithTitle title="เล่นซูโดกุ"><StudentSudokuPlayer /></PageWithTitle>} />
           <Route path="/teacher/mission/:id/progress" element={<PageWithTitle title="ติดตามผลนักเรียน"><MissionProgress /></PageWithTitle>} />

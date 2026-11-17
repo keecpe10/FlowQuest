@@ -1,3 +1,4 @@
+import ProgrammingAnswer from '../components/mcq/answers/ProgrammingAnswer';
 import WebsiteHotspotAnswer from '../components/mcq/answers/WebsiteHotspotAnswer';
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -626,6 +627,15 @@ const StudentMCQPlayer = () => {
                           </div>
                       )}
 
+                      {q.question_type === 'programming' && (
+                          <div className="mb-4 space-y-3">
+                              <p className="text-sm text-slate-300">ได้ {res?.score_awarded ?? 0} จาก {q.score_points} คะแนน</p>
+                              <ProgrammingAnswer metadata={q.question_metadata}
+                                  value={ansRecord?.answer_data}
+                                  disabled allowReplay />
+                          </div>
+                      )}
+
                       {q.question_type === 'website_hotspot' && (
                           <div className="mb-4 space-y-3">
                               <p className="text-sm text-slate-300">ได้ {res?.score_awarded ?? 0} จาก {q.score_points} คะแนน</p>
@@ -978,6 +988,19 @@ const StudentMCQPlayer = () => {
                             }
                             return [...prev, { question_id: currentQ.question_id, answer_data: grid }];
                         })}
+                    />
+                </div>
+            )}
+
+            {currentQ.question_type === 'programming' && (
+                <div className="mt-8">
+                    <ProgrammingAnswer key={currentQ.question_id} metadata={currentQ.question_metadata}
+                        value={ansRecord?.answer_data} disabled={isSubmitted || isTimeUp || isSubmitting}
+                        allowReplay={isSubmitted}
+                        onChange={answer_data => setAnswers(prev => [
+                            ...prev.filter(a => a.question_id !== currentQ.question_id),
+                            ...(answer_data.length ? [{ question_id: currentQ.question_id, answer_data }] : []),
+                        ])}
                     />
                 </div>
             )}

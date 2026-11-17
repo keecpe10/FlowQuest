@@ -8,6 +8,9 @@ import random
 from sudoku_solver import count_solutions
 from engine import flowchart_score, sudoku_score
 import website_hotspot
+import programming_grid
+
+QUESTION_MISSION_TYPES = ('mcq', 'programming')
 
 mcq_bp = Blueprint('mcq', __name__, url_prefix='/api/v1/mcq')
 
@@ -232,6 +235,9 @@ def compute_is_draft(question_type, q_doc, q_legacy_text, metadata, xp_points, c
         if not all((i or {}).get('text', '').strip() and (i or {}).get('category')
                    for i in items):
             return True
+    elif question_type == 'programming':
+        if not programming_grid.is_complete(meta):
+            return True
     elif question_type == 'website_hotspot':
         if not website_hotspot.is_complete(meta):
             return True
@@ -300,6 +306,9 @@ def grade_answer(question, choice_id, answer_data):
         ok = isinstance(answer_data, dict) and len(answer_data) == len(items) \
             and all(answer_data.get(i.get('text')) == i.get('category') for i in items)
         earned, total = (1 if ok else 0), 1
+
+    elif qt == 'programming':
+        earned, total = programming_grid.score(meta, answer_data)
 
     elif qt == 'website_hotspot':
         earned, total = website_hotspot.score(meta, answer_data)
@@ -631,6 +640,9 @@ def clean_answer_data(question_type, answer_data, where):
     if answer_data is None:
         return None
 
+    if question_type == 'programming':
+        return programming_grid.clean_answer(answer_data, where)
+
     if question_type == 'website_hotspot':
         return website_hotspot.clean_answer(answer_data, where)
 
@@ -742,6 +754,8 @@ def clean_answer_data(question_type, answer_data, where):
 def clean_puzzle_metadata(question_type, metadata, where):
     """ตรวจ metadata ปริศนาและ URL รูปในรายการจัดหมวดหมู่"""
     meta = metadata or {}
+    if question_type == 'programming':
+        return programming_grid.clean_metadata(meta, where)
     if question_type == 'website_hotspot':
         return website_hotspot.clean_metadata(meta, where)
     if question_type == 'sudoku':
@@ -982,7 +996,7 @@ def get_mcq_questions(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
     if not can_play_mission(user_id, mission):
@@ -1060,6 +1074,8 @@ def get_mcq_questions(mission_id):
                     item['text']: item['image_url'] for item in items_data
                     if isinstance(item.get('image_url'), str) and item['image_url']
                 }
+            elif q.question_type == 'programming':
+                filtered_metadata = {'grid': metadata.get('grid')}
             elif q.question_type == 'website_hotspot':
                 filtered_metadata = website_hotspot.student_metadata(metadata)
             elif q.question_type == 'sudoku':
@@ -1103,7 +1119,7 @@ def update_mcq_questions(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
     if not is_course_teacher(user_id, mission.course_id):
@@ -1116,7 +1132,7 @@ def update_mcq_questions(mission_id):
     # ลบคำถามเดิมทั้งชุดทิ้ง ถ้าไปล้มกลางทางแล้ว commit ข้อสอบทั้งด่านจะหาย
     try:
         normalized = [
-            _normalize_question(q_data, f'คำถามข้อที่ {idx + 1}')
+            _normalize_question(q_data, f'คำถามข้อที่ {idx + 1}', mission.mission_type)
             for idx, q_data in enumerate(questions_data)
         ]
     except ValueError as e:
@@ -1183,15 +1199,17 @@ def _teacher_mission(mission_id):
     if not user_id:
         return None, (jsonify({'message': 'Unauthorized'}), 401)
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return None, (jsonify({'message': 'MCQ Mission not found'}), 404)
     if not is_course_teacher(user_id, mission.course_id):
         return None, (jsonify({'message': 'Forbidden. Teacher access required.'}), 403)
     return mission, None
 
 
-def _normalize_question(q_data, where='คำถาม'):
+def _normalize_question(q_data, where='คำถาม', mission_type=None):
     """ตรวจเนื้อหาและโจทย์ของคำถามทั้งหมดก่อนแตะฐานข้อมูล"""
+    if mission_type == 'programming' and q_data.get('question_type') != 'programming':
+        raise ValueError(f'{where}: ด่านนี้ใช้คำถามประเภทการเขียนโปรแกรม')
     q_doc, q_text = normalize_content(q_data.get('content_blocks'), where)
     c_normalized = []
     for c_idx, c_data in enumerate(q_data.get('choices', [])):
@@ -1298,7 +1316,7 @@ def create_mcq_question(mission_id):
 
     q_data = request.get_json() or {}
     try:
-        q_doc, q_text, c_normalized, meta = _normalize_question(q_data)
+        q_doc, q_text, c_normalized, meta = _normalize_question(q_data, mission_type=mission.mission_type)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
@@ -1338,7 +1356,7 @@ def update_mcq_question(mission_id, question_id):
 
     q_data = request.get_json() or {}
     try:
-        q_doc, q_text, c_normalized, meta = _normalize_question(q_data)
+        q_doc, q_text, c_normalized, meta = _normalize_question(q_data, mission_type=mission.mission_type)
     except ValueError as e:
         return jsonify({'message': str(e)}), 400
 
@@ -1426,7 +1444,7 @@ def reset_teacher_preview(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
 
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
 
     if not is_course_teacher(user_id, mission.course_id):
@@ -1448,7 +1466,7 @@ def submit_mcq(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
 
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
 
     if not can_play_mission(user_id, mission):
@@ -1569,7 +1587,7 @@ def update_mcq_progress(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
 
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
 
     # ต้องตรวจสิทธิ์เข้าถึง/การมองเห็นด่านก่อนแตะ UserMission เสมอ มิฉะนั้นนักเรียนคนใดก็ได้
@@ -1672,7 +1690,7 @@ def submit_mcq_single(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
         
     if not can_play_mission(user_id, mission):
@@ -1806,7 +1824,7 @@ def complete_mcq(mission_id):
         return jsonify({'message': 'Unauthorized'}), 401
         
     mission = Mission.query.get(mission_id)
-    if not mission or mission.mission_type != 'mcq':
+    if not mission or mission.mission_type not in QUESTION_MISSION_TYPES:
         return jsonify({'message': 'MCQ Mission not found'}), 404
 
     if not can_play_mission(user_id, mission):

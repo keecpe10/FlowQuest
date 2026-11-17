@@ -1,3 +1,4 @@
+import ProgrammingAnswer from '../components/mcq/answers/ProgrammingAnswer';
 import WebsiteHotspotAnswer from '../components/mcq/answers/WebsiteHotspotAnswer';
 import CategorizeItemContent from '../components/mcq/CategorizeItemContent';
 import { getToken } from '../utils/sessionToken';
@@ -428,6 +429,16 @@ const StudentMCQView = () => {
                                       })
                                   )}
                               </div>
+                          </div>
+                      )}
+
+                      {q.question_type === 'programming' && (
+                          <div className="space-y-3">
+                              {showCorrectness && (
+                                  <p className="text-sm text-slate-300">ได้ {ansRecord?.score_awarded ?? 0} จาก {q.score_points} คะแนน</p>
+                              )}
+                              <ProgrammingAnswer metadata={q.question_metadata} value={ansRecord?.answer_data}
+                                  disabled allowReplay={showCorrectness} />
                           </div>
                       )}
 
