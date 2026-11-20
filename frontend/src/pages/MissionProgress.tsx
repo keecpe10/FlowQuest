@@ -1,7 +1,7 @@
 import { usesQuestionPlayer } from '../utils/missionTypes';
 import React, { useState, useEffect, useRef } from 'react';
 import { getToken } from '../utils/sessionToken';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuthStore } from '../store/useAuthStore';
 import { ArrowLeft, Users, CheckCircle2, Clock, PlayCircle, Search, RotateCcw, Zap, X, Sparkles, BarChart2, Download, ClipboardCheck, LayoutGrid, List, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -35,14 +35,31 @@ interface MissionDetail {
   board_id?: number;
 }
 
+interface ProgressFilters {
+  searchQuery?: string;
+  filterGrade?: string;
+  filterClass?: string;
+  filterGrading?: string;
+  page?: number;
+}
+
 const MissionProgress = () => {
   const { id: missionId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const filters: ProgressFilters = location.state?.progressFilters ?? {};
+  const { searchQuery = '', filterGrade = '', filterClass = '', filterGrading = '', page = 1 } = filters;
+  const updateFilters = (changes: ProgressFilters) => {
+    navigate(location.pathname + location.search + location.hash, {
+      replace: true,
+      preventScrollReset: true,
+      state: { ...location.state, progressFilters: { ...filters, page: 1, ...changes } },
+    });
+  };
   const token = useAuthStore(state => state.token);
   const [students, setStudents] = useState<StudentProgress[]>([]);
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [resettingStudentId, setResettingStudentId] = useState<number | null>(null);
   const [isGivingXP, setIsGivingXP] = useState(false);
@@ -50,10 +67,6 @@ const MissionProgress = () => {
   const [xpAmount, setXpAmount] = useState('10');
   const [selectedStudent, setSelectedStudent] = useState<{id: number, name: string} | null>(null);
   
-  // Filtering States
-  const [filterGrade, setFilterGrade] = useState<string>('');
-  const [filterClass, setFilterClass] = useState<string>('');
-  const [filterGrading, setFilterGrading] = useState<string>('');
   // การ์ดหลายคอลัมน์ หรือรายการแถวเดียวไล่ลงมา — จำค่าที่ครูเลือกไว้ในเครื่อง
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     try {
@@ -62,21 +75,16 @@ const MissionProgress = () => {
       return 'grid';
     }
   });
-  const [page, setPage] = useState(1);
   const listTopRef = useRef<HTMLDivElement>(null);
   const changeViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
+    updateFilters({});
     try {
       localStorage.setItem('missionProgressView', mode);
     } catch {
       // เบราว์เซอร์ปิด storage ไว้ ใช้ค่าในหน้านี้ไปก่อน
     }
   };
-
-  // เปลี่ยนตัวกรอง/คำค้น/รูปแบบแล้วกลับไปหน้าแรก ไม่งั้นอาจค้างอยู่หน้าที่ไม่มีข้อมูล
-  useEffect(() => {
-    setPage(1);
-  }, [searchQuery, filterGrade, filterClass, filterGrading, viewMode]);
 
   // AI Modal States
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -487,7 +495,7 @@ const MissionProgress = () => {
   const pageStart = (currentPage - 1) * pageSize;
   const pagedStudents = filteredStudents.slice(pageStart, pageStart + pageSize);
   const goToPage = (next: number) => {
-    setPage(Math.min(Math.max(1, next), totalPages));
+    updateFilters({ page: Math.min(Math.max(1, next), totalPages) });
     listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -622,17 +630,14 @@ const MissionProgress = () => {
               type="text"
               placeholder="ค้นหาชื่อ-นามสกุลนักเรียน..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => updateFilters({ searchQuery: e.target.value })}
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
             />
           </div>
           <div className="flex gap-4">
             <select
               value={filterGrade}
-              onChange={(e) => {
-                setFilterGrade(e.target.value);
-                setFilterClass(''); // reset class when grade changes
-              }}
+              onChange={(e) => updateFilters({ filterGrade: e.target.value, filterClass: '' })}
               className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
             >
               <option value="">ทุกระดับชั้น</option>
@@ -645,7 +650,7 @@ const MissionProgress = () => {
             
             <select
               value={filterClass}
-              onChange={(e) => setFilterClass(e.target.value)}
+              onChange={(e) => updateFilters({ filterClass: e.target.value })}
               className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
             >
               <option value="">ทุกห้อง</option>
@@ -665,7 +670,7 @@ const MissionProgress = () => {
             {usesQuestionPlayer(mission?.mission_type) && (
               <select
                 value={filterGrading}
-                onChange={(e) => setFilterGrading(e.target.value)}
+                onChange={(e) => updateFilters({ filterGrading: e.target.value })}
                 className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all shadow-sm font-medium text-slate-700"
               >
                 <option value="">การตรวจ: ทั้งหมด</option>
@@ -726,14 +731,16 @@ const MissionProgress = () => {
                   >
                       <Link 
                         to={
-                          mission?.mission_type === 'brainstorm' && mission?.board_id
-                            ? `/brainstorm/${mission.board_id}?focus_student=${student.user_id}`
+                          mission?.mission_type === 'brainstorm'
+                            ? `/brainstorm/${mission.board_id ?? `mission/${missionId}`}?focus_student=${student.user_id}`
                             : usesQuestionPlayer(mission?.mission_type)
                             ? `/teacher/mission/${missionId}/mcq-student/${student.user_id}`
                             : mission?.mission_type === 'sudoku'
                             ? `/teacher/mission/${missionId}/sudoku-student/${student.user_id}`
                             : `/teacher/mission/${missionId}/student/${student.user_id}`
                         }
+                        state={mission?.mission_type === 'brainstorm'
+                          ? { fromMissionProgress: true } : undefined}
                         className="block p-4 sm:p-5"
                       >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -798,6 +805,11 @@ const MissionProgress = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-0.5 shrink-0 self-end sm:self-auto border-t sm:border-t-0 border-slate-100 pt-3 sm:pt-0 w-full sm:w-auto justify-end">
+                          {mission?.mission_type === 'brainstorm' && (
+                            <span className="mr-2 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-sm font-medium text-indigo-700 group-hover:bg-indigo-100">
+                              ดูคำตอบ
+                            </span>
+                          )}
                           <button
                             onClick={(e) => {
                               e.preventDefault();

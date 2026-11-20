@@ -1,3 +1,4 @@
+import { answerDateTime } from './answerDateTime';
 import React, { useId, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, Pin, Maximize2, Loader2, MessageCircle, Send, X, Pencil } from 'lucide-react';
@@ -245,6 +246,11 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
           return <LinkPreview key={`preview-${i}`} url={url} />;
         })}
 
+        {card.created_at && (
+          <p className="mb-3 text-xs text-gray-600">
+            ส่งเมื่อ <time dateTime={card.created_at}>{answerDateTime.format(new Date(card.created_at))}</time>
+          </p>
+        )}
         {/* Reaction Bar + Comment Toggle */}
         <div className="flex items-center justify-between mt-auto pt-2">
           <div className="flex flex-wrap gap-1">

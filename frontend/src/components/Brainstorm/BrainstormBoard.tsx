@@ -1,11 +1,12 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { useBrainstormStore } from '../../store/useBrainstormStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Card } from './Card';
-import { MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search, MessageCircle } from 'lucide-react';
+import { answerDateTime } from './answerDateTime';
+import { ArrowLeft, MousePointer2, Plus, Sparkles, Send, Home, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Grid3X3, Image as ImageIcon, X, Loader2, Search, MessageCircle } from 'lucide-react';
 import LiveTimer from '../LiveTimer';
 import { handleMissionAccessStatus } from '../../utils/missionAccess';
 
@@ -23,7 +24,10 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   } = useBrainstormStore();
   
   const [searchParams] = useSearchParams();
-  const focusStudentId = searchParams.get('focus_student') ? parseInt(searchParams.get('focus_student') as string) : null;
+  const requestedStudentId = Number(searchParams.get('focus_student'));
+  const openedFocus = useRef<string | null>(null);
+  const [loadedBoardId, setLoadedBoardId] = useState<number | null>(null);
+  const { state: navigationState } = useLocation();
   
   const [newText, setNewText] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -47,6 +51,13 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   const user = useAuthStore(state => state.user);
 
   const isTeacher = user?.role === 'teacher';
+  const focusStudentId = isTeacher && Number.isSafeInteger(requestedStudentId) && requestedStudentId > 0
+    ? requestedStudentId : null;
+  const canReturnToProgress = isTeacher && navigationState?.fromMissionProgress === true;
+  const boardLoaded = loadedBoardId !== null && loadedBoardId === board?.board_id
+    && (!boardId || loadedBoardId === boardId);
+  const focusedCard = boardLoaded && focusStudentId !== null
+    ? cards.find((card) => card.author_id === focusStudentId) : undefined;
   const isClosed = board?.status === 'closed';
   const showPosts = board?.show_student_posts ?? true;
   const hasQuestions = board?.questions && board.questions.length > 0;
@@ -74,6 +85,7 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
       if (realBoardId === 'forbidden') {
         handleMissionAccessStatus(403, navigate);
       } else if (realBoardId) {
+        setLoadedBoardId(realBoardId);
         disconnect = initSocket(realBoardId);
       }
     });
@@ -83,6 +95,14 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
       disconnect?.();
     };
   }, [boardId, missionId, fetchBoard, fetchBoardByMission, initSocket, navigate, user?.user_id]);
+
+  useEffect(() => {
+    if (!focusedCard) return;
+    const focusKey = `${loadedBoardId}:${focusStudentId}`;
+    if (openedFocus.current === focusKey) return;
+    openedFocus.current = focusKey;
+    setSelectedCard(focusedCard);
+  }, [focusedCard, loadedBoardId, focusStudentId, setSelectedCard]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -189,6 +209,10 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   };
 
   const handleGoHome = () => {
+    if (canReturnToProgress) {
+      navigate(-1);
+      return;
+    }
     Swal.fire({
       title: 'กลับหน้ารายการด่าน?',
       text: "คุณต้องการออกจากกระดานระดมความคิดนี้ใช่หรือไม่?",
@@ -205,7 +229,7 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
     });
   };
 
-  if (!board) return <div className="flex h-screen items-center justify-center text-white text-xl">Loading BrainStorm Station...</div>;
+  if (!board || !boardLoaded) return <div className="flex h-screen items-center justify-center text-white text-xl">Loading BrainStorm Station...</div>;
 
   return (
     <div 
@@ -221,9 +245,9 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
           <button 
             onClick={handleGoHome}
             className="bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-md border border-white/30 transition-transform hover:scale-110 shadow-lg"
-            title="กลับหน้าหลัก"
+            title={canReturnToProgress ? 'กลับไปหน้าติดตามผล' : 'กลับหน้าหลัก'}
           >
-            <Home size={20} className="md:w-6 md:h-6" />
+            {canReturnToProgress ? <ArrowLeft size={20} /> : <Home size={20} className="md:w-6 md:h-6" />}
           </button>
           <h1 className="text-xl md:text-3xl font-bold text-white tracking-tight drop-shadow-lg flex items-center gap-2">
             🧠 {board.title}
@@ -315,7 +339,12 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
             style={{ backgroundColor: selectedCard.color || '#fff', maxHeight: '90vh' }}
             onClick={e => e.stopPropagation()}
           >
-            <button onClick={() => setSelectedCard(null)} className="absolute top-4 right-6 text-gray-700 hover:text-black font-bold text-3xl z-10">&times;</button>
+            {canReturnToProgress && (
+              <button type="button" onClick={handleGoHome} className="self-start mx-4 mt-4 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-white">
+                <ArrowLeft size={16} /> กลับไปหน้าติดตามผล
+              </button>
+            )}
+            <button aria-label="ปิดรายละเอียดคำตอบ" onClick={() => setSelectedCard(null)} className="absolute top-4 right-6 text-gray-700 hover:text-black font-bold text-3xl z-10">&times;</button>
             
             {/* Main Content Area */}
             <div className="p-8 flex flex-col md:flex-row gap-8 items-start min-h-[300px] overflow-y-auto">
@@ -333,6 +362,11 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
                 <span className="text-xl font-bold text-gray-800 break-words w-full" title={selectedCard.author_name || 'Anonymous'}>
                   {selectedCard.author_name || (selectedCard.author_id ? `User ${selectedCard.author_id}` : 'Anonymous')}
                 </span>
+                {selectedCard.created_at && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    ส่งเมื่อ <time dateTime={selectedCard.created_at}>{answerDateTime.format(new Date(selectedCard.created_at))}</time>
+                  </p>
+                )}
               </div>
 
               {/* Right Column: Card Content */}
@@ -346,6 +380,26 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
                 )}
               </div>
             </div>
+
+            {!!selectedCard.edit_history?.length && (
+              <details className="border-t border-black/10 bg-white/60 px-8 py-4">
+                <summary className="cursor-pointer font-semibold text-indigo-800">
+                  ประวัติการแก้ไข ({selectedCard.edit_history.length} ครั้ง)
+                </summary>
+                <ol className="mt-3 space-y-3">
+                  {selectedCard.edit_history.map((edit, index) => (
+                    <li key={edit.edited_at + index} className="rounded-xl border border-black/10 bg-white/80 p-3">
+                      <p className="text-sm font-medium text-gray-700">
+                        แก้ไขเมื่อ <time dateTime={edit.edited_at}>{answerDateTime.format(new Date(edit.edited_at))}</time>
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-gray-800">
+                        {edit.previous_content || 'ไม่มีข้อความในคำตอบฉบับก่อนหน้า'}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
 
             {/* Comment Section in Modal */}
             <div className="border-t border-black/10 bg-indigo-50/70 px-8 py-4">
@@ -538,12 +592,17 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
           className="flex flex-wrap gap-6 items-start justify-center mx-auto"
           style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
         >
+          {focusStudentId !== null && !focusedCard && (
+            <p role="status" className="w-full rounded-xl bg-white/90 p-3 text-center text-sm font-medium text-slate-800">
+              ยังไม่พบคำตอบของนักเรียนคนนี้
+            </p>
+          )}
           {visibleCards.map(card => (
             <Card 
               key={card.card_id} 
               card={card} 
               isFocused={focusStudentId !== null ? card.author_id === focusStudentId : false}
-              isDimmed={focusStudentId !== null ? card.author_id !== focusStudentId : false}
+              isDimmed={Boolean(focusedCard) && card.author_id !== focusStudentId}
             />
           ))}
         </div>

@@ -22,6 +22,11 @@ export interface CommentData {
   created_at: string;
 }
 
+interface CardEdit {
+  edited_at: string;
+  previous_content: string | null;
+}
+
 export interface CardData {
   card_id: number;
   board_id: number;
@@ -36,6 +41,8 @@ export interface CardData {
   author_name?: string;
   author_avatar?: string | null;
   question_id?: number | null;
+  created_at?: string | null;
+  edit_history?: CardEdit[];
   reactions: Record<string, number>;
   comments: CommentData[];
 }
@@ -166,12 +173,13 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
 
     socket.on('card_updated', (updatedData: Partial<CardData>) => {
       boardRevision++;
+      const applyUpdate = (card: CardData) =>
+        card.card_id === updatedData.card_id
+        && (!updatedData.edit_history || updatedData.edit_history.length >= (card.edit_history?.length ?? 0))
+          ? { ...card, ...updatedData } : card;
       set((state) => ({
-        cards: state.cards.map((c) => 
-          c.card_id === updatedData.card_id ? { ...c, ...updatedData } : c
-        ),
-        selectedCard: state.selectedCard && state.selectedCard.card_id === updatedData.card_id
-          ? { ...state.selectedCard, ...updatedData } : state.selectedCard,
+        cards: state.cards.map(applyUpdate),
+        selectedCard: state.selectedCard ? applyUpdate(state.selectedCard) : null,
       }));
     });
 
@@ -471,11 +479,13 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
         : 'บันทึกคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง';
       throw new Error(message);
     }
-    const saved: { content: string } = await res.json();
+    const saved: Pick<CardData, 'content' | 'edit_history'> = await res.json();
+    const applyEdit = (card: CardData) =>
+      card.card_id === cardId && (saved.edit_history?.length ?? 0) >= (card.edit_history?.length ?? 0)
+        ? { ...card, ...saved } : card;
     set((state) => ({
-      cards: state.cards.map((card) => card.card_id === cardId ? { ...card, content: saved.content } : card),
-      selectedCard: state.selectedCard?.card_id === cardId
-        ? { ...state.selectedCard, content: saved.content } : state.selectedCard,
+      cards: state.cards.map(applyEdit),
+      selectedCard: state.selectedCard ? applyEdit(state.selectedCard) : null,
     }));
   },
 

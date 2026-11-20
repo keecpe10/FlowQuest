@@ -231,6 +231,8 @@ class BrainstormCard(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    edit_history = db.Column(db.JSON, nullable=False, default=list, server_default='[]')
+
     reactions = db.relationship('BrainstormReaction', backref='card', lazy=True, cascade='all, delete-orphan')
     comments = db.relationship('BrainstormComment', backref='card', lazy=True, cascade='all, delete-orphan')
 

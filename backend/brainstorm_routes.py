@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from app import db, socketio
 from models import BrainstormBoard, BrainstormCard, BrainstormReaction, BrainstormComment, PointHistory, User, BrainstormQuestion, Mission, UserMission
 from flask_socketio import emit, join_room, leave_room, disconnect
+from datetime import datetime, timezone
 import json
 import os
 import requests
@@ -216,6 +217,9 @@ def get_board(board_id):
             
         cards_data.append({
             "card_id": card.card_id,
+            "board_id": board_id,
+            "created_at": card.created_at.replace(tzinfo=timezone.utc).isoformat() if card.created_at else None,
+            "edit_history": card.edit_history,
             "card_type": card.card_type,
             "content": card.content,
             "media_url": card.media_url,
@@ -368,6 +372,8 @@ def add_card(board_id):
         card_data = {
             "card_id": new_card.card_id,
             "board_id": board_id,
+            "created_at": new_card.created_at.replace(tzinfo=timezone.utc).isoformat(),
+            "edit_history": new_card.edit_history,
             "card_type": new_card.card_type,
             "content": new_card.content,
             "media_url": new_card.media_url,
@@ -405,7 +411,7 @@ def add_card(board_id):
 
 @brainstorm_bp.route('/cards/<int:card_id>', methods=['PATCH'])
 def update_card(card_id):
-    card = BrainstormCard.query.get_or_404(card_id)
+    card = BrainstormCard.query.filter_by(card_id=card_id).with_for_update().first_or_404()
     board = card.board
     access_error = require_board_access(board)
     if access_error is not None:
@@ -435,8 +441,15 @@ def update_card(card_id):
     changes = {field: data[field] for field in ('position_x', 'position_y', 'content', 'color', 'is_pinned') if field in data}
     if not changes:
         return jsonify({"error": "Invalid card update"}), 400
+    if 'content' in changes and changes['content'] != card.content:
+        card.edit_history = [{
+            "edited_at": datetime.now(timezone.utc).isoformat(),
+            "previous_content": card.content,
+        }, *card.edit_history]
     for field, value in changes.items():
         setattr(card, field, value)
+    if 'content' in changes:
+        changes['edit_history'] = card.edit_history
     db.session.commit()
     
     update_data = {"card_id": card.card_id, **changes}
