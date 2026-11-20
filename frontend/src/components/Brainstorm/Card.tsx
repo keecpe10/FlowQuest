@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trash2, Pin, Maximize2, Loader2, MessageCircle, Send, X, Pencil } from 'lucide-react';
 import Swal from 'sweetalert2';
@@ -18,7 +18,11 @@ const emojis = ['❤️', '🔥', '💡', '👍', '🤔'];
 export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
   const { board, toggleReaction, editCardContent, deleteCard, setSelectedCard, addComment, deleteComment } = useBrainstormStore();
   const user = useAuthStore(state => state.user);
-  const [isDeleting, setIsDeleting] = React.useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  const deleteDialogId = useId();
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isPostingComment, setIsPostingComment] = useState(false);
@@ -57,13 +61,22 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
     });
   };
 
+  const openDeleteDialog = () => {
+    setDeleteError('');
+    deleteDialogRef.current?.showModal();
+    cancelDeleteRef.current?.focus();
+  };
+
   const handleDelete = async () => {
+    if (isDeleting || !canDelete) return;
     setIsDeleting(true);
+    setDeleteError('');
     try {
       await deleteCard(card.card_id);
+      deleteDialogRef.current?.close();
     } catch (e) {
       console.error(e);
-      void Swal.fire({ icon: 'error', text: 'ลบคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง' });
+      setDeleteError('ลบคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง');
     } finally {
       setIsDeleting(false);
     }
@@ -175,10 +188,13 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
 
             {canDelete && (
               <button 
-                onClick={handleDelete} 
+                type="button"
+                onClick={openDeleteDialog}
                 disabled={isDeleting}
                 className="hover:text-red-500 transition-colors ml-1 disabled:opacity-50" 
-                title="ลบโพสต์"
+                title="ลบคำตอบ"
+                aria-label="ลบคำตอบ"
+                aria-haspopup="dialog"
               >
                 {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
               </button>
@@ -352,6 +368,57 @@ export const Card: React.FC<CardProps> = ({ card, isFocused, isDimmed }) => {
           </motion.div>
         )}
       </AnimatePresence>
+      {canDelete && (
+        <dialog
+          ref={deleteDialogRef}
+          aria-labelledby={`${deleteDialogId}-title`}
+          aria-describedby={`${deleteDialogId}-description`}
+          onCancel={(event) => {
+            if (isDeleting) event.preventDefault();
+          }}
+          className="m-auto w-[calc(100%-2rem)] max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl border border-rose-100 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-indigo-950/65 backdrop:backdrop-blur-sm"
+        >
+          <div className="h-1.5 bg-gradient-to-r from-violet-500 via-fuchsia-500 to-rose-500" />
+          <div className="p-5 sm:p-7">
+            <div className="mb-4 grid size-12 place-items-center rounded-2xl bg-rose-100 text-rose-700 ring-1 ring-inset ring-rose-200">
+              <Trash2 size={23} aria-hidden="true" />
+            </div>
+            <h2 id={`${deleteDialogId}-title`} className="text-xl font-bold sm:text-2xl">ลบคำตอบนี้หรือไม่?</h2>
+            <p id={`${deleteDialogId}-description`} className="mt-2 text-sm/6 text-slate-600">
+              เมื่อลบแล้วจะกู้คืนคำตอบนี้ไม่ได้
+            </p>
+            {(card.author_name || card.content || card.media_url) && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                {card.author_name && <p className="break-words text-sm font-semibold">{card.author_name}</p>}
+                <p className="line-clamp-3 whitespace-pre-wrap break-words text-sm/6 text-slate-600">
+                  {card.content || (card.media_url ? 'รูปแนบในคำตอบ' : '')}
+                </p>
+              </div>
+            )}
+            {deleteError && <p role="alert" className="mt-3 text-sm font-medium text-rose-700">{deleteError}</p>}
+            <div className="mt-6 grid grid-cols-2 gap-3" aria-busy={isDeleting}>
+              <button
+                ref={cancelDeleteRef}
+                type="button"
+                onClick={() => deleteDialogRef.current?.close()}
+                disabled={isDeleting}
+                className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 disabled:opacity-60"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-rose-700 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 disabled:opacity-70"
+              >
+                {isDeleting && <Loader2 size={16} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
+                {isDeleting ? 'กำลังลบ…' : 'ลบคำตอบ'}
+              </button>
+            </div>
+          </div>
+        </dialog>
+      )}
     </motion.div>
   );
 };
