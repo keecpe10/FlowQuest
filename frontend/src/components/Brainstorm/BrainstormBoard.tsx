@@ -19,7 +19,7 @@ const colors = ['#ffffff', '#fdf2f8', '#eff6ff', '#f0fdf4', '#fefce8', '#fff7ed'
 export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missionId }) => {
   const { 
     board, cards, cursors, summary, selectedCard, isSummarizing,
-    fetchBoard, fetchBoardByMission, initSocket, disconnectSocket, emitCursorMove, addCard, fetchSummary, setSelectedCard, addComment, deleteComment
+    fetchBoard, fetchBoardByMission, initSocket, emitCursorMove, addCard, fetchSummary, setSelectedCard, addComment, deleteComment
   } = useBrainstormStore();
   
   const [searchParams] = useSearchParams();
@@ -65,32 +65,24 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
   });
 
   useEffect(() => {
-    if (boardId) {
-      fetchBoard(boardId).then((realBoardId) => {
-        if (realBoardId === 'forbidden') {
-          handleMissionAccessStatus(403, navigate);
-          return;
-        }
-        if (realBoardId) {
-          initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
-        }
-      });
-    } else if (missionId) {
-      fetchBoardByMission(missionId).then((realBoardId) => {
-        if (realBoardId === 'forbidden') {
-          handleMissionAccessStatus(403, navigate);
-          return;
-        }
-        if (realBoardId) {
-          initSocket(realBoardId, user?.user_id || Math.floor(Math.random() * 1000));
-        }
-      });
-    }
-    
+    let active = true;
+    let disconnect: (() => void) | undefined;
+    const load = boardId ? fetchBoard(boardId, () => active)
+      : missionId ? fetchBoardByMission(missionId, () => active) : null;
+    void load?.then((realBoardId) => {
+      if (!active) return;
+      if (realBoardId === 'forbidden') {
+        handleMissionAccessStatus(403, navigate);
+      } else if (realBoardId) {
+        disconnect = initSocket(realBoardId);
+      }
+    });
+
     return () => {
-      disconnectSocket();
+      active = false;
+      disconnect?.();
     };
-  }, [boardId, missionId, fetchBoard, fetchBoardByMission, initSocket, disconnectSocket, user?.user_id]);
+  }, [boardId, missionId, fetchBoard, fetchBoardByMission, initSocket, navigate, user?.user_id]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -105,25 +97,31 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
     if ((!newText.trim() && !selectedImage) || !board || isSubmitting) return;
 
     setIsSubmitting(true);
-    let mediaUrl = undefined;
-    if (selectedImage) {
-      const url = await useBrainstormStore.getState().uploadImage(selectedImage);
-      if (url) mediaUrl = url;
-    }
+    try {
+      let mediaUrl = undefined;
+      if (selectedImage) {
+        const url = await useBrainstormStore.getState().uploadImage(selectedImage);
+        if (url) mediaUrl = url;
+      }
 
-    await addCard({
-      card_type: 'text',
-      content: newText.trim(),
-      position_x: window.innerWidth / 2 - 100 + (Math.random() * 50 - 25),
-      position_y: window.innerHeight / 2 - 100 + (Math.random() * 50 - 25),
-      color: selectedColor,
-      media_url: mediaUrl
-    });
-    
-    setNewText('');
-    setSelectedImage(null);
-    setImagePreview(null);
-    setIsSubmitting(false);
+      await addCard({
+        card_type: 'text',
+        content: newText.trim(),
+        position_x: window.innerWidth / 2 - 100 + (Math.random() * 50 - 25),
+        position_y: window.innerHeight / 2 - 100 + (Math.random() * 50 - 25),
+        color: selectedColor,
+        media_url: mediaUrl
+      });
+
+      setNewText('');
+      setSelectedImage(null);
+      setImagePreview(null);
+    } catch (error) {
+      console.error(error);
+      void Swal.fire({ icon: 'error', text: 'ส่งคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAddCardToQuestion = async (e: React.FormEvent) => {
@@ -147,27 +145,33 @@ export const BrainstormBoard: React.FC<BrainstormBoardProps> = ({ boardId, missi
       return;
     }
     
-    let mediaUrl = undefined;
-    if (selectedImage) {
-      const url = await useBrainstormStore.getState().uploadImage(selectedImage);
-      if (url) mediaUrl = url;
+    try {
+      let mediaUrl = undefined;
+      if (selectedImage) {
+        const url = await useBrainstormStore.getState().uploadImage(selectedImage);
+        if (url) mediaUrl = url;
+      }
+
+      await addCard({
+        card_type: 'text',
+        content: combinedContent,
+        position_x: window.innerWidth / 2 - 100 + (Math.random() * 50 - 25),
+        position_y: window.innerHeight / 2 - 100 + (Math.random() * 50 - 25),
+        color: selectedColor,
+        media_url: mediaUrl,
+        question_id: null // Explicitly null to mean it answers all
+      });
+
+      setAnswers({});
+      setSelectedImage(null);
+      setImagePreview(null);
+      setShowAnswerModal(false);
+    } catch (error) {
+      console.error(error);
+      void Swal.fire({ icon: 'error', text: 'ส่งคำตอบไม่สำเร็จ กรุณาลองอีกครั้ง' });
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    await addCard({
-      card_type: 'text',
-      content: combinedContent,
-      position_x: window.innerWidth / 2 - 100 + (Math.random() * 50 - 25),
-      position_y: window.innerHeight / 2 - 100 + (Math.random() * 50 - 25),
-      color: selectedColor,
-      media_url: mediaUrl,
-      question_id: null // Explicitly null to mean it answers all
-    });
-    
-    setAnswers({});
-    setSelectedImage(null);
-    setImagePreview(null);
-    setShowAnswerModal(false);
-    setIsSubmitting(false);
   };
 
 

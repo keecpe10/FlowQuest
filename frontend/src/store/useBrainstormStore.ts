@@ -75,10 +75,9 @@ interface BrainstormState {
   isSummarizing: boolean;
   selectedCard: CardData | null;
   
-  initSocket: (boardId: number, userId: number | null) => void;
-  disconnectSocket: () => void;
+  initSocket: (boardId: number) => () => void;
   fetchBoard: (boardId: number, shouldApply?: () => boolean) => Promise<number | 'forbidden' | void>;
-  fetchBoardByMission: (missionId: number) => Promise<number | 'forbidden' | void>;
+  fetchBoardByMission: (missionId: number, shouldApply?: () => boolean) => Promise<number | 'forbidden' | void>;
   
   addCard: (card: Partial<CardData>) => Promise<void>;
   uploadImage: (file: File) => Promise<string | null>;
@@ -109,11 +108,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
   isSummarizing: false,
   selectedCard: null,
 
-  initSocket: (boardId: number, userId: number | null) => {
-    const existingSocket = get().socket;
-    if (existingSocket) {
-      existingSocket.disconnect();
-    }
+  initSocket: (boardId) => {
 
     // ส่ง token ตอนจับมือ เซิร์ฟเวอร์จะได้รู้ว่า connection นี้เป็นของใคร
     // และไม่ต้องเชื่อ user_id ที่ client ส่งมาในแต่ละอีเวนต์
@@ -122,27 +117,34 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     });
     let boardRevision = 0;
     let refreshId = 0;
+    let refreshing = false;
     const refreshBoard = async () => {
       const id = ++refreshId;
-      const isCurrent = () => get().socket === socket && socket.connected
+      const isCurrent = () => get().socket === socket
         && get().board?.board_id === boardId && id === refreshId;
-      while (isCurrent()) {
-        const revision = boardRevision;
-        await get().fetchBoard(boardId, () => isCurrent() && revision === boardRevision);
-        if (revision === boardRevision) return;
+      refreshing = true;
+      try {
+        while (isCurrent()) {
+          const revision = boardRevision;
+          const cards = get().cards;
+          await get().fetchBoard(boardId, () => isCurrent() && revision === boardRevision && cards === get().cards);
+          if (revision === boardRevision) return;
+        }
+      } finally {
+        if (id === refreshId) refreshing = false;
       }
     };
 
     socket.on('connect', () => {
-      set({ isConnected: true, socket });
-      socket.emit('join_board', { board_id: boardId }, (joined?: boolean) => {
-        if (joined) void refreshBoard();
+      socket.timeout(3000).emit('join_board', { board_id: boardId }, (error: Error | null, joined?: boolean) => {
+        if (get().socket !== socket || !socket.connected || error || !joined) return;
+        set({ isConnected: true });
+        void refreshBoard();
       });
     });
 
     socket.on('disconnect', () => {
-      refreshId++;
-      set({ isConnected: false });
+      if (get().socket === socket) set({ isConnected: false });
     });
 
     socket.on('card_added', (card: CardData) => {
@@ -235,7 +237,13 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
         if (data.show_student_posts !== undefined) newBoard.show_student_posts = data.show_student_posts;
         const shouldCloseCard = data.show_student_posts === false && !isTeacher
           && state.selectedCard?.author_id !== currentUser?.user_id;
-        return { board: newBoard, selectedCard: shouldCloseCard ? null : state.selectedCard };
+        return {
+          board: newBoard,
+          cards: data.show_student_posts === false && !isTeacher
+            ? state.cards.filter((card) => card.author_id === currentUser?.user_id)
+            : state.cards,
+          selectedCard: shouldCloseCard ? null : state.selectedCard,
+        };
       });
       if (data.show_student_posts === true && !isTeacher) {
         void refreshBoard();
@@ -274,18 +282,16 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       });
     });
 
-    set({ socket });
-  },
-
-  disconnectSocket: () => {
-    const { socket, board } = get();
-    if (socket) {
-      if (board) {
-        socket.emit('leave_board', { board_id: board.board_id });
-      }
+    set({ socket, isConnected: false });
+    // Keep the board current when the transport is down or the room join failed.
+    const fallback = window.setInterval(() => {
+      if (!get().isConnected && !refreshing) void refreshBoard();
+    }, 3000);
+    return () => {
+      window.clearInterval(fallback);
       socket.disconnect();
-      set({ socket: null, isConnected: false, cursors: {} });
-    }
+      if (get().socket === socket) set({ socket: null, isConnected: false, cursors: {}, selectedCard: null });
+    };
   },
 
   fetchBoard: async (boardId: number, shouldApply?: () => boolean) => {
@@ -311,7 +317,7 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
     }
   },
 
-  fetchBoardByMission: async (missionId: number) => {
+  fetchBoardByMission: async (missionId, shouldApply) => {
     const token = useAuthStore.getState().token;
     try {
       const res = await fetch(`${API_URL}/brainstorm/mission/${missionId}`, {
@@ -321,7 +327,8 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
       if (res.status === 403) return 'forbidden';
       if (!res.ok) throw new Error('Failed to load board');
       const data = await res.json();
-      set({ board: data, cards: data.cards || [] });
+      if (shouldApply && !shouldApply()) return;
+      set({ board: data, cards: data.cards || [], selectedCard: null });
       return data.board_id;
     } catch (e) {
       console.error(e);
@@ -330,22 +337,25 @@ export const useBrainstormStore = create<BrainstormState>((set, get) => ({
 
   addCard: async (card) => {
     const { board } = get();
-    const currentUserId = useAuthStore.getState().user?.user_id;
     if (!board) return;
-    
+
     const token = useAuthStore.getState().token;
-    try {
-      await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/cards`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ ...card, user_id: currentUserId })
-      });
-    } catch (e) {
-      console.error(e);
-    }
+    const socket = get().socket;
+    const res = await fetch(`${API_URL}/brainstorm/boards/${board.board_id}/cards`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(card),
+    });
+    if (!res.ok) throw new Error(`Failed to submit answer (${res.status})`);
+    const saved: CardData = await res.json();
+    set((state) => {
+      if (state.socket !== socket || state.board?.board_id !== saved.board_id
+        || state.cards.some((item) => item.card_id === saved.card_id)) return state;
+      return { cards: [...state.cards, saved] };
+    });
   },
 
   uploadImage: async (file: File) => {
